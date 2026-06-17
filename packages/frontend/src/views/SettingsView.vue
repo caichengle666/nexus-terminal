@@ -66,8 +66,10 @@
 
         <!-- Data Management Tab Content -->
         <div v-if="activeTab === 'dataManagement'">
-          <DataManagementSection v-if="settings" />
-          <div class="mt-6"><WebDAVBackupSection v-if="settings" /></div>
+          <template v-if="settings">
+            <DataManagementSection />
+            <div class="mt-6"><WebDAVBackupSection /></div>
+          </template>
           <div v-else class="p-4 text-center text-muted-foreground">{{ $t('settings.loading', '加载中...') }}</div>
         </div>
         
