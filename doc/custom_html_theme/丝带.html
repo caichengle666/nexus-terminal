@@ -1,0 +1,164 @@
+<style>
+    #color-ribbons-container {
+        width: 100%; height: 100%;
+        background-color: #222733; /* 柔和的深蓝灰色 */
+        overflow: hidden; position: relative;
+    }
+    #ribbons-canvas { display: block; position: absolute; top: 0; left: 0; }
+</style>
+<div id="color-ribbons-container">
+    <canvas id="ribbons-canvas"></canvas>
+</div>
+<script>
+(function() {
+    const canvas = document.getElementById('ribbons-canvas');
+    const layerElement = canvas.closest('.terminal-custom-html-layer') || canvas.parentElement;
+    if (!canvas || !layerElement) return;
+    const ctx = canvas.getContext('2d');
+
+    let width, height, animationFrameId;
+    const ribbons = [];
+    const numRibbons = 5; // 彩带数量
+    let time = 0;
+
+    // HSL颜色辅助函数
+    function hslToRgb(h, s, l) {
+        let r, g, b;
+        if (s == 0) {
+            r = g = b = l; // achromatic
+        } else {
+            const hue2rgb = (p, q, t) => {
+                if (t < 0) t += 1;
+                if (t > 1) t -= 1;
+                if (t < 1/6) return p + (q - p) * 6 * t;
+                if (t < 1/2) return q;
+                if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                return p;
+            };
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            const p = 2 * l - q;
+            r = hue2rgb(p, q, h + 1/3);
+            g = hue2rgb(p, q, h);
+            b = hue2rgb(p, q, h - 1/3);
+        }
+        return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+    }
+
+    class Ribbon {
+        constructor() {
+            this.numPoints = 50 + Math.floor(Math.random() * 30); // 组成彩带路径的点数
+            this.points = [];
+            this.baseY = height * (0.2 + Math.random() * 0.6);
+            this.amplitude = height * (0.05 + Math.random() * 0.15);
+            this.frequency = 0.002 + Math.random() * 0.003;
+            this.phase = Math.random() * Math.PI * 2;
+            this.thickness = 20 + Math.random() * 30; // 彩带厚度
+            this.speed = 0.5 + Math.random() * 0.5; // 彩带横向移动速度
+            this.hueStart = Math.random(); // 0-1
+            this.hueChangeSpeed = 0.0005 + Math.random() * 0.001;
+            this.opacity = 0.1 + Math.random() * 0.2;
+            this.xOffset = -width * Math.random(); // 初始横向偏移，让彩带从不同位置进入
+        }
+
+        update(deltaTime) {
+            this.xOffset += this.speed * (deltaTime / (1000/60)); // Normalize speed to 60fps
+            if (this.xOffset > width + this.thickness * 5) { // 彩带完全移出右侧
+                this.xOffset = -this.thickness * 5 - Math.random() * width * 0.5; // 从左侧重新进入
+                this.baseY = height * (0.2 + Math.random() * 0.6); // 改变Y基线
+                this.hueStart = Math.random(); // 改变颜色
+            }
+            this.hueStart = (this.hueStart + this.hueChangeSpeed) % 1;
+
+            this.points = [];
+            for (let i = 0; i < this.numPoints; i++) {
+                const progress = i / (this.numPoints - 1); // 0 to 1
+                const x = this.xOffset + progress * (width + this.thickness * 10); // 彩带绘制范围比屏幕宽
+                const y = this.baseY + Math.sin(x * this.frequency + this.phase + time * 0.01) * this.amplitude +
+                          Math.cos(x * this.frequency * 0.5 + this.phase * 0.7 + time * 0.005) * this.amplitude * 0.5;
+                this.points.push({ x, y });
+            }
+        }
+
+        draw() {
+            if (this.points.length < 2) return;
+
+            ctx.beginPath();
+            for (let i = 0; i < this.points.length -1; i++) {
+                const p1 = this.points[i];
+                const p2 = this.points[i+1];
+                
+                // 计算垂直于路径的偏移点，形成彩带的上下边缘
+                const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+                const dxTop = Math.sin(angle) * this.thickness / 2;
+                const dyTop = -Math.cos(angle) * this.thickness / 2;
+                const dxBottom = -Math.sin(angle) * this.thickness / 2;
+                const dyBottom = Math.cos(angle) * this.thickness / 2;
+
+                if (i === 0) {
+                    ctx.moveTo(p1.x + dxTop, p1.y + dyTop);
+                } else {
+                    ctx.lineTo(p1.x + dxTop, p1.y + dyTop);
+                }
+            }
+            // 绘制下边缘 (反向)
+            for (let i = this.points.length - 1; i > 0; i--) {
+                const p1 = this.points[i];
+                 // p2 is points[i-1] but we use p1's angle approx or recalculate
+                const p_prev = this.points[i-1];
+                const angle = Math.atan2(p1.y - p_prev.y, p1.x - p_prev.x); // Angle from prev to current
+                const dxBottom = -Math.sin(angle) * this.thickness / 2;
+                const dyBottom = Math.cos(angle) * this.thickness / 2;
+                ctx.lineTo(p1.x + dxBottom, p1.y + dyBottom);
+            }
+             ctx.closePath();
+
+            const [r,g,b] = hslToRgb(this.hueStart, 0.7, 0.6); // (饱和度0.7, 亮度0.6)
+            ctx.fillStyle = `rgba(${r},${g},${b}, ${this.opacity})`;
+            ctx.fill();
+        }
+    }
+
+    function init() {
+        width = layerElement.offsetWidth;
+        height = layerElement.offsetHeight;
+        canvas.width = width;
+        canvas.height = height;
+        ribbons.length = 0;
+        for (let i = 0; i < numRibbons; i++) {
+            ribbons.push(new Ribbon());
+        }
+        // 使用 'lighter' 或 'screen' 混合模式让彩带叠加时颜色混合更好
+        ctx.globalCompositeOperation = 'screen';
+    }
+
+    let lastTime = 0;
+    function animate(currentTime) {
+        const deltaTime = currentTime - lastTime;
+        lastTime = currentTime;
+        time++;
+
+        ctx.clearRect(0, 0, width, height); // 清晰的背景，或者用低alpha填充制造拖尾
+
+        ribbons.forEach(ribbon => {
+            ribbon.update(deltaTime || (1000/60)); // Provide a fallback for deltaTime on first frame
+            ribbon.draw();
+        });
+        animationFrameId = requestAnimationFrame(animate);
+    }
+
+    let resizeTimeout;
+    function onResize() {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            init();
+            // animate(0); // Restart animation loop
+        }, 250);
+    }
+
+    init();
+    animate(0); // Start animation loop
+    window.addEventListener('resize', onResize);
+    canvas.cleanup = function() { if (animationFrameId) cancelAnimationFrame(animationFrameId); };
+})();
+</script>

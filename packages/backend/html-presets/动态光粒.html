@@ -1,0 +1,203 @@
+<style>
+    #elegant-network-background {
+      width: 100%;
+      height: 100%;
+      background-color: #1d2331; /* 深灰蓝，比纯黑柔和 */
+      overflow: hidden;
+      position: relative;
+    }
+    #elegant-network-svg { width: 100%; height: 100%; position:absolute; top:0; left:0; }
+  
+    .network-node {
+      fill: rgba(150, 180, 230, 0.7); /* 柔和的节点颜色 */
+      r: 2; /* 节点半径 */
+      /* CSS动画驱动节点移动 */
+      animation: nodeFloat 20s infinite ease-in-out alternate;
+    }
+    .network-node:nth-child(5n+1) { animation-duration: 22s; animation-delay: -3s; }
+    .network-node:nth-child(5n+2) { animation-duration: 18s; animation-delay: -7s; fill: rgba(120,160,210,0.6); r:1.5;}
+    .network-node:nth-child(5n+3) { animation-duration: 25s; animation-delay: -1s; }
+    .network-node:nth-child(5n+4) { animation-duration: 19s; animation-delay: -5s; fill: rgba(170,200,240,0.8); r:2.5;}
+  
+  
+    @keyframes nodeFloat { /* 定义一个通用的漂浮路径 */
+      0%   { transform: translate(0px, 0px); }
+      25%  { transform: translate(20px, -15px); }
+      50%  { transform: translate(-10px, 25px); }
+      75%  { transform: translate(15px, 5px); }
+      100% { transform: translate(0px, 0px); }
+    }
+  
+    .network-line {
+      stroke: rgba(100, 130, 180, 0.15); /* 非常淡的连接线 */
+      stroke-width: 0.5px;
+      /* 线条的显隐和动画通过JS控制 */
+    }
+  </style>
+  <div id="elegant-network-background">
+    <svg id="elegant-network-svg" xmlns="http://www.w3.org/2000/svg">
+      <g id="network-nodes-group"></g>
+      <g id="network-lines-group"></g>
+    </svg>
+  </div>
+  <script>
+  (function() {
+      const svg = document.getElementById('elegant-network-svg');
+      const nodesGroup = document.getElementById('network-nodes-group');
+      const linesGroup = document.getElementById('network-lines-group');
+      const layerElement = svg.closest('.terminal-custom-html-layer') || svg.parentElement;
+  
+      if (!svg || !nodesGroup || !linesGroup || !layerElement) return;
+  
+      const svgNS = "http://www.w3.org/2000/svg";
+      let width, height, animationFrameId;
+      const nodes = [];
+      const numNodes = 40; // 节点数量
+      const maxDistance = 150; // 连接线最大距离
+  
+      class Node {
+          constructor(x, y, id) {
+              this.x = x;
+              this.y = y;
+              this.id = `node-${id}`;
+              this.baseX = x; // 用于CSS动画的基准位置
+              this.baseY = y;
+  
+              this.element = document.createElementNS(svgNS, "circle");
+              this.element.setAttribute("id", this.id);
+              this.element.setAttribute("class", "network-node");
+              // this.element.setAttribute("cx", this.x); // cx, cy 将由CSS transform 控制相对基准的偏移
+              // this.element.setAttribute("cy", this.y);
+              // 使用transform来应用CSS动画，而不是直接改变cx/cy
+              this.element.style.transform = `translate(${this.x}px, ${this.y}px)`;
+              
+              // 随机化CSS动画参数，让每个节点漂浮不同
+              const duration = 15 + Math.random() * 15; // 15-30s
+              const delay = -(Math.random() * duration);
+              this.element.style.animationDuration = `${duration}s`;
+              this.element.style.animationDelay = `${delay}s`;
+  
+              nodesGroup.appendChild(this.element);
+          }
+  
+          // JS不再直接更新位置，依赖CSS动画。但需要获取当前渲染位置用于连线
+          getCurrentPosition() {
+              // 获取由CSS transform计算后的实际位置
+              const ctm = this.element.getCTM();
+              // 如果SVG嵌套复杂，可能需要更复杂的计算，或使用getBoundingClientRect
+              // 对于直接在SVG根下的元素，CTM的e和f就是视口坐标系下的x和y
+              // 但由于我们用translate(baseX, baseY)来设置初始位置，
+              // CSS动画的transform是相对这个的。
+              // 简便方法：仍然在JS中保留一个缓慢的漂移，或者接受CSS动画的位置
+              // 如果依赖CSS动画，获取精确位置会复杂。
+              // 为简化，这里假设CSS动画的漂移是小范围的，我们仍用js的x,y做连线，CSS只是视觉漂移
+              // 或者，我们让JS也做动画，CSS只定义样式
+              // 重新考虑：让JS驱动位置，CSS仅定义样式和基础动画（如闪烁）
+              return { x: this.x, y: this.y }; // 简化处理
+          }
+      }
+      
+      // --- 重新设计Node的动画方式：JS驱动位置，CSS负责样式 ---
+      nodesGroup.innerHTML = ''; // 清空旧的
+      class JsAnimatedNode {
+           constructor(x, y, id) {
+              this.x = x;
+              this.y = y;
+              this.vx = (Math.random() - 0.5) * 0.2; // 缓慢速度
+              this.vy = (Math.random() - 0.5) * 0.2;
+              this.id = `node-${id}`;
+              
+              this.element = document.createElementNS(svgNS, "circle");
+              this.element.setAttribute("id", this.id);
+              this.element.classList.add("network-node"); // 应用CSS样式
+              // 移除animation, 因为JS驱动位置
+              this.element.style.animation = 'none'; 
+  
+              // 随机化样式，比如半径和颜色 (通过覆盖CSS定义的)
+              const r = 1.5 + Math.random() * 1.5; // 1.5 to 3
+              this.element.setAttribute("r", r);
+              if (Math.random() < 0.3) {
+                   this.element.style.fill = `rgba(${120 + Math.floor(Math.random()*50)}, ${150 + Math.floor(Math.random()*50)}, ${200 + Math.floor(Math.random()*50)}, ${0.5 + Math.random()*0.3})`;
+              }
+              
+              nodesGroup.appendChild(this.element);
+          }
+  
+          update() {
+              this.x += this.vx;
+              this.y += this.vy;
+  
+              if (this.x < 0 || this.x > width) this.vx *= -1;
+              if (this.y < 0 || this.y > height) this.vy *= -1;
+  
+              this.element.setAttribute("cx", this.x);
+              this.element.setAttribute("cy", this.y);
+          }
+          getCurrentPosition() { return {x: this.x, y: this.y}; }
+      }
+      // --- 结束重新设计 ---
+  
+  
+      function connectNodes() {
+          linesGroup.innerHTML = ""; // 清空旧线条
+          for (let i = 0; i < nodes.length; i++) {
+              for (let j = i + 1; j < nodes.length; j++) {
+                  const posA = nodes[i].getCurrentPosition();
+                  const posB = nodes[j].getCurrentPosition();
+                  const dx = posA.x - posB.x;
+                  const dy = posA.y - posB.y;
+                  const distance = Math.sqrt(dx * dx + dy * dy);
+  
+                  if (distance < maxDistance) {
+                      const line = document.createElementNS(svgNS, "line");
+                      line.setAttribute("x1", posA.x);
+                      line.setAttribute("y1", posA.y);
+                      line.setAttribute("x2", posB.x);
+                      line.setAttribute("y2", posB.y);
+                      line.setAttribute("class", "network-line");
+                      // 线条透明度随距离变化
+                      const opacity = Math.max(0, (1 - distance / maxDistance) * 0.3); // 0.3是基础最大透明度
+                      line.style.strokeOpacity = opacity.toFixed(2);
+                      linesGroup.appendChild(line);
+                  }
+              }
+          }
+      }
+  
+      function init() {
+          width = layerElement.offsetWidth;
+          height = layerElement.offsetHeight;
+          svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+          
+          nodes.length = 0;
+          nodesGroup.innerHTML = ''; // 清空，因为JsAnimatedNode会重新添加
+          linesGroup.innerHTML = '';
+  
+          for (let i = 0; i < numNodes; i++) {
+              // nodes.push(new Node(Math.random() * width, Math.random() * height, i)); // 旧的CSS动画Node
+              nodes.push(new JsAnimatedNode(Math.random() * width, Math.random() * height, i)); // 新的JS动画Node
+          }
+      }
+  
+      function animate() {
+          nodes.forEach(node => node.update()); // 如果是JS动画Node
+          connectNodes();
+          animationFrameId = requestAnimationFrame(animate);
+      }
+  
+      let resizeTimeout;
+      function onResize() {
+          clearTimeout(resizeTimeout);
+          resizeTimeout = setTimeout(() => {
+              if (animationFrameId) cancelAnimationFrame(animationFrameId);
+              init();
+              animate();
+          }, 250);
+      }
+  
+      init();
+      animate();
+      window.addEventListener('resize', onResize);
+      svg.cleanup = function() { if (animationFrameId) cancelAnimationFrame(animationFrameId); };
+  })();
+  </script>

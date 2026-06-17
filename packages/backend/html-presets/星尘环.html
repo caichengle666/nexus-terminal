@@ -1,0 +1,139 @@
+<style>
+    #orbiting-rings-background {
+      width: 100%;
+      height: 100%;
+      background-color: #101218; /* 近黑色，略带冷调 */
+      overflow: hidden;
+      position: relative;
+      perspective: 1000px; /* 为3D旋转提供透视 */
+    }
+    #orbiting-rings-svg {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0; left: 0;
+      transform-style: preserve-3d; /* 允许SVG内的组进行3D变换 */
+    }
+  
+    .stardust-ring {
+      transform-origin: center center; /* 确保从中心旋转 */
+      /* CSS动画驱动整体旋转和倾斜 */
+      animation: orbit 40s linear infinite;
+    }
+    .ring-particle {
+      fill: rgba(180, 200, 230, 0.6); /* 淡雅的粒子颜色 */
+      /* 粒子可以有自己的细微动画，如闪烁 */
+      animation: particleTwinkle 5s infinite ease-in-out alternate;
+    }
+  
+    /* 不同环的参数 */
+    .ring-1 { animation-duration: 50s; transform: rotateX(70deg) rotateZ(0deg) scale(1); }
+    .ring-1 .ring-particle { animation-delay: -1s; }
+  
+    .ring-2 { animation-duration: 40s; animation-direction: reverse; transform: rotateX(75deg) rotateZ(20deg) scale(0.7); }
+    .ring-2 .ring-particle { fill: rgba(200, 180, 230, 0.5); animation-delay: -2.5s; }
+  
+    .ring-3 { animation-duration: 60s; transform: rotateX(80deg) rotateZ(-15deg) scale(0.45); }
+    .ring-3 .ring-particle { fill: rgba(180, 230, 200, 0.55); animation-delay: -0.5s; }
+  
+    .ring-4 { animation-duration: 35s; animation-direction: reverse; transform: rotateX(65deg) rotateZ(30deg) scale(1.2); }
+    .ring-4 .ring-particle { animation-delay: -3s; }
+  
+  
+    @keyframes orbit {
+      from { transform: rotateX(var(--initial-rotateX, 70deg)) rotateZ(var(--initial-rotateZ, 0deg)) rotateY(0deg) scale(var(--initial-scale,1)); }
+      to   { transform: rotateX(var(--initial-rotateX, 70deg)) rotateZ(var(--initial-rotateZ, 0deg)) rotateY(360deg) scale(var(--initial-scale,1)); }
+    }
+    /* 修正: CSS动画的transform会覆盖初始的transform。
+       需要将初始的rotateX/Z/scale放入CSS变量或JS动态应用，或者在@keyframes中包含它们。
+       更简单的方式是让 @keyframes orbit 只控制 rotateY，初始的X,Z,scale由.ring-N类设定。
+       我们将修改.stardust-ring 的动画，使其只改变Y轴旋转。
+    */
+    @keyframes orbitYOnly {
+        from {  transform: rotateY(0deg); } /* 这个transform会应用在.ring-N的transform之上 */
+        to   {  transform: rotateY(360deg); }
+    }
+    /* 在 .stardust-ring 中使用一个包装器来应用初始变换，然后让内部元素旋转Y轴 */
+    /* 或者，更简单，直接在 .ring-N 的 animation 中指定完整的 transform */
+    /* 为简化，以下采用修改后的 @keyframes orbit，它会作用于已变换的元素 */
+  </style>
+  <div id="orbiting-rings-background">
+    <svg id="orbiting-rings-svg" viewBox="-250 -250 500 500" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+        <!-- JS会在这里动态生成环和粒子 -->
+    </svg>
+  </div>
+  <script>
+  (function() {
+      const svg = document.getElementById('orbiting-rings-svg');
+      if (!svg) return;
+      const svgNS = "http://www.w3.org/2000/svg";
+  
+      const numRings = 4;
+      const particlesPerRing = 80;
+      const ringBaseRadius = 80;
+  
+      // 预定义的环参数 (可以从CSS中读取或在此处定义)
+      const ringConfigs = [
+          { class: 'ring-1', initialTransform: 'rotateX(70deg) rotateZ(0deg) scale(1)', duration: 50, particleFill: 'rgba(180, 200, 230, 0.6)', particleDelay: -1 },
+          { class: 'ring-2', initialTransform: 'rotateX(75deg) rotateZ(20deg) scale(0.7)', duration: 40, direction: 'reverse', particleFill: 'rgba(200, 180, 230, 0.5)', particleDelay: -2.5 },
+          { class: 'ring-3', initialTransform: 'rotateX(80deg) rotateZ(-15deg) scale(0.45)', duration: 60, particleFill: 'rgba(180, 230, 200, 0.55)', particleDelay: -0.5 },
+          { class: 'ring-4', initialTransform: 'rotateX(65deg) rotateZ(30deg) scale(1.2)', duration: 35, direction: 'reverse', particleFill: 'rgba(180, 200, 230, 0.6)', particleDelay: -3 }
+      ];
+  
+      ringConfigs.forEach((config, ringIndex) => {
+          const group = document.createElementNS(svgNS, "g");
+          group.classList.add('stardust-ring');
+          group.classList.add(config.class); // 应用CSS中定义的类
+          group.style.transform = config.initialTransform; // 应用初始3D变换
+          
+          // 应用Y轴旋转动画
+          group.style.animationName = 'orbitYOnly'; // 使用只旋转Y轴的动画
+          group.style.animationDuration = `${config.duration}s`;
+          group.style.animationTimingFunction = 'linear';
+          group.style.animationIterationCount = 'infinite';
+          if (config.direction) {
+              group.style.animationDirection = config.direction;
+          }
+          
+          const currentRingRadius = ringBaseRadius * (1 + ringIndex * 0.4 + Math.random()*0.2); // 半径随环增加
+  
+          for (let i = 0; i < particlesPerRing; i++) {
+              const angle = (i / particlesPerRing) * Math.PI * 2;
+              const particle = document.createElementNS(svgNS, "circle");
+              particle.classList.add('ring-particle');
+              
+              const r = 0.8 + Math.random() * 0.7; // 粒子半径
+              particle.setAttribute("r", r);
+              particle.setAttribute("cx", Math.cos(angle) * currentRingRadius);
+              particle.setAttribute("cy", Math.sin(angle) * currentRingRadius);
+              
+              particle.style.fill = config.particleFill;
+              // 粒子闪烁动画由CSS的.ring-particle和.ring-N .ring-particle控制
+              // particle.style.animationDelay = `${config.particleDelay + Math.random() * 0.5 - 0.25}s`; // 为每个粒子稍微错开闪烁
+              // 为了简化，让所有同环粒子用相同的闪烁延迟（由CSS :nth-child 或 config.particleDelay 控制）
+              
+              group.appendChild(particle);
+          }
+          svg.appendChild(group);
+      });
+  
+      // CSS中已有的particleTwinkle动画
+      // @keyframes particleTwinkle {
+      //   0%, 100% { opacity: 0.5; transform: scale(0.8); }
+      //   50% { opacity: 1; transform: scale(1.2); }
+      // }
+      // 将其加入style标签，如果它不在那里
+      if (!document.querySelector("style[data-added-by-js='particleTwinkle']")) {
+          const styleSheet = document.createElement("style");
+          styleSheet.setAttribute("data-added-by-js", "particleTwinkle");
+          styleSheet.innerHTML = `
+              @keyframes particleTwinkle {
+                0%, 100% { opacity: 0.4; transform: scale(0.7); }
+                50% { opacity: 0.8; transform: scale(1.1); }
+              }
+              /* 如果需要，可以在这里动态添加.ring-N .ring-particle 的 animation-delay */
+          `;
+          document.head.appendChild(styleSheet);
+      }
+  })();
+  </script>

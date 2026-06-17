@@ -1,0 +1,122 @@
+<style>
+    #particle-network-container {
+        width: 100%; height: 100%; background: #111; /* 深色背景 */
+        overflow: hidden; position: relative;
+    }
+    #particle-canvas { display: block; position: absolute; top: 0; left: 0; }
+</style>
+<div id="particle-network-container">
+    <canvas id="particle-canvas"></canvas>
+</div>
+<script>
+(function() {
+    const canvas = document.getElementById('particle-canvas');
+    const layerElement = canvas.closest('.terminal-custom-html-layer') || canvas.parentElement; // Fallback to parentElement if not in specific terminal
+    if (!canvas || !layerElement) return;
+    const ctx = canvas.getContext('2d');
+
+    let width, height, particles = [];
+    const particleCount = 80;
+    const maxDistance = 100; // 最大连线距离
+    const particleSpeed = 0.5;
+    const particleColor = "rgba(173, 216, 230, 0.7)"; // 淡蓝色粒子
+    const lineColor = "rgba(173, 216, 230, 0.2)";   // 淡蓝色连线
+
+    class Particle {
+        constructor() {
+            this.x = Math.random() * width;
+            this.y = Math.random() * height;
+            this.vx = (Math.random() - 0.5) * particleSpeed * 2;
+            this.vy = (Math.random() - 0.5) * particleSpeed * 2;
+            this.radius = Math.random() * 2 + 1;
+        }
+
+        update() {
+            this.x += this.vx;
+            this.y += this.vy;
+
+            if (this.x < 0 || this.x > width) this.vx *= -1;
+            if (this.y < 0 || this.y > height) this.vy *= -1;
+        }
+
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = particleColor;
+            ctx.fill();
+        }
+    }
+
+    function init() {
+        width = layerElement.offsetWidth;
+        height = layerElement.offsetHeight;
+        canvas.width = width;
+        canvas.height = height;
+        particles = [];
+        for (let i = 0; i < particleCount; i++) {
+            particles.push(new Particle());
+        }
+    }
+
+    function connectParticles() {
+        for (let i = 0; i < particles.length; i++) {
+            for (let j = i + 1; j < particles.length; j++) {
+                const dx = particles[i].x - particles[j].x;
+                const dy = particles[i].y - particles[j].y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < maxDistance) {
+                    ctx.beginPath();
+                    ctx.moveTo(particles[i].x, particles[i].y);
+                    ctx.lineTo(particles[j].x, particles[j].y);
+                    ctx.strokeStyle = lineColor;
+                    // 线条透明度随距离变化
+                    ctx.globalAlpha = 1 - (distance / maxDistance);
+                    ctx.stroke();
+                    ctx.globalAlpha = 1; // Reset globalAlpha
+                }
+            }
+        }
+    }
+
+    let animationFrameId;
+    function animate() {
+        ctx.clearRect(0, 0, width, height);
+        particles.forEach(p => {
+            p.update();
+            p.draw();
+        });
+        connectParticles();
+        animationFrameId = requestAnimationFrame(animate);
+    }
+
+    // Debounce resize function
+    let resizeTimeout;
+    function onResize() {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+            init();
+            animate();
+        }, 250);
+    }
+
+    // Initialize and start animation
+    init();
+    animate();
+
+    // Listen for resize events to reinitialize
+    window.addEventListener('resize', onResize);
+
+    // Cleanup function for potential hot-reloading or component unmount
+    canvas.cleanup = function() {
+        if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+        }
+        window.removeEventListener('resize', onResize);
+        console.log("Particle network cleaned up");
+    };
+})();
+</script>

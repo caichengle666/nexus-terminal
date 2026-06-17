@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ESNext", // 编译目标为最新 ECMAScript 标准
+    "useDefineForClassFields": true, // 使用标准类字段定义
+    "module": "ESNext", // 使用 ES 模块系统
+    "moduleResolution": "Node", // 模块解析策略
+    "strict": true, // 启用所有严格类型检查选项
+    "jsx": "preserve", // 保留 JSX 语法供后续处理 (如 Vue)
+    "sourceMap": true, // 生成 Source Map 文件
+    "resolveJsonModule": true, // 允许导入 JSON 文件
+    "isolatedModules": true, // 确保每个文件都可以安全地单独编译
+    "esModuleInterop": true, // 允许从 CommonJS 模块中默认导入
+    "lib": ["ESNext", "DOM", "DOM.Iterable"], // 包含的库定义
+    "skipLibCheck": true, // 跳过对声明文件 (*.d.ts) 的类型检查
+    "noEmit": true, // 不输出编译后的文件 (由 Vite 处理构建)
+    "baseUrl": ".", // 恢复基础目录
+    "paths": {
+      "@/*": ["src/*"] // 恢复原始前端别名路径
+    },
+    "types": ["vite/client", "pinia-plugin-persistedstate", "node"] // 重新添加 "node" 类型
+  },
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"], // 需要进行类型检查的文件
+  "exclude": ["node_modules"] // 排除检查的目录
+}

@@ -1,0 +1,75 @@
+{
+  "name": "nexus-electron-app",
+  "version": "0.8.1",
+  "description": "Electron application for Nexus Terminal",
+  "main": "main.js",
+  "author": {
+    "name": "Heavrnl",
+    "email": "heavrnl@example.com"
+  },
+  "homepage": "https://github.com/Heavrnl/nexus-terminal",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Heavrnl/nexus-terminal.git"
+  },
+  "license": "ISC",
+  "optionalDependencies": {
+    "dmg-license": "^1.0.10"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.1",
+    "express": "^5.1.0",
+    "iconv-lite": "^0.6.3"
+  },
+  "scripts": {
+    "start": "electron .",
+    "build:backend": "cd ../packages/backend && npm run build",
+    "build:frontend": "cd ../packages/frontend && npm run build",
+    "build:electron": "electron-builder build --win --config",
+    "build": "npm run build:frontend && npm run build:backend && npm run build:electron",
+    "postinstall": "cd .. && npm ci"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.heavrnl.nexus-terminal",
+    "productName": "Nexus Terminal",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../packages/backend/dist",
+        "to": "packages/backend",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../packages/frontend/dist",
+        "to": "packages/frontend/dist"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "installerIcon": "build/icon.ico"
+    },
+    "includePdb": false
+  }
+}

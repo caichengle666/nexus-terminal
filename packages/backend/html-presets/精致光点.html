@@ -1,0 +1,98 @@
+<style>
+    #elegant-sparkle-background {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #1c1c2e, #2a2a3f); /* 深邃蓝紫色渐变 */
+      overflow: hidden;
+      position: relative;
+    }
+  
+    .sparkle {
+      position: absolute;
+      background-color: rgba(220, 220, 255, 0.8); /* 淡雅的亮白色/淡蓝色 */
+      border-radius: 50%;
+      box-shadow: 0 0 8px rgba(200, 200, 255, 0.6),
+                  0 0 12px rgba(180, 180, 255, 0.4),
+                  0 0 20px rgba(150, 150, 255, 0.2);
+      opacity: 0;
+      animation: driftAndSparkle 15s infinite ease-in-out;
+    }
+  
+    @keyframes driftAndSparkle {
+      0%, 100% {
+        opacity: 0;
+        transform: translateY(20px) scale(0.5);
+      }
+      10%, 90% { /* 显现和消失的过程 */
+        opacity: 0.8;
+      }
+      50% { /* 主要可见状态 */
+        opacity: 1;
+        transform: translateY(-20px) scale(1.1);
+      }
+      20%, 80% { /* 中途的闪烁增强 */
+          box-shadow: 0 0 10px rgba(220, 220, 255, 0.8),
+                      0 0 18px rgba(200, 200, 255, 0.6),
+                      0 0 30px rgba(180, 180, 255, 0.4);
+      }
+    }
+  
+    /* 通过JS动态生成和定位sparkle元素效果更佳 */
+    /* 这里用CSS nth-child做少量示例 */
+    .sparkle:nth-child(1) { width: 3px; height: 3px; top: 15%; left: 20%; animation-duration: 18s; animation-delay: -2s; }
+    .sparkle:nth-child(2) { width: 2px; height: 2px; top: 40%; left: 80%; animation-duration: 14s; animation-delay: -5s; }
+    .sparkle:nth-child(3) { width: 4px; height: 4px; top: 70%; left: 50%; animation-duration: 20s; animation-delay: -8s; }
+    .sparkle:nth-child(4) { width: 2px; height: 2px; top: 85%; left: 10%; animation-duration: 16s; animation-delay: -1s; }
+    .sparkle:nth-child(5) { width: 3px; height: 3px; top: 5%;  left: 60%; animation-duration: 22s; animation-delay: -12s; }
+    .sparkle:nth-child(6) { width: 2px; height: 2px; top: 55%; left: 30%; animation-duration: 17s; animation-delay: -6s; }
+    .sparkle:nth-child(7) { width: 4px; height: 4px; top: 30%; left: 90%; animation-duration: 19s; animation-delay: -9s; }
+    .sparkle:nth-child(8) { width: 3px; height: 3px; top: 75%; left: 70%; animation-duration: 15s; animation-delay: -3s; }
+  
+  </style>
+  <div id="elegant-sparkle-background">
+    <div class="sparkle"></div> <div class="sparkle"></div>
+    <div class="sparkle"></div> <div class="sparkle"></div>
+    <div class="sparkle"></div> <div class="sparkle"></div>
+    <div class="sparkle"></div> <div class="sparkle"></div>
+    <!-- 用JS生成更多，随机化参数 -->
+  </div>
+  <script>
+  (function() {
+      const container = document.getElementById('elegant-sparkle-background');
+      if (!container) return;
+  
+      const numSparkles = 25; // 控制光点数量
+      const existingSparkles = container.querySelectorAll('.sparkle').length;
+  
+      for (let i = 0; i < numSparkles - existingSparkles; i++) {
+          const sparkle = document.createElement('div');
+          sparkle.classList.add('sparkle');
+  
+          const size = Math.random() * 2.5 + 1.5; // 1.5px to 4px
+          sparkle.style.width = `${size}px`;
+          sparkle.style.height = `${size}px`;
+  
+          sparkle.style.top = `${Math.random() * 100}%`;
+          sparkle.style.left = `${Math.random() * 100}%`;
+  
+          const duration = Math.random() * 10 + 10; // 10s to 20s
+          const delay = -(Math.random() * duration); // 立即开始，但相位不同
+          sparkle.style.animationDuration = `${duration}s`;
+          sparkle.style.animationDelay = `${delay}s`;
+          
+          // 随机漂移方向（通过自定义属性）
+          sparkle.style.setProperty('--drift-x', `${(Math.random() - 0.5) * 60}px`); // -30px to 30px
+          sparkle.style.setProperty('--drift-y', `${(Math.random() - 0.5) * 60}px`); // -30px to 30px
+  
+          container.appendChild(sparkle);
+      }
+      // 更新CSS @keyframes 来使用这些自定义属性
+      // (或者在JS中直接修改transform，但CSS动画通常更流畅)
+      // 由于直接在@keyframes中引用父元素(sparkle)的var较复杂，
+      // 可以考虑每个sparkle元素内再套一个div，让这个内部div做transform动画
+      // 或者，更简单的方法是让动画本身包含通用的漂移，通过animation-delay和duration差异化
+      // 目前的 driftAndSparkle 动画是垂直漂移，可以通过多个keyframes或JS控制更复杂的漂移
+  })();
+  // 修正: 要让JS控制的随机漂移生效，需要修改@keyframes或采用不同策略。
+  // 为简化，当前CSS动画已包含垂直漂移。JS主要用于生成更多粒子和随机化基础动画参数。
+  </script>

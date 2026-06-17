@@ -1,0 +1,29 @@
+<style>
+
+    #static-grid-background {
+      width: 100%;
+      height: 100%;
+      background-color: #282c34;
+      --grid-color-small: rgba(100, 100, 100, 0.1);
+      --grid-size-small: 20px; 
+      --grid-color-large: rgba(120, 120, 120, 0.15); 
+      --grid-size-large: 100px; 
+  
+      background-image:
+        linear-gradient(to right,  var(--grid-color-small) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-color-small) 1px, transparent 1px),
+        linear-gradient(to right,  var(--grid-color-large) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-color-large) 1px, transparent 1px);
+  
+      background-size:
+        var(--grid-size-small) var(--grid-size-small), 
+        var(--grid-size-small) var(--grid-size-small),
+        var(--grid-size-large) var(--grid-size-large), 
+        var(--grid-size-large) var(--grid-size-large); 
+    }
+  </style>
+  
+  <div id="static-grid-background">
+
+  </div>
+  

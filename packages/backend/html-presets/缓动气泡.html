@@ -1,0 +1,219 @@
+<style>
+    #floating-bubbles-container {
+        width: 100%; height: 100%;
+        background: radial-gradient(circle at center, #2c3e50, #1a2533); /* 深蓝灰色径向渐变 */
+        overflow: hidden; position: relative;
+    }
+    #bubbles-canvas { display: block; position: absolute; top: 0; left: 0; }
+</style>
+<div id="floating-bubbles-container">
+    <canvas id="bubbles-canvas"></canvas>
+</div>
+<script>
+(function() {
+    const canvas = document.getElementById('bubbles-canvas');
+    const layerElement = canvas.closest('.terminal-custom-html-layer') || canvas.parentElement;
+    if (!canvas || !layerElement) return;
+    const ctx = canvas.getContext('2d');
+
+    let width, height, animationFrameId;
+    const bubbles = [];
+    const numBubbles = 10; // 少量大气泡
+    const baseSpeed = 0.1;
+    const baseRadius = 60;
+    const radiusVariance = 40;
+
+    // Perlin noise function (simple implementation for distortion)
+    // For more sophisticated noise, consider a library
+    const ClassicalNoise = function(r) { // Classic Perlin noise
+      if (r == undefined) r = Math;
+      this.grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+                    [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+                    [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+      this.p = [];
+      for (var i=0; i<256; i++) {
+        this.p[i] = Math.floor(r.random()*256);
+      }
+      // To remove the need for index wrapping, double the permutation table length
+      this.perm = [];
+      for(var i=0; i<512; i++) {
+        this.perm[i]=this.p[i&255];
+      }
+    };
+
+    ClassicalNoise.prototype.dot = function(g, x, y, z) {
+        return g[0]*x + g[1]*y + g[2]*z;
+    };
+
+    ClassicalNoise.prototype.mix = function(a, b, t) {
+        return (1.0-t)*a + t*b;
+    };
+
+    ClassicalNoise.prototype.fade = function(t) {
+        return t*t*t*(t*(t*6.0-15.0)+10.0);
+    };
+
+    ClassicalNoise.prototype.noise = function(x, y, z) {
+      // Find unit grid cell containing point
+      var X = Math.floor(x);
+      var Y = Math.floor(y);
+      var Z = Math.floor(z);
+
+      // Get relative xyz coordinates of point within that cell
+      x = x - X;
+      y = y - Y;
+      z = z - Z;
+
+      // Wrap the integer cells at 255 (smaller integer period can be introduced here)
+      X = X & 255;
+      Y = Y & 255;
+      Z = Z & 255;
+
+      // Calculate a set of eight hashed gradient indices
+      var gi000 = this.perm[X+this.perm[Y+this.perm[Z]]];
+      var gi001 = this.perm[X+this.perm[Y+this.perm[Z+1]]];
+      var gi010 = this.perm[X+this.perm[Y+1+this.perm[Z]]];
+      var gi011 = this.perm[X+this.perm[Y+1+this.perm[Z+1]]];
+      var gi100 = this.perm[X+1+this.perm[Y+this.perm[Z]]];
+      var gi101 = this.perm[X+1+this.perm[Y+this.perm[Z+1]]];
+      var gi110 = this.perm[X+1+this.perm[Y+1+this.perm[Z]]];
+      var gi111 = this.perm[X+1+this.perm[Y+1+this.perm[Z+1]]];
+
+      // Calculate noise contributions from eight corners
+      var n000= this.dot(this.grad3[gi000%12], x, y, z);
+      var n100= this.dot(this.grad3[gi100%12], x-1, y, z);
+      var n010= this.dot(this.grad3[gi010%12], x, y-1, z);
+      var n110= this.dot(this.grad3[gi110%12], x-1, y-1, z);
+      var n001= this.dot(this.grad3[gi001%12], x, y, z-1);
+      var n101= this.dot(this.grad3[gi101%12], x-1, y, z-1);
+      var n011= this.dot(this.grad3[gi011%12], x, y-1, z-1);
+      var n111= this.dot(this.grad3[gi111%12], x-1, y-1, z-1);
+      // Compute the fade curve value for x, y, z
+      var u = this.fade(x);
+      var v = this.fade(y);
+      var w = this.fade(z);
+      // Interpolate along x the contributions from each of the corners
+      var nx00 = this.mix(n000, n100, u);
+      var nx01 = this.mix(n001, n101, u);
+      var nx10 = this.mix(n010, n110, u);
+      var nx11 = this.mix(n011, n111, u);
+      // Interpolate the four results along y
+      var nxy0 = this.mix(nx00, nx10, v);
+      var nxy1 = this.mix(nx01, nx11, v);
+      // Interpolate the two last results along z
+      var nxyz = this.mix(nxy0, nxy1, w);
+
+      return nxyz;
+    };
+    const perlin = new ClassicalNoise();
+    let noiseTime = 0;
+
+
+    class Bubble {
+        constructor() {
+            this.x = Math.random() * width;
+            this.y = Math.random() * height;
+            this.radius = baseRadius + Math.random() * radiusVariance;
+            this.color1 = `rgba(${Math.floor(Math.random()*50+50)}, ${Math.floor(Math.random()*50+100)}, ${Math.floor(Math.random()*50+150)}, 0.1)`; // Blues/Greens
+            this.color2 = `rgba(${Math.floor(Math.random()*50+100)}, ${Math.floor(Math.random()*50+50)}, ${Math.floor(Math.random()*50+120)}, 0.2)`; // Purples/Pinks
+            
+            this.vx = (Math.random() - 0.5) * baseSpeed;
+            this.vy = (Math.random() - 0.5) * baseSpeed;
+            
+            this.numPoints = 30 + Math.floor(Math.random() * 20); // 组成气泡边缘的点数
+            this.distortionFactor = 0.1 + Math.random() * 0.2; // 变形程度
+            this.noiseSeedX = Math.random() * 1000;
+            this.noiseSeedY = Math.random() * 1000;
+        }
+
+        update() {
+            this.x += this.vx;
+            this.y += this.vy;
+
+            if (this.x - this.radius > width) this.x = -this.radius;
+            if (this.x + this.radius < 0) this.x = width + this.radius;
+            if (this.y - this.radius > height) this.y = -this.radius;
+            if (this.y + this.radius < 0) this.y = height + this.radius;
+        }
+
+        draw() {
+            ctx.beginPath();
+            const points = [];
+            for (let i = 0; i < this.numPoints; i++) {
+                const angle = (i / this.numPoints) * Math.PI * 2;
+                const noiseVal = perlin.noise(
+                    (Math.cos(angle) + 1) * 0.5 + this.noiseSeedX + noiseTime * 0.1, // x for noise
+                    (Math.sin(angle) + 1) * 0.5 + this.noiseSeedY + noiseTime * 0.1, // y for noise
+                    noiseTime * 0.2                                     // z for noise (time evolution)
+                );
+                const r = this.radius * (1 + noiseVal * this.distortionFactor);
+                points.push({
+                    x: this.x + r * Math.cos(angle),
+                    y: this.y + r * Math.sin(angle)
+                });
+            }
+            
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 0; i < this.numPoints; i++) {
+                const p1 = points[i];
+                const p2 = points[(i + 1) % this.numPoints];
+                const xc = (p1.x + p2.x) / 2;
+                const yc = (p1.y + p2.y) / 2;
+                ctx.quadraticCurveTo(p1.x, p1.y, xc, yc);
+            }
+            ctx.closePath();
+
+            const gradient = ctx.createRadialGradient(this.x, this.y, this.radius * 0.2, this.x, this.y, this.radius);
+            gradient.addColorStop(0, this.color1);
+            gradient.addColorStop(1, this.color2);
+            ctx.fillStyle = gradient;
+            ctx.globalAlpha = 0.4 + Math.sin(noiseTime + this.noiseSeedX) * 0.2; // Subtle opacity pulse
+            ctx.fill();
+
+            // Optional: subtle highlight
+            ctx.beginPath();
+            ctx.arc(this.x - this.radius * 0.3, this.y - this.radius * 0.3, this.radius * 0.3, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(200, 220, 255, 0.05)";
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    function init() {
+        width = layerElement.offsetWidth;
+        height = layerElement.offsetHeight;
+        canvas.width = width;
+        canvas.height = height;
+        bubbles.length = 0;
+        for (let i = 0; i < numBubbles; i++) {
+            bubbles.push(new Bubble());
+        }
+    }
+
+    function animate() {
+        ctx.clearRect(0, 0, width, height);
+        noiseTime += 0.005;
+
+        bubbles.forEach(bubble => {
+            bubble.update();
+            bubble.draw();
+        });
+        animationFrameId = requestAnimationFrame(animate);
+    }
+
+    let resizeTimeout;
+    function onResize() {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            init();
+            animate();
+        }, 250);
+    }
+
+    init();
+    animate();
+    window.addEventListener('resize', onResize);
+    canvas.cleanup = function() { if (animationFrameId) cancelAnimationFrame(animationFrameId); };
+})();
+</script>

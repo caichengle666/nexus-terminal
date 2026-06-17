@@ -1,0 +1,72 @@
+<style>
+    #css-gradient-mesh-background {
+      width: 100%;
+      height: 100%;
+      background-color: #1a1a2e; /* 基础背景色 */
+      overflow: hidden;
+      position: relative;
+    }
+  
+    .gradient-blob {
+      position: absolute;
+      border-radius: 50%; /* 圆形 */
+      opacity: 0; /* 初始不可见，通过动画显现 */
+      mix-blend-mode: screen; /* 或者 'overlay', 'soft-light' 尝试不同效果 */
+      animation: flowAndFade 40s infinite ease-in-out;
+      filter: blur(80px); /* 大量模糊制造柔和边缘 */
+    }
+  
+    .blob-1 {
+      width: 60vw; height: 60vw; /* 相对视窗大小 */
+      top: -20%; left: -10%;
+      background: radial-gradient(ellipse at center, #ff8a00 0%, transparent 70%); /* 橙色 */
+      animation-delay: 0s;
+      animation-duration: 45s;
+    }
+    .blob-2 {
+      width: 50vw; height: 50vw;
+      top: 10%; right: -15%;
+      background: radial-gradient(ellipse at center, #e91e63 0%, transparent 70%); /* 粉色 */
+      animation-delay: -10s;
+      animation-duration: 50s;
+    }
+    .blob-3 {
+      width: 70vw; height: 70vw;
+      bottom: -25%; left: 20%;
+      background: radial-gradient(ellipse at center, #00bcd4 0%, transparent 70%); /* 青色 */
+      animation-delay: -20s;
+      animation-duration: 55s;
+    }
+    .blob-4 {
+      width: 55vw; height: 55vw;
+      bottom: 5%; right: 5%;
+      background: radial-gradient(ellipse at center, #8bc34a 0%, transparent 70%); /* 绿色 */
+      animation-delay: -30s;
+      animation-duration: 40s;
+    }
+  
+    @keyframes flowAndFade {
+      0%, 100% {
+        transform: translateX(0px) translateY(0px) scale(0.8);
+        opacity: 0.3;
+      }
+      25% {
+        transform: translateX(50px) translateY(-30px) scale(1.1);
+        opacity: 0.7;
+      }
+      50% {
+        transform: translateX(-40px) translateY(60px) scale(0.9);
+        opacity: 0.5;
+      }
+      75% {
+        transform: translateX(20px) translateY(-50px) scale(1.2);
+        opacity: 0.6;
+      }
+    }
+  </style>
+  <div id="css-gradient-mesh-background">
+    <div class="gradient-blob blob-1"></div>
+    <div class="gradient-blob blob-2"></div>
+    <div class="gradient-blob blob-3"></div>
+    <div class="gradient-blob blob-4"></div>
+  </div>

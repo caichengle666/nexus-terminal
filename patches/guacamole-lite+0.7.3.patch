@@ -1,0 +1,13 @@
+diff --git a/node_modules/guacamole-lite/lib/GuacdClient.js b/node_modules/guacamole-lite/lib/GuacdClient.js
+index 9c645f7..e46fe58 100644
+--- a/node_modules/guacamole-lite/lib/GuacdClient.js
++++ b/node_modules/guacamole-lite/lib/GuacdClient.js
+@@ -83,7 +83,7 @@ class GuacdClient {
+             this.clientConnection.connectionSettings.connection.height,
+             this.clientConnection.connectionSettings.connection.dpi
+         ]);
+-        this.sendOpCode(['audio'].concat(this.clientConnection.query.GUAC_AUDIO || []));
++        this.sendOpCode(['audio', 'audio/L16'].concat(this.clientConnection.query.GUAC_AUDIO || []));
+         this.sendOpCode(['video'].concat(this.clientConnection.query.GUAC_VIDEO || []));
+         this.sendOpCode(['image']);
+ 

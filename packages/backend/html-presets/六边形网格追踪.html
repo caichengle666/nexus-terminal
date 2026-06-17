@@ -1,0 +1,125 @@
+<style>
+    #svg-hexgrid-background {
+      width: 100%;
+      height: 100%;
+      background-color: #0a0f14; /* 非常暗的冷灰色 */
+      overflow: hidden;
+    }
+    #svg-hexgrid-background svg {
+      width: 100%;
+      height: 100%;
+    }
+  
+    .hexagon-bg {
+      stroke: rgba(70, 100, 130, 0.25); /* 暗青蓝色背景六边形 */
+      stroke-width: 1px;
+      fill: rgba(30, 40, 50, 0.1);
+    }
+  
+    .trace-path {
+      fill: none;
+      stroke-width: 1.5px;
+      stroke-linecap: round;
+      stroke-dasharray: 600; /* 一个足够大的值，确保能覆盖路径总长 */
+      stroke-dashoffset: 600; /* 初始状态，路径不可见 */
+      animation: drawAndFadePath 12s ease-in-out infinite;
+      filter: drop-shadow(0 0 4px currentColor) drop-shadow(0 0 8px currentColor); /* 使用当前描边色发光 */
+    }
+  
+    /* 不同路径使用不同颜色和动画延迟 */
+    .path-cyan { stroke: #00e5ff; }
+    .path-magenta { stroke: #ff00ff; animation-delay: -3s; }
+    .path-lime { stroke: #aeff00; animation-delay: -6s; }
+    .path-orange { stroke: #ffaa00; animation-delay: -9s; animation-direction: alternate; }
+  
+  
+    @keyframes drawAndFadePath {
+      0% { stroke-dashoffset: 600; opacity: 0; } /* 开始时完全不可见 */
+      10% { opacity: 0.8; } /* 快速显现 */
+      40% { stroke-dashoffset: 0; opacity: 1; } /* 路径完全绘制出来，不透明 */
+      60% { stroke-dashoffset: 0; opacity: 1; } /* 保持显示 */
+      90% { opacity: 0.8; } /* 开始褪色 */
+      100% { stroke-dashoffset: -600; opacity: 0; } /* 路径从起点开始消失并完全透明 */
+    }
+  </style>
+  <div id="svg-hexgrid-background">
+    <svg width="100%" height="100%" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- 定义一个六边形单元，方便复用 -->
+        <!-- 六边形顶点计算: r=半径, h=r*sqrt(3)/2 (内切圆半径/高度的一半) -->
+        <!-- points="r,0  r/2,h  -r/2,h  -r,0  -r/2,-h  r/2,-h" for radius r, height 2h -->
+        <symbol id="hexSymbol" viewBox="-52 -45 104 90"> <!-- viewBox slightly larger than hex -->
+          <polygon class="hexagon-bg" points="50,0 25,43.3 -25,43.3 -50,0 -25,-43.3 25,-43.3" />
+        </symbol>
+      </defs>
+  
+      <!-- 静态六边形网格背景 -->
+      <g id="staticHexGrid">
+        <!-- 手动放置一些六边形作为示例，更完善的网格可以用JS生成 -->
+        <use href="#hexSymbol" x="100" y="100" width="100" height="86.6"/>
+        <use href="#hexSymbol" x="200" y="100" width="100" height="86.6"/>
+        <use href="#hexSymbol" x="150" y="100 + 86.6*0.5" width="100" height="86.6"/> <!-- Staggered row -->
+        <use href="#hexSymbol" x="250" y="100 + 86.6*0.5" width="100" height="86.6"/>
+        <use href="#hexSymbol" x="50"  y="100 + 86.6" width="100" height="86.6"/>
+        <use href="#hexSymbol" x="300" y="100 + 86.6" width="100" height="86.6"/>
+        <!-- ... 可以添加更多 for better coverage ... -->
+         <use href="#hexSymbol" x="400" y="100" width="100" height="86.6"/>
+         <use href="#hexSymbol" x="350" y="100 + 86.6*0.5" width="100" height="86.6"/>
+         <use href="#hexSymbol" x="450" y="100 + 86.6*0.5" width="100" height="86.6"/>
+         <use href="#hexSymbol" x="500" y="100 + 86.6" width="100" height="86.6"/>
+  
+         <use href="#hexSymbol" x="600" y="300" width="100" height="86.6"/>
+         <use href="#hexSymbol" x="700" y="300" width="100" height="86.6"/>
+         <use href="#hexSymbol" x="650" y="300 + 86.6*0.5" width="100" height="86.6"/>
+         <use href="#hexSymbol" x="550" y="300 + 86.6*0.5" width="100" height="86.6"/>
+      </g>
+  
+      <!-- 动态追踪线条 -->
+      <g id="animatedTraces">
+        <path class="trace-path path-cyan" d="M50,500 Q200,50 400,300 T750,100" />
+        <path class="trace-path path-magenta" d="M750,500 Q600,50 400,300 T50,100" />
+        <path class="trace-path path-lime" d="M20,150 C150,550 650,50 780,450 S 400, 200 100, 300 Z" />
+        <path class="trace-path path-orange" d="M400,50 C50,250 750,350 400,550 C200,450 600,150 400,50" />
+      </g>
+    </svg>
+    <!-- 
+      可选JS: 动态生成六边形网格覆盖整个SVG区域
+      <script>
+      (function() {
+        const svg = document.querySelector("#svg-hexgrid-background svg");
+        const gridGroup = document.getElementById("staticHexGrid");
+        if (!svg || !gridGroup) return;
+  
+        const svgNS = "http://www.w3.org/2000/svg";
+        const hexRadius = 50; // 半径
+        const hexWidth = hexRadius * 2;
+        const hexHeight = Math.sqrt(3) * hexRadius; // 整体高度
+        const vertDist = hexHeight;
+        const horizDist = hexWidth * 3/4;
+  
+        const vbWidth = svg.viewBox.baseVal.width;
+        const vbHeight = svg.viewBox.baseVal.height;
+        
+        gridGroup.innerHTML = ''; // 清空手动放置的六边形
+  
+        for (let y = 0, row = 0; y < vbHeight + hexHeight; y += vertDist / 2, row++) {
+          for (let x = 0, col = 0; x < vbWidth + horizDist; x += horizDist, col++) {
+            let currentX = x;
+            if (row % 2 !== 0) { // 奇数行水平偏移
+              currentX += horizDist / 2;
+            }
+            if (currentX > vbWidth + horizDist/2) continue; // 超出右边界
+  
+            const use = document.createElementNS(svgNS, "use");
+            use.setAttributeNS(null, "href", "#hexSymbol");
+            use.setAttributeNS(null, "x", currentX);
+            use.setAttributeNS(null, "y", y);
+            use.setAttributeNS(null, "width", hexWidth); 
+            use.setAttributeNS(null, "height", hexHeight);
+            gridGroup.appendChild(use);
+          }
+        }
+      })();
+      </script>
+    -->
+  </div>

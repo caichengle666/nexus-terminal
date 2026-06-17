@@ -1,0 +1,107 @@
+<style>
+    #svg-soft-halos-background {
+      width: 100%;
+      height: 100%;
+      background-color: #282c34; /* 柔和的深灰色 */
+      overflow: hidden;
+      position: relative;
+    }
+    #svg-soft-halos-background svg {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0; left: 0;
+    }
+  
+    .halo-source {
+      /* 光晕源本身可以不可见，或者非常暗淡 */
+      opacity: 0.05;
+    }
+  
+    .rotating-shape {
+      fill: rgba(200, 220, 255, 0.1); /* 非常淡的形状颜色 */
+      stroke: rgba(200, 220, 255, 0.3);
+      stroke-width: 1px;
+      transform-origin: center center; /* 确保从中心旋转 */
+      animation: slowRotate 30s linear infinite, pulseOpacity 15s ease-in-out infinite alternate;
+    }
+  
+    .shape-1 { transform: translate(25%, 30%) scale(0.8); animation-delay: -5s, -2s; }
+    .shape-2 { transform: translate(70%, 60%) scale(1.1); animation-delay: -15s, -6s; }
+    .shape-3 { transform: translate(50%, 75%) scale(0.6); animation-delay: -2s, -10s; }
+    .shape-4 { transform: translate(15%, 80%) scale(0.9); animation-delay: -10s, -4s; }
+  
+  
+    @keyframes slowRotate {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @keyframes pulseOpacity {
+        0%, 100% { opacity: 0.3; filter: drop-shadow(0 0 5px rgba(180,200,255,0.2)); }
+        50% { opacity: 0.7; filter: drop-shadow(0 0 15px rgba(200,220,255,0.4));}
+    }
+  
+  </style>
+  <div id="svg-soft-halos-background">
+    <svg viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="25" result="coloredBlur"/> <!-- 调整stdDeviation控制模糊程度 -->
+          <feMerge>
+            <feMergeNode in="coloredBlur"/>
+            <feMergeNode in="SourceGraphic"/> <!-- 可选：将原始图形叠在模糊之上，如果需要更清晰的源 -->
+          </feMerge>
+        </filter>
+      </defs>
+  
+      <!-- 光晕源 - 可以是几个大的圆形 -->
+      <g filter="url(#softGlow)">
+        <circle class="halo-source" cx="15%" cy="20%" r="150" fill="#5070A0" /> <!-- 淡蓝色光晕 -->
+        <ellipse class="halo-source" cx="80%" cy="75%" rx="200" ry="120" fill="#7050A0" /> <!-- 淡紫色光晕 -->
+        <circle class="halo-source" cx="50%" cy="50%" r="100" fill="#60A070" /> <!-- 淡绿色光晕 -->
+      </g>
+  
+      <!-- 缓慢旋转的几何图形 -->
+      <g id="rotatingShapesLayer">
+          <!-- 三角形 -->
+          <polygon class="rotating-shape shape-1" points="0,-30 26,15 -26,15" />
+          <!-- 方形 (旋转45度成菱形) -->
+          <rect class="rotating-shape shape-2" x="-20" y="-20" width="40" height="40" transform="rotate(45)"/>
+          <!-- 六边形 -->
+          <polygon class="rotating-shape shape-3" points="30,0 15,26 -15,26 -30,0 -15,-26 15,-26" />
+          <!-- 细长矩形 -->
+          <rect class="rotating-shape shape-4" x="-40" y="-5" width="80" height="10" />
+      </g>
+    </svg>
+    <script>
+      // JS为几何图形添加更随机的初始位置和动画参数
+      (function() {
+          const shapes = document.querySelectorAll('#rotatingShapesLayer .rotating-shape');
+          const svgViewBox = { width: 800, height: 600 }; // 从SVG viewBox获取或硬编码
+  
+          shapes.forEach((shape, index) => {
+              const scale = Math.random() * 0.6 + 0.5; // 0.5 to 1.1
+              const posX = Math.random() * svgViewBox.width;
+              const posY = Math.random() * svgViewBox.height;
+              
+              // 移除CSS中的transform，由JS控制
+              shape.style.transform = `translate(${posX}px, ${posY}px) scale(${scale})`;
+  
+              const rotateDuration = Math.random() * 20 + 20; // 20s to 40s
+              const opacityDuration = Math.random() * 10 + 10; // 10s to 20s
+              const delayRotate = -(Math.random() * rotateDuration);
+              const delayOpacity = -(Math.random() * opacityDuration);
+  
+              shape.style.animation = `slowRotate ${rotateDuration}s linear ${delayRotate}s infinite, pulseOpacity ${opacityDuration}s ease-in-out ${delayOpacity}s infinite alternate`;
+  
+              // 确保transform-origin在JS设置transform后依然有效
+              // 对于SVG元素，transform-origin需要通过transform属性自身来模拟或依赖CSS。
+              // 由于我们直接在JS中设置translate和scale, CSS的transform-origin: center center 会基于其初始0,0点。
+              // 对于SVG <polygon> 和 <rect>, 它们的坐标是相对于自身(0,0)或x,y属性的。
+              // CSS transform-origin center center 是针对HTML元素的。
+              // SVG元素的旋转中心是其(0,0)点。如果图形不是以(0,0)为中心绘制的，需要调整。
+              // 上面的图形都是以(0,0)为大致中心绘制的，所以默认旋转中心是OK的。
+          });
+      })();
+    </script>
+  </div>

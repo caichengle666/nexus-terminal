@@ -1,0 +1,88 @@
+<style>
+    #svg-lava-lamp-background {
+      width: 100%;
+      height: 100%;
+      background-color: #111827; /* 深灰蓝 */
+      overflow: hidden;
+    }
+    #svg-lava-lamp-background svg {
+      width: 100%;
+      height: 100%;
+    }
+  
+    .lava-g {
+      filter: url(#gooeyFilter); /* 应用"粘稠"滤镜 */
+    }
+  
+    .lava-blob {
+      fill: #ffcc00; /* 岩浆颜色 */
+      /* 动画由JS控制更灵活，但这里用CSS尝试 */
+      animation: moveBlob 15s infinite ease-in-out alternate;
+    }
+    .lava-blob:nth-child(1) { animation-duration: 18s; animation-delay: -2s; fill: #ff9900;}
+    .lava-blob:nth-child(2) { animation-duration: 12s; animation-delay: -5s; fill: #ff6600;}
+    .lava-blob:nth-child(3) { animation-duration: 20s; animation-delay: 0s;  fill: #ff3300;}
+    .lava-blob:nth-child(4) { animation-duration: 16s; animation-delay: -8s; fill: #cc3300;}
+    .lava-blob:nth-child(5) { animation-duration: 14s; animation-delay: -12s;fill: #ffcc00;}
+  
+  
+    @keyframes moveBlob {
+      0%   { transform: translate(0px, 0px) scale(1); }
+      25%  { transform: translate(30px, -50px) scale(1.2); }
+      50%  { transform: translate(-20px, 40px) scale(0.8); }
+      75%  { transform: translate(10px, -30px) scale(1.1); }
+      100% { transform: translate(0px, 0px) scale(1); }
+    }
+  </style>
+  <div id="svg-lava-lamp-background">
+    <svg viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="gooeyFilter">
+          <!-- 高斯模糊使边缘模糊 -->
+          <feGaussianBlur in="SourceGraphic" stdDeviation="12" result="blur" />
+          <!-- 颜色矩阵增加alpha对比度，使模糊的边缘更"粘稠"地融合 -->
+          <feColorMatrix in="blur" mode="matrix"
+            values="1 0 0 0 0
+                    0 1 0 0 0
+                    0 0 1 0 0
+                    0 0 0 25 -10" 
+            result="gooey" />
+          <!-- 可选：将原始图形叠在上面，如果想要更清晰的中心 -->
+          <!-- <feComposite in="SourceGraphic" in2="gooey" operator="atop"/> -->
+        </filter>
+      </defs>
+  
+      <!-- 将所有气泡放在一个应用了滤镜的组中 -->
+      <g class="lava-g">
+        <!-- 定义一些圆形作为气泡 -->
+        <circle class="lava-blob" cx="100" cy="300" r="40" />
+        <circle class="lava-blob" cx="200" cy="350" r="55" />
+        <circle class="lava-blob" cx="150" cy="100" r="30" />
+        <circle class="lava-blob" cx="50"  cy="150" r="45" />
+        <circle class="lava-blob" cx="250" cy="200" r="60" />
+        <circle class="lava-blob" cx="120" cy="220" r="35" />
+      </g>
+    </svg>
+  </div>
+  <script>
+  (function() {
+      // 用JS可以更精细地控制每个blob的动画，例如使用随机目标点
+      const blobs = document.querySelectorAll('#svg-lava-lamp-background .lava-blob');
+      const svg = document.querySelector('#svg-lava-lamp-background svg');
+      if (!blobs.length || !svg) return;
+  
+      const viewBoxWidth = svg.viewBox.baseVal.width;
+      const viewBoxHeight = svg.viewBox.baseVal.height;
+  
+      blobs.forEach((blob, index) => {
+          // 可以用JS设置更复杂的动画，这里CSS动画已经够用
+          // 为了让CSS动画不完全同步，已经用了nth-child和animation-delay
+          // 如果想完全随机化CSS动画的参数，可以用JS来动态设置style属性
+          // 例如: blob.style.animationDuration = (10 + Math.random() * 10) + 's';
+          // blob.style.animationDelay = (-Math.random() * 5) + 's';
+  
+          // 动态改变transform-origin让缩放更有趣
+          blob.style.transformOrigin = `${Math.random()*50+25}% ${Math.random()*50+25}%`;
+      });
+  })();
+  </script>

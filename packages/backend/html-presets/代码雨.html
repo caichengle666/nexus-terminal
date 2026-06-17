@@ -1,0 +1,109 @@
+<style>
+    #matrix-rain-container {
+        width: 100%; height: 100%; background: #000;
+        overflow: hidden; position: relative;
+    }
+    #matrix-canvas { display: block; position: absolute; top: 0; left: 0; }
+</style>
+<div id="matrix-rain-container">
+    <canvas id="matrix-canvas"></canvas>
+</div>
+<script>
+(function() {
+    const canvas = document.getElementById('matrix-canvas');
+    const layerElement = canvas.closest('.terminal-custom-html-layer');
+    if (!canvas || !layerElement) {
+        console.error("Canvas or layerElement not found.");
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    let animationFrameId;
+    const characters = 'アァカサタナハマヤャラワABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const fontSize = 14;
+    let columns, drops = [];
+
+    // 拖尾视觉效果配置
+    const slowdownFactor = 10;
+    const originalAlpha = 0.17;
+    const adjustedAlpha = slowdownFactor <= 1 ? originalAlpha : 1 - Math.pow(1 - originalAlpha, 1 / slowdownFactor);
+    let frameCounter = 0;
+
+    function setupDimensionsAndColumns() {
+        canvas.width = layerElement.offsetWidth;
+        canvas.height = layerElement.offsetHeight;
+        columns = Math.floor(canvas.width / fontSize);
+        drops = [];
+        for (let x = 0; x < columns; x++) {
+            drops[x] = 1 + Math.floor(Math.random() * (canvas.height / fontSize));
+        }
+        frameCounter = 0;
+    }
+
+    function drawMatrix() {
+        if (!ctx || canvas.width === 0 || canvas.height === 0) {
+            animationFrameId = requestAnimationFrame(drawMatrix);
+            return;
+        }
+
+        ctx.fillStyle = `rgba(0, 0, 0, ${adjustedAlpha})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        frameCounter++;
+
+        if (frameCounter >= slowdownFactor) {
+            frameCounter = 0;
+
+            ctx.fillStyle = '#0F0';
+            ctx.font = fontSize + 'px monospace';
+
+            for (let i = 0; i < drops.length; i++) {
+                const text = characters.charAt(Math.floor(Math.random() * characters.length));
+                ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+
+                if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+                    drops[i] = 0;
+                }
+                drops[i]++;
+            }
+        }
+
+        animationFrameId = requestAnimationFrame(drawMatrix);
+    }
+
+    const debounce = (func, delay) => {
+        let t;
+        return (...a) => {
+            clearTimeout(t);
+            t = setTimeout(() => func.apply(this, a), delay);
+        };
+    };
+
+    const debouncedReinitialize = debounce(() => {
+        if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+        }
+        setupDimensionsAndColumns();
+        if (columns > 0) {
+            drawMatrix();
+        }
+    }, 250);
+
+    if (layerElement) {
+        const resizeObserver = new ResizeObserver(entries => {
+            entries.forEach(entry => {
+                if (entry.target === layerElement) {
+                    debouncedReinitialize();
+                }
+            });
+        });
+        resizeObserver.observe(layerElement);
+    } else {
+        console.warn("layerElement not found for ResizeObserver, resize handling might be limited.");
+    }
+
+    setupDimensionsAndColumns();
+    if (columns > 0) {
+        drawMatrix();
+    }
+})();
+</script>

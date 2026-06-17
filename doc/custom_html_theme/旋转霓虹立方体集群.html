@@ -1,0 +1,92 @@
+<style>
+  #css-3d-cubes-background {
+    width: 100%;
+    height: 100%;
+    background-color: #080010; /* 深紫色背景 */
+    overflow: hidden;
+    position: relative;
+    perspective: 1000px; /* 为3D效果设置透视 */
+  }
+
+  .scene {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    transform-style: preserve-3d;
+  }
+
+  .cube-wrapper {
+    position: absolute;
+    width: 100px; /* 调整立方体大小 */
+    height: 100px;
+    transform-style: preserve-3d;
+    /* 动画由JS控制或预设不同参数 */
+  }
+
+  .cube {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    transform-style: preserve-3d;
+    transform: rotateX(0deg) rotateY(0deg); /* 初始旋转，会被动画覆盖 */
+    animation: spin 15s infinite linear;
+  }
+
+  .cube .face {
+    position: absolute;
+    width: 100px;
+    height: 100px;
+    border: 1px solid rgba(0, 255, 255, 0.7); /* 青色霓虹边框 */
+    background-color: rgba(0, 50, 80, 0.2); /* 半透明深蓝面 */
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.5), inset 0 0 8px rgba(0, 255, 255, 0.3);
+  }
+
+  /* 定位立方体的六个面 */
+  .cube .front  { transform: rotateY(  0deg) translateZ(50px); }
+  .cube .back   { transform: rotateY(180deg) translateZ(50px); }
+  .cube .right  { transform: rotateY( 90deg) translateZ(50px); }
+  .cube .left   { transform: rotateY(-90deg) translateZ(50px); }
+  .cube .top    { transform: rotateX( 90deg) translateZ(50px); }
+  .cube .bottom { transform: rotateX(-90deg) translateZ(50px); }
+
+  @keyframes spin {
+    from { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
+    to   { transform: rotateX(360deg) rotateY(360deg) rotateZ(360deg); }
+  }
+
+  /* 示例立方体位置和动画差异化 */
+  .cube-wrapper-1 { top: 20%; left: 30%; transform: scale(0.8) translateZ(-100px); }
+  .cube-wrapper-1 .cube { animation-duration: 18s; animation-delay: -2s; }
+
+  .cube-wrapper-2 { top: 50%; left: 60%; transform: scale(1.2) translateZ(50px); }
+  .cube-wrapper-2 .cube { animation-duration: 12s; }
+
+  .cube-wrapper-3 { top: 70%; left: 15%; transform: scale(0.6) translateZ(-200px); }
+  .cube-wrapper-3 .cube { animation-duration: 22s; animation-delay: -5s; }
+</style>
+<div id="css-3d-cubes-background">
+  <div class="scene">
+    <div class="cube-wrapper cube-wrapper-1">
+      <div class="cube">
+        <div class="face front"></div> <div class="face back"></div>
+        <div class="face right"></div> <div class="face left"></div>
+        <div class="face top"></div>   <div class="face bottom"></div>
+      </div>
+    </div>
+    <div class="cube-wrapper cube-wrapper-2">
+      <div class="cube">
+        <div class="face front"></div> <div class="face back"></div>
+        <div class="face right"></div> <div class="face left"></div>
+        <div class="face top"></div>   <div class="face bottom"></div>
+      </div>
+    </div>
+    <div class="cube-wrapper cube-wrapper-3">
+      <div class="cube">
+        <div class="face front"></div> <div class="face back"></div>
+        <div class="face right"></div> <div class="face left"></div>
+        <div class="face top"></div>   <div class="face bottom"></div>
+      </div>
+    </div>
+    <!-- 可以用JS动态添加更多cube-wrapper并随机化参数 -->
+  </div>
+</div>

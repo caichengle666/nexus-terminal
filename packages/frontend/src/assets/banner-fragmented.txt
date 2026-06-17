@@ -1,0 +1,28 @@
+<svg width="450" height="100" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <defs>
+    <!-- Gradient for the text -->
+    <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#3B82F6;" /> <!-- Blue -->
+      <stop offset="50%" style="stop-color:#6366F1;" /> <!-- Indigo -->
+      <stop offset="100%" style="stop-color:#A855F7;" /> <!-- Purple -->
+    </linearGradient>
+
+    <!-- Filter for the fragmented effect -->
+    <filter id="fragment" x="-20%" y="-20%" width="140%" height="140%">
+      <!-- Create turbulence noise -->
+      <feTurbulence type="fractalNoise" baseFrequency="0.03 0.06" numOctaves="3" result="turbulence" seed="10"/>
+      <!-- Use the turbulence to displace the text -->
+      <feDisplacementMap in="SourceGraphic" in2="turbulence" scale="12" xChannelSelector="R" yChannelSelector="G" result="displacedText"/>
+       <!-- Optional: Add a slight blur to soften edges -->
+       <!-- <feGaussianBlur in="displacedText" stdDeviation="0.5" /> -->
+    </filter>
+  </defs>
+
+  <!-- Logo -->
+  <image xlink:href="./logo.png" x="10" y="10" height="80" width="80"/>
+
+  <!-- Text with gradient and filter applied -->
+  <text x="105" y="65" font-size="42" font-weight="600" fill="url(#logoGradient)" filter="url(#fragment)">
+    Nexus Terminal
+  </text>
+</svg>

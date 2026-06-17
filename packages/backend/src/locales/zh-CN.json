@@ -1,0 +1,30 @@
+{
+  "event": {
+    "LOGIN_SUCCESS": "登录成功",
+    "LOGIN_FAILURE": "登录失败",
+    "LOGOUT": "登出",
+    "PASSWORD_CHANGED": "密码已更改",
+    "2FA_ENABLED": "两步验证已启用",
+    "2FA_DISABLED": "两步验证已禁用",
+    "CONNECTION_CREATED": "连接已创建",
+    "CONNECTION_UPDATED": "连接已更新",
+    "CONNECTION_DELETED": "连接已删除",
+    "PROXY_CREATED": "代理已创建",
+    "PROXY_UPDATED": "代理已更新",
+    "PROXY_DELETED": "代理已删除",
+    "TAG_CREATED": "标签已创建",
+    "TAG_UPDATED": "标签已更新",
+    "TAG_DELETED": "标签已删除",
+    "SETTINGS_UPDATED": "设置已更新",
+    "IP_WHITELIST_UPDATED": "IP 白名单已更新",
+    "NOTIFICATION_SETTING_CREATED": "通知设置已创建",
+    "NOTIFICATION_SETTING_UPDATED": "通知设置已更新",
+    "NOTIFICATION_SETTING_DELETED": "通知设置已删除",
+    "SSH_CONNECT_SUCCESS": "SSH 连接成功",
+    "SSH_CONNECT_FAILURE": "SSH 连接失败",
+    "SSH_SHELL_FAILURE": "SSH Shell 打开失败",
+    "DATABASE_MIGRATION": "数据库迁移",
+    "ADMIN_SETUP_COMPLETE": "初始管理员设置完成",
+    "testNotification": "测试通知"
+  }
+}

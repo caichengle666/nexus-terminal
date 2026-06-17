@@ -1,0 +1,1677 @@
+{
+  "appName": "星枢终端",
+  "projectName": "星枢终端",
+  "slogan": "星垂平野阔，枢动万端通",
+  "nav": {
+    "dashboard": "仪表盘",
+    "terminal": "终端",
+    "connections": "连接管理",
+    "proxies": "代理管理",
+    "login": "登录",
+    "logout": "登出",
+    "notifications": "通知管理",
+    "auditLogs": "审计日志",
+    "settings": "设置",
+    "customizeStyle": "自定义外观"
+  },
+  "styleCustomizer": {
+    "title": "外观自定义",
+    "uiStyles": "界面样式",
+    "terminalStyles": "终端样式",
+    "backgroundSettings": "背景设置",
+    "uiDescription": "调整应用程序界面的颜色、字体等。",
+    "resetUiTheme": "重置界面主题",
+    "saveUiTheme": "保存界面主题",
+    "terminalFontFamily": "终端字体",
+    "terminalFontPlaceholder": "例如：\"Fira Code\", Consolas, monospace",
+    "terminalFontDescription": "输入字体名称，用英文逗号分隔。如果字体名称包含空格，请用引号括起来。",
+    "terminalThemeSelection": "终端主题",
+    "activeTheme": "当前主题",
+    "addNewTheme": "新建主题",
+    "importTheme": "导入主题",
+    "editThemeTitle": "编辑终端主题",
+    "newThemeTitle": "新建终端主题",
+    "newThemeDefaultName": "新主题",
+    "themeName": "主题名称",
+    "errorThemeNameRequired": "主题名称不能为空。",
+    "themeUpdatedSuccess": "主题更新成功。",
+    "themeCreatedSuccess": "主题创建成功。",
+    "themeSaveFailed": "保存主题失败。",
+    "themeDeletedSuccess": "主题删除成功。",
+    "themeDeleteFailed": "删除主题失败: {message}",
+    "importSuccess": "主题导入成功。",
+    "importFailed": "主题导入失败。",
+    "exportFailed": "导出主题失败: {message}",
+    "pageBackground": "页面背景",
+    "terminalBackground": "终端背景",
+    "noBackground": "无背景",
+    "uploadPageBg": "上传页面背景",
+    "removePageBg": "移除页面背景",
+    "uploadTerminalBg": "上传终端背景",
+    "removeTerminalBg": "移除终端背景",
+    "uploadFailed": "上传失败: {message}",
+    "pageBgUploadSuccess": "页面背景上传成功。",
+    "terminalBgUploadSuccess": "终端背景上传成功。",
+    "pageBgRemoved": "页面背景已移除。",
+    "terminalBgRemoved": "终端背景已移除。",
+    "removeBgFailed": "移除背景失败: {message}",
+    "uiThemeSaveFailed": "保存界面主题失败: {message}",
+    "uiThemeReset": "界面主题已重置为默认值。",
+    "uiThemeResetFailed": "重置界面主题失败: {message}",
+    "terminalFontSaved": "终端字体已保存。",
+    "terminalFontSaveFailed": "保存终端字体失败: {message}",
+    "setActiveThemeFailed": "设置激活终端主题失败: {message}",
+    "terminalFontSize": "终端字体大小",
+    "errorInvalidFontSize": "无效的字体大小。请输入一个正数。",
+    "terminalFontSizeSaved": "终端字体大小已保存。",
+    "terminalFontSizeSaveFailed": "保存终端字体大小失败: {message}",
+    "otherSettings": "其他设置",
+    "editorFontSize": "编辑器字体大小",
+    "editorFontSizeSaved": "编辑器字体大小已保存。",
+    "editorFontSizeSaveFailed": "保存编辑器字体大小失败: {message}",
+    "editorFontFamily": "编辑器字体",
+    "editorFontFamilySaved": "编辑器字体已保存。",
+    "editorFontFamilySaveFailed": "保存编辑器字体失败: {message}",
+    "errorInvalidEditorFontSize": "无效的字体大小。请输入一个正数。",
+    "uiThemeJsonEditorTitle": "界面主题 JSON 编辑器",
+    "uiThemeJsonEditorDesc": "直接使用 JSON 编辑界面主题配置。在此处更改并在文本区域失焦后，上面的颜色选择器将同步更新。",
+    "errorInvalidJsonObject": "输入无效。请输入一个有效的 JSON 对象。",
+    "errorInvalidJsonConfig": "无效的 JSON 配置",
+    "editAsCopy": "编辑副本",
+    "cannotDeletePreset": "无法删除预设主题",
+    "applyThemeTooltip": "应用此主题",
+    "terminalThemeJsonEditorTitle": "终端主题 JSON 编辑器",
+    "terminalThemeJsonEditorDesc": "直接使用 JSON 编辑终端主题配置。在此处更改并在文本区域失焦后，下方的颜色选择器将同步更新。",
+    "terminalThemeColorEditorTitle": "终端主题颜色编辑器",
+    "errorFixJsonBeforeSave": "请先修复 JSON 格式错误再保存。",
+    "applyButton": "应用",
+    "previewButton": "预览",
+    "searchThemePlaceholder": "搜索主题名称...",
+    "exportActiveThemeTooltip": "将当前激活的主题导出为 JSON 文件",
+    "exportActiveTheme": "导出当前主题",
+    "themeModeLabel": "主题模式:",
+    "defaultMode": "默认模式",
+    "darkMode": "黑暗模式",
+    "darkModeApplied": "黑暗模式已应用",
+    "darkModeApplyFailed": "应用黑暗模式失败: {message}",
+    "terminalBgOverlayOpacity": "终端背景蒙版透明度:",
+    "terminalBgOverlayOpacityDesc": "控制背景图片上方黑色蒙版的透明度。0为完全透明，1为完全不透明。",
+    "errorInvalidOpacityValue": "无效的透明度值，必须在0到1之间",
+    "terminalBgOverlayOpacitySaved": "终端背景蒙版透明度已保存",
+    "terminalBgOverlayOpacitySaveFailed": "终端背景蒙版透明度保存失败: {message}",
+    "terminalBgDisabled": "终端背景功能已禁用。",
+    "htmlBackgroundThemes": "HTML 背景主题",
+    "localThemes": "本地主题",
+    "remoteThemes": "远程主题",
+    "newLocalPreset": "新建本地主题",
+    "noLocalPresetsFound": "未找到本地 HTML 主题。",
+    "errorFetchingPresetContentForEdit": "获取主题内容以供编辑失败: {message}",
+    "remoteHtmlPresetsRepositoryUrl": "远程 HTML 主题仓库链接",
+    "remoteRepoUrlPlaceholder": "例如：https://github.com/user/repo/tree/main/themes",
+    "saveUrl": "保存链接",
+    "loadRemoteThemes": "刷新",
+    "pleaseSetRemoteUrl": "请先设置远程 HTML 主题仓库链接。",
+    "noRemotePresetsFound": "远程仓库中未找到 HTML 主题，或链接无效。",
+    "editLocalPreset": "编辑本地主题",
+    "presetName": "主题名称",
+    "presetNamePlaceholder": "例如：my-theme.html",
+    "presetContent": "主题内容",
+    "customTerminalHTMLPlaceholder": "例如：<h1>Hello</h1>",
+    "errorToggleTerminalBg": "更新终端背景启用状态失败: {message}",
+    "htmlPresetApplied": "HTML 主题已应用。",
+    "htmlPresetApplyFailed": "应用 HTML 主题失败: {message}",
+    "errorPresetContentRequired": "主题内容不能为空。",
+    "localPresetUpdated": "本地 HTML 主题已更新。",
+    "localPresetUpdateFailed": "更新本地 HTML 主题失败: {message}",
+    "errorPresetNameAndContentRequired": "主题名称和内容均不能为空。",
+    "localPresetCreated": "本地 HTML 主题已创建。",
+    "localPresetCreateFailed": "创建本地 HTML 主题失败: {message}",
+    "confirmDeletePreset": "确定要删除 HTML 主题 \"{name}\" 吗？",
+    "localPresetDeleted": "本地 HTML 主题已删除。",
+    "localPresetDeleteFailed": "删除本地 HTML 主题失败: {message}",
+    "errorRemoteUrlRequired": "远程 HTML 主题仓库链接不能为空。",
+    "remoteUrlSaved": "远程 HTML 主题仓库链接已保存。",
+    "remoteUrlSaveFailed": "保存远程 HTML 主题仓库链接失败: {message}",
+    "errorSetRemoteUrlFirst": "请先设置并保存远程 HTML 主题仓库链接。",
+    "remotePresetsLoaded": "远程 HTML 主题列表已加载。",
+    "remotePresetsLoadFailed": "加载远程 HTML 主题列表失败: {message}",
+    "localPresetApplyFailed": "应用本地 HTML 主题失败: {message}",
+    "errorMissingDownloadUrl": "远程主题下载链接缺失。",
+    "remotePresetApplyFailed": "应用远程 HTML 主题失败: {message}",
+    "errorPresetNameRequired": "预设名称不能为空。",
+    "localPresetRenamed": "本地预设 “{oldName}” 已成功重命名为 “{newName}”。",
+    "localPresetRenameFailed": "重命名本地预设失败: {message}",
+    "searchLocalThemesPlaceholder": "搜索本地主题...",
+    "searchRemoteThemesPlaceholder": "搜索远程主题...",
+    "noMatchingLocalPresetsFound": "未找到匹配的本地主题",
+    "noMatchingRemotePresetsFound": "未找到匹配的远程主题",
+    "editAsNewTooltip": "编辑为新自定义主题",
+    "presetTag": "预设",
+    "customTag": "自定义",
+    "customHtmlResetSuccess": "自定义 HTML 已重置。",
+    "textStrokeSettingsSaved": "文字描边设置已保存。",
+    "textStrokeSettingsSaveFailed": "保存文字描边设置失败: {message}",
+    "textShadowSettingsSaved": "文字阴影设置已保存。",
+    "textShadowSettingsSaveFailed": "保存文字阴影设置失败: {message}",
+    "textStrokeSettings": "文字描边设置",
+    "enableTextStroke": "启用文字描边",
+    "textStrokeWidth": "描边粗细 (px)",
+    "textStrokeColor": "描边颜色",
+    "saveStrokeSettings": "保存描边设置",
+    "textShadowSettings": "文字阴影设置",
+    "enableTextShadow": "启用文字阴影",
+    "textShadowOffsetX": "阴影 X 偏移 (px)",
+    "textShadowOffsetY": "阴影 Y 偏移 (px)",
+    "textShadowBlur": "阴影模糊半径 (px)",
+    "textShadowColor": "阴影颜色",
+    "saveShadowSettings": "保存阴影设置",
+    "setActiveThemeSuccess": "主题 {themeName} 已成功应用。",
+    "errorEditThemeNoId": "编辑主题错误：主题没有 ID。",
+    "errorLoadThemeDataFailed": "加载主题数据失败。",
+    "errorEditThemeFailed": "编辑主题失败。",
+    "errorJsonSyntax": "JSON 语法错误",
+    "noThemeSelected": "未选择主题",
+    "unknownTheme": "未知主题",
+    "noThemesFound": "未找到匹配的主题"
+  },
+  "login": {
+    "title": "用户登录",
+    "username": "用户名",
+    "password": "密码",
+    "loginButton": "登录",
+    "loggingIn": "正在登录...",
+    "twoFactorPrompt": "请输入两步验证码:",
+    "verifyButton": "验证",
+    "rememberMe": "记住我",
+    "captchaPrompt": "请完成下方的验证：",
+    "loginWithPasskey": "使用 Passkey 登录",
+    "error": {
+      "captchaLoadFailed": "加载 CAPTCHA 失败，请尝试刷新页面。",
+      "captchaRequired": "请完成 CAPTCHA 验证。",
+      "usernameRequiredForPasskey": "使用 Passkey 需要输入用户名。",
+      "passkeyAuthOptionsFailed": "从服务器获取 Passkey 认证选项失败。",
+      "passkeyAuthFailed": "Passkey 认证失败。请重试或使用密码登录。"
+    },
+    "recaptchaV3Notice": "此网站受 reCAPTCHA 保护，并适用 Google 隐私政策和服务条款。"
+  },
+  "connections": {
+    "addConnection": "添加新连接",
+    "noConnections": "还没有任何连接。点击'添加新连接'来创建一个吧！",
+    "addFirstConnection": "添加第一个连接",
+    "table": {
+      "name": "名称",
+      "host": "主机",
+      "port": "端口",
+      "user": "用户名",
+      "authMethod": "认证方式",
+      "tags": "标签",
+      "lastConnected": "上次连接",
+      "actions": "操作"
+    },
+    "batchEdit": {
+      "toggleLabel": "批量修改",
+      "selectAll": "全选",
+      "deselectAll": "取消全选",
+      "invertSelection": "反向选择",
+      "editSelected": "编辑所选",
+      "title": "批量编辑连接",
+      "selectedItems": "已选项目",
+      "noChange": "保持不变",
+      "deleteSelectedButton": "删除选中",
+      "deleteSelectedTooltip": "删除选中的连接",
+      "confirmMessage": "您确定要删除选中的 {count} 个连接吗？此操作无法撤销。",
+      "successMessage": "选中的连接已成功删除。",
+      "errorMessage": "批量删除连接失败: {error}"
+    },
+    "actions": {
+      "testAllFiltered": "测试全部",
+      "connect": "连接",
+      "edit": "编辑",
+      "delete": "删除",
+      "test": "测试",
+      "testing": "测试中...",
+      "clone": "克隆"
+    },
+    "form": {
+      "title": "添加新连接",
+      "name": "名称:",
+      "host": "主机/IP:",
+      "port": "端口:",
+      "username": "用户名:",
+      "authMethod": "认证方式:",
+      "authMethodPassword": "密码",
+      "authMethodKey": "SSH 密钥",
+      "password": "密码:",
+      "privateKey": "私钥:",
+      "passphrase": "私钥密码:",
+      "vncPassword": "VNC 密码:",
+      "optional": "可选",
+      "confirm": "确认添加",
+      "adding": "正在添加...",
+      "cancel": "取消",
+      "errorRequiredFields": "请填写所有必填字段。",
+      "errorPasswordRequired": "使用密码认证时，密码为必填项。",
+      "errorPrivateKeyRequired": "使用密钥认证时，私钥为必填项。",
+      "errorSshKeyRequired": "使用密钥认证时，必须选择一个 SSH 密钥。",
+      "errorPasswordRequiredOnSwitch": "切换到密码认证时，密码为必填项。",
+      "errorPrivateKeyRequiredOnSwitch": "切换到密钥认证时，私钥为必填项。",
+      "errorSshKeyRequiredOnSwitch": "切换到密钥认证时，必须选择一个 SSH 密钥。",
+      "errorVncPasswordRequired": "VNC 密码是必填项。",
+      "errorPort": "端口号必须在 1 到 65535 之间。",
+      "errorAdd": "添加连接失败: {error}",
+      "titleEdit": "编辑连接",
+      "confirmEdit": "确认编辑",
+      "saving": "正在保存...",
+      "errorUpdate": "更新连接失败: {error}",
+      "keyUpdateNote": "将私钥和密码短语留空以保留现有密钥。",
+      "proxy": "代理:",
+      "noProxy": "无代理",
+      "tags": "标签:",
+      "notes": "备注:",
+      "notesPlaceholder": "输入连接备注...",
+      "connectionMode": "代理类型:",
+      "connectionModeProxy": "代理服务器",
+      "connectionModeJumpHost": "跳板机",
+      "connectionType": "连接类型",
+      "typeSsh": "SSH",
+      "typeRdp": "RDP",
+      "typeVnc": "VNC",
+      "sectionBasic": "基本信息",
+      "sectionAuth": "认证信息",
+      "sectionAdvanced": "高级选项",
+      "testConnection": "测试连接",
+      "testing": "测试中...",
+      "sshKey": "SSH 密钥",
+      "noSshKey": "无 SSH 密钥",
+      "privateKeyDirect": "私钥内容",
+      "keyUpdateNoteDirect": "编辑时将私钥和密码短语留空以保留现有密钥。",
+      "keyUpdateNoteSelected": "编辑时选择其他密钥或使用直接输入来更改密钥。",
+      "hostTooltip": "支持 IP 范围批量添加 (例如 192.168.1.10~192.168.1.15, 仅限添加模式)",
+      "errorInvalidIpRangeFormat": "IP 范围格式应为 start_ip~end_ip",
+      "errorInvalidIpFormat": "起始或结束 IP 地址格式无效",
+      "errorIpRangeNotSameSubnet": "IP 范围必须在同一个C段子网中 (例如 1.2.3.x ~ 1.2.3.y)",
+      "errorInvalidIpSuffix": "IP 地址最后一段必须是 0-255 之间的数字",
+      "errorIpRangeStartAfterEnd": "IP 范围的起始 IP 不能大于结束 IP",
+      "errorIpRangeEmpty": "IP 范围不能为空。",
+      "errorSshKeyRequiredForBatch": "批量添加 SSH (密钥认证) 连接时，必须选择一个 SSH 密钥。",
+      "errorPasswordRequiredForBatchSSH": "批量添加 SSH (密码认证) 连接时，必须提供密码。",
+      "errorPasswordRequiredForBatchRDP": "批量添加 RDP 连接时，必须提供密码。",
+      "errorPasswordRequiredForBatchVNC": "批量添加 VNC 连接时，必须提供 VNC 密码。",
+      "errorBatchAddResult": "批量添加: {successCount} 个成功, {errorCount} 个失败。首个错误: {firstErrorEncountered}",
+      "successBatchAddResult": "批量添加成功: {successCount} 个连接已创建。",
+      "errorIpRangeNotAllowedInEditMode": "编辑模式下不支持 IP 范围。请使用单个 IP 地址。",
+      "scriptModeSubmitPlaceholder": "脚本模式提交逻辑待实现。",
+      "scriptModeEmpty": "脚本输入不能为空。",
+      "scriptModeSubmitPending": "正在处理脚本模式提交...",
+      "sectionScriptMode": "脚本模式",
+      "scriptModeInputLabel": "连接脚本 (每行一个)",
+      "scriptModePlaceholder": "请输入连接脚本，每行一个连接配置。",
+      "scriptModeFormatInfo": "格式: user@host:port [-type TYPE] [-name NAME] [-p PASSWORD] [-k KEY_NAME] [-proxy PROXY_NAME] [-tags TAG1 TAG2...] [-note NOTE_TEXT]\n参数说明:\n  user@host:port  - 用户名@主机名或IP:端口号 (必需)\n  -type TYPE      - 连接类型 (SSH, RDP, VNC; 默认为 SSH)\n  -name NAME      - 连接的显示名称 (可选; 默认为 user@host)\n  -p PASSWORD     - 密码 (SSH密码认证, RDP, VNC 时需要)\n  -k KEY_NAME     - SSH密钥名称 (SSH密钥认证时需要, 对应已上传的密钥)\n  -proxy PROXY_NAME - 代理名称 (可选, 对应已配置的代理)\n  -tags TAG1 TAG2 - 标签列表, 用空格分隔 (可选)\n  -note NOTE_TEXT - 连接备注 (可选, 支持带空格的文本, 如果包含特殊字符请使用引号)",
+      "scriptErrorMissingHost": "脚本行 '{line}' 缺少 'user@host:port' 部分。",
+      "scriptErrorInvalidType": "脚本行 '{line}' 中的类型 '{type}' 无效。有效类型为 SSH, RDP, VNC。",
+      "scriptErrorUnknownArg": "脚本行 '{line}' 中存在未知参数 '{arg}'。",
+      "scriptErrorUnexpectedToken": "脚本行 '{line}' 中出现意外标记 '{token}'。",
+      "scriptErrorInvalidUserHostPort": "脚本行 '{line}' 中的 '{part}' 部分格式无效。期望格式为 'user@host' 或 'user@host:port'。",
+      "scriptErrorInLine": "解析脚本行时出错: \"{line}\" - 错误: {error}",
+      "scriptErrorMissingType": "脚本行 '{line}' 缺少连接类型或类型无效。",
+      "scriptErrorInvalidUserHostFormat": "脚本行 '{line}' 的 user@host 部分格式无效。",
+      "scriptErrorInvalidPort": "脚本行 '{line}' 的端口 '{port}' 无效。",
+      "scriptErrorMissingPasswordForSsh": "脚本行 '{line}' (SSH密码认证) 缺少密码 (-p)。",
+      "scriptErrorMissingKeyNameForSsh": "脚本行 '{line}' (SSH密钥认证) 缺少密钥名称 (-k)。",
+      "scriptErrorMissingPasswordForType": "脚本行 '{line}' ({type}类型) 缺少密码 (-p)。",
+      "scriptErrorInternal": "处理脚本输入时发生内部解析错误。",
+      "scriptErrorTagNotFound": "脚本处理错误：未找到标签 '{tagName}'。",
+      "scriptErrorSshKeyNotFound": "脚本处理错误：未找到 SSH 密钥 '{keyName}'。",
+      "scriptErrorNothingToProcess": "没有可处理的有效连接数据。",
+      "scriptErrorMissingAuthForSsh": "SSH连接必须提供密码 (-p) 或密钥名称 (-k)",
+      "scriptErrorMissingPasswordForRdp": "RDP连接必须提供密码 (-p)",
+      "scriptErrorKeyNotApplicableForRdp": "密钥名称 (-k) 不适用于 RDP 连接",
+      "scriptErrorMissingPasswordForVnc": "VNC连接必须提供密码 (-p)",
+      "scriptErrorKeyNotApplicableForVnc": "密钥名称 (-k) 不适用于 VNC 连接",
+      "scriptErrorMissingValueForKey": "参数 '{key}' 缺少对应的值",
+      "scriptErrorUnknownOption": "未知选项 '{option}'",
+      "scriptErrorUnexpectedArgument": "意外参数 '{argument}'",
+      "scriptErrorEmptyLine": "输入行不能为空",
+      "scriptErrorInvalidUserHostPortFormat": "'{part}' 部分格式无效，期望格式为 'user@host' 或 'user@host:port'",
+      "scriptTagCreated": "标签 '{tagName}' 已创建",
+      "scriptErrorTagCreationFailed": "创建标签 '{tagName}' 失败",
+      "scriptModeAddingConnections": "正在通过脚本模式添加 {count} 个连接...",
+      "jumpHostsTitle": "跳板机链配置",
+      "jumpHostLabel": "跳板机",
+      "selectJumpHost": "请选择跳板机",
+      "removeJumpHostTitle": "移除此跳板机",
+      "addJumpHost": "添加跳板机",
+      "noAvailableSshConnectionsForJump": "没有可用的SSH连接作为跳板机。请先创建一些SSH连接。"
+    },
+    "test": {
+      "success": "连接测试成功！",
+      "failed": "连接测试失败: {error}",
+      "latencyTooltip": "此延迟测量建立全新 SSH 连接所需的时间（包括 TCP 连接、代理协商、SSH 握手、认证等步骤），通常高于已建立连接上的交互延迟。",
+      "errorMissingFields": "请填写主机、端口、用户名并选择认证方式。",
+      "errorUnknown": "测试过程中发生未知错误。",
+      "errorNetwork": "网络错误或服务器无法访问。",
+      "testingInProgress": "测试中...",
+      "errorPrefix": "错误:"
+    },
+    "prompts": {
+      "confirmDelete": "确定要删除连接 \"{name}\" 吗？此操作不可撤销。"
+    },
+    "errors": {
+      "deleteFailed": "删除连接失败: {error}",
+      "createFailed": "添加连接失败: {error}",
+      "cloneFailed": "克隆连接失败: {error}"
+    },
+    "status": {
+      "never": "从未"
+    },
+    "untaggedGroup": "未标记",
+    "noUntaggedConnections": "没有未标记的连接。"
+  },
+  "proxies": {
+    "title": "代理管理",
+    "addProxy": "添加新代理",
+    "loading": "正在加载代理...",
+    "error": "加载代理列表失败: {error}",
+    "noProxies": "还没有任何代理配置。点击'添加新代理'来创建一个吧！",
+    "actions": {
+      "edit": "编辑",
+      "delete": "删除"
+    },
+    "form": {
+      "title": "添加新代理",
+      "titleEdit": "编辑代理",
+      "name": "名称:",
+      "type": "类型:",
+      "host": "主机/IP:",
+      "port": "端口:",
+      "username": "用户名:",
+      "password": "密码:",
+      "optional": "可选",
+      "confirm": "确认添加",
+      "confirmEdit": "确认编辑",
+      "adding": "正在添加...",
+      "saving": "正在保存...",
+      "cancel": "取消",
+      "errorRequiredFields": "请填写所有必填字段。",
+      "errorPort": "端口号必须在 1 到 65535 之间。",
+      "errorAdd": "添加代理失败: {error}",
+      "errorUpdate": "更新代理失败: {error}",
+      "passwordUpdateNote": "将密码留空以保留现有密码。"
+    },
+    "prompts": {
+      "confirmDelete": "确定要删除代理 \"{name}\" 吗？此操作不可撤销。"
+    },
+    "errors": {
+      "deleteFailed": "删除代理失败: {error}"
+    }
+  },
+  "workspace": {
+    "terminal": {
+      "reconnectingMsg": "正在尝试重新连接..."
+    }
+  },
+  "fileEditor": {
+    "title": "文件编辑器"
+  },
+  "fileManager": {
+    "modalTitle": "文件管理器",
+    "currentPath": "当前路径",
+    "loading": "正在加载目录...",
+    "emptyDirectory": "目录为空",
+    "uploadTasks": "上传任务",
+    "actions": {
+      "refresh": "刷新",
+      "parentDirectory": "上一级",
+      "uploadFile": "上传文件",
+      "upload": "上传",
+      "newFolder": "新建文件夹",
+      "newFile": "新建文件",
+      "rename": "重命名",
+      "changePermissions": "修改权限",
+      "delete": "删除",
+      "deleteMultiple": "删除 {count} 个项目",
+      "download": "下载",
+      "downloadMultiple": "下载 {count} 个项目",
+      "downloadFolder": "下载文件夹",
+      "cancel": "取消",
+      "save": "保存",
+      "closeTab": "关闭标签页",
+      "closeEditor": "关闭编辑器",
+      "cdToTerminal": "将终端目录切换到当前路径",
+      "copy": "复制",
+      "cut": "剪切",
+      "paste": "粘贴",
+      "openEditor": "打开编辑器",
+      "copyPath": "复制路径"
+    },
+    "contextMenu": {
+      "compress": "压缩",
+      "compressZip": "压缩为 zip",
+      "compressTarGz": "压缩为 tar.gz",
+      "compressTarBz2": "压缩为 tar.bz2",
+      "decompress": "解压",
+      "sendTo": "发送到..."
+    },
+    "headers": {
+      "type": "类型",
+      "name": "名称",
+      "size": "大小",
+      "permissions": "权限",
+      "modified": "修改时间"
+    },
+    "uploadStatus": {
+      "cancelled": "已取消",
+      "pending": "等待中",
+      "uploading": "上传中"
+    },
+    "errors": {
+      "generic": "错误",
+      "missingConnectionId": "无法获取当前连接 ID",
+      "createFolderFailed": "创建文件夹失败",
+      "deleteFailed": "删除失败",
+      "renameFailed": "重命名失败",
+      "chmodFailed": "修改权限失败",
+      "invalidPermissionsFormat": "无效的权限格式。请输入 3 或 4 位八进制数字 (例如 755 或 0755)。",
+      "readFileError": "读取文件时出错",
+      "readFileFailed": "读取文件失败",
+      "fileDecodeError": "文件解码失败 (可能不是 UTF-8 编码)",
+      "saveFailed": "保存文件失败",
+      "saveTimeout": "保存超时",
+      "fileExists": "文件 \"{name}\" 已存在。",
+      "loadDirectoryFailed": "加载目录失败",
+      "copyFailed": "复制失败",
+      "moveFailed": "移动失败",
+      "sftpNotReady": "SFTP 会话未就绪",
+      "sftpManagerNotFound": "SFTP 管理器未找到",
+      "noActiveSession": "未找到活动会话",
+      "terminalManagerNotFound": "未找到终端管理器",
+      "sendCommandFailed": "发送命令失败",
+      "downloadDirectoryFailed": "下载文件夹失败",
+      "downloadDirectoryNotImplemented": "服务器尚未实现文件夹下载功能。",
+      "compressFailed": "压缩失败",
+      "compressTimeout": "压缩超时",
+      "compressErrorDetailed": "压缩失败: {error}",
+      "decompressFailed": "解压失败",
+      "decompressTimeout": "解压超时",
+      "decompressErrorDetailed": "解压失败: {error}",
+      "commandNotFoundCompress": "服务器上缺少 '{command}' 命令，无法完成压缩操作。",
+      "commandNotFoundDecompress": "服务器上缺少 '{command}' 命令，无法完成解压操作。",
+      "genericCommandNotFound": "服务器上缺少 '{command}' 命令，无法完成 '{operation}' 操作。",
+      "copyPathFailed": "复制路径失败"
+    },
+    "notifications": {
+      "copySuccess": "复制成功",
+      "moveSuccess": "移动成功",
+      "cdCommandSent": "CD 命令已发送到终端",
+      "compressSuccess": "压缩 {name} 成功",
+      "decompressSuccess": "解压 {name} 成功",
+      "pathCopied": "路径已复制到剪贴板"
+    },
+    "warnings": {
+      "moveSameDirectory": "不能在同一目录下剪切和粘贴。"
+    },
+    "prompts": {
+      "enterFolderName": "请输入新文件夹的名称:",
+      "confirmOverwrite": "文件 \"{name}\" 已存在。是否覆盖？",
+      "confirmDeleteMultiple": "确定要删除选定的 {count} 个项目吗？此操作不可撤销。",
+      "confirmDeleteFolder": "确定要删除目录 \"{name}\" 及其所有内容吗？此操作不可撤销。",
+      "confirmDeleteFile": "确定要删除文件 \"{name}\" 吗？此操作不可撤销。",
+      "enterNewName": "请输入 \"{oldName}\" 的新名称:",
+      "enterNewPermissions": "请输入 \"{name}\" 的新权限 (八进制, 例如 755):",
+      "enterFileName": "请输入新文件的名称:"
+    },
+    "editingFile": "正在编辑",
+    "loadingFile": "正在加载文件...",
+    "saving": "正在保存",
+    "saveSuccess": "保存成功",
+    "saveError": "保存出错",
+    "editPathTooltip": "点击路径进行编辑",
+    "noOpenFile": "未打开文件",
+    "selectFileToEdit": "请从文件管理器中选择文件以开始编辑。",
+    "searchPlaceholder": "搜索文件...",
+    "dropFilesHere": "将文件拖拽到此处上传",
+    "changeEncodingTooltip": "更改文件编码",
+    "loadingEncoding": "加载中...",
+    "noSearchResults": "未找到匹配的搜索结果",
+    "modals": {
+      "titles": {
+        "delete": "删除 \"{name}\"",
+        "deleteMultiple": "删除 {count} 个项目",
+        "rename": "重命名 \"{name}\"",
+        "chmod": "修改 \"{name}\" 的权限",
+        "newFile": "创建新文件",
+        "newFolder": "创建新文件夹"
+      },
+      "buttons": {
+        "delete": "删除",
+        "rename": "重命名",
+        "changePermissions": "设置权限",
+        "create": "创建",
+        "confirm": "确认",
+        "cancel": "取消",
+        "close": "关闭"
+      },
+      "messages": {
+        "confirmDelete": "您确定要删除{type} \"{name}\" 吗？此操作无法撤销。",
+        "confirmDeleteMultiple": "您确定要删除这 {count} 个项目吗？此操作无法撤销。\n项目: {names}"
+      },
+      "labels": {
+        "newName": "新名称:",
+        "newPermissions": "新权限 (八进制):",
+        "fileName": "文件名:",
+        "folderName": "文件夹名称:",
+        "folder": "文件夹",
+        "file": "文件"
+      },
+      "placeholders": {
+        "newName": "输入新名称",
+        "newPermissions": "例如 755 或 0755",
+        "newFile": "输入文件名",
+        "newFolder": "输入文件夹名称"
+      },
+      "chmodHelp": "请输入八进制格式的权限 (例如 755 或 0755)。"
+    }
+  },
+  "statusMonitor": {
+    "title": "服务器状态",
+    "errorPrefix": "错误:",
+    "loading": "等待数据...",
+    "cpuModelLabel": "CPU 型号:",
+    "osLabel": "系统:",
+    "cpuLabel": "CPU:",
+    "memoryLabel": "内存:",
+    "swapLabel": "Swap:",
+    "diskLabel": "磁盘:",
+    "networkLabel": "网络",
+    "notAvailable": "N/A",
+    "bytesPerSecond": "B/s",
+    "kiloBytesPerSecond": "KB/s",
+    "megaBytesPerSecond": "MB/s",
+    "gigaBytesPerSecond": "GB/s",
+    "megaBytes": "MB",
+    "gigaBytes": "GB",
+    "swapNotAvailable": "Swap 不可用",
+    "cpuUsageTitle": "CPU 使用率",
+    "memoryUsageTitleUnit": "内存使用情况 ({unit})",
+    "networkSpeedTitleUnit": "网络速度 ({unit})",
+    "cpuUsageLabel": "CPU 使用率 (%)",
+    "memoryUsageLabelUnit": "内存使用 ({unit})",
+    "networkDownloadLabelUnit": "下载 ({unit})",
+    "networkUploadLabelUnit": "上传 ({unit})",
+    "latestCpuValue": "{value}%",
+    "latestMemoryValue": "{value} {unit}",
+    "latestNetworkValue": "↓ {download} ↑ {upload} {unit}"
+  },
+  "tags": {
+    "title": "标签管理",
+    "addTag": "添加新标签",
+    "loading": "正在加载标签...",
+    "error": "加载标签列表失败: {error}",
+    "noTags": "还没有任何标签。点击'添加新标签'来创建一个吧！",
+    "prompts": {
+      "confirmDelete": "确定要删除标签 \"{name}\" 吗？此操作不可撤销。"
+    },
+    "inputPlaceholder": "输入搜索或创建标签...",
+    "removeSelection": "移除此标签选择",
+    "deleteTagGlobally": "全局删除此标签",
+    "createSuccess": "标签创建成功。",
+    "updateSuccess": "标签更新成功。",
+    "deleteSuccess": "标签 \"{name}\" 删除成功。",
+    "deleteFailed": "标签 \"{name}\" 删除失败: {error}",
+    "errorDelete": "删除标签时出错: {error}"
+  },
+  "settings": {
+    "popupFileManager": {
+      "title": "弹窗文件管理器",
+      "enableLabel": "启用弹窗文件管理器",
+      "description": "启用后，命令输入栏将显示文件管理器按钮，点击可打开弹窗式文件管理器。",
+      "success": {
+        "saved": "弹窗文件管理器设置已保存。"
+      },
+      "error": {
+        "saveFailed": "保存弹窗文件管理器设置失败。"
+      }
+    },
+    "title": "设置",
+    "category": {
+      "security": "安全设置",
+      "appearance": "外观设置",
+      "system": "系统设置",
+      "about": "关于",
+      "dataManagement": "数据管理"
+    },
+    "timezone": {
+      "title": "时区设置",
+      "selectLabel": "选择时区:",
+      "description": "通知中的时间戳将根据此时区进行格式化。",
+      "success": {
+        "saved": "时区设置已成功保存。"
+      },
+      "error": {
+        "saveFailed": "保存时区设置失败。"
+      }
+    },
+    "changePassword": {
+      "title": "修改密码",
+      "currentPassword": "当前密码:",
+      "newPassword": "新密码:",
+      "confirmPassword": "确认新密码:",
+      "submit": "确认修改",
+      "success": "密码修改成功！",
+      "error": {
+        "passwordsDoNotMatch": "新密码和确认密码不匹配。",
+        "generic": "修改密码失败，请稍后重试。"
+      }
+    },
+    "twoFactor": {
+      "title": "两步验证 (TOTP)",
+      "status": {
+        "enabled": "两步验证已启用。",
+        "disabled": "两步验证当前未启用。"
+      },
+      "enable": {
+        "button": "启用两步验证"
+      },
+      "setup": {
+        "scanQrCode": "请使用您的 Authenticator 应用扫描下方的二维码:",
+        "orEnterSecret": "或者手动输入密钥:",
+        "enterCode": "请输入应用生成的 6 位验证码:",
+        "verifyButton": "验证并启用"
+      },
+      "disable": {
+        "button": "禁用两步验证",
+        "passwordPrompt": "请输入当前登录密码以确认禁用:"
+      },
+      "success": {
+        "activated": "两步验证已成功激活！",
+        "disabled": "两步验证已成功禁用。"
+      },
+      "error": {
+        "setupFailed": "获取两步验证设置信息失败。",
+        "codeRequired": "请输入验证码。",
+        "verificationFailed": "验证码无效或已过期。",
+        "passwordRequiredForDisable": "需要输入当前密码才能禁用。",
+        "disableFailed": "禁用两步验证失败。"
+      }
+    },
+    "ipWhitelist": {
+      "title": "IP 白名单管理",
+      "description": "配置允许访问此应用的 IP 地址或范围。留空则允许所有 IP。",
+      "label": "允许的 IP 地址/范围 (每行一个或用逗号分隔):",
+      "hint": "支持 IPv4, IPv6 和 CIDR (例如 192.168.1.100, 10.0.0.0/8, 2001:db8::/32)。",
+      "saveButton": "保存白名单",
+      "success": {
+        "saved": "IP 白名单已成功保存。"
+      },
+      "error": {
+        "saveFailed": "保存 IP 白名单失败。"
+      }
+    },
+    "popupEditor": {
+      "title": "弹窗文件编辑器",
+      "enableLabel": "打开文件时显示弹窗编辑器",
+      "saveButton": "保存设置",
+      "success": {
+        "saved": "弹窗编辑器设置已成功保存。"
+      },
+      "error": {
+        "saveFailed": "保存弹窗编辑器设置失败。"
+      }
+    },
+    "shareEditorTabs": {
+      "title": "编辑器标签页",
+      "enableLabel": "在所有会话间共享编辑器标签页",
+      "description": "如果启用，所有 SSH 会话将共享同一组打开的文件编辑器标签页。如果禁用，每个会话将拥有自己独立的一组标签页。",
+      "saveButton": "保存设置",
+      "success": {
+        "saved": "编辑器标签页共享设置已成功保存。"
+      },
+      "error": {
+        "saveFailed": "保存编辑器标签页共享设置失败。"
+      }
+    },
+    "language": {
+      "title": "语言设置",
+      "selectLabel": "界面语言:",
+      "saveButton": "保存语言",
+      "success": {
+        "saved": "语言设置已成功保存。"
+      },
+      "error": {
+        "saveFailed": "保存语言设置失败。"
+      }
+    },
+    "passkey": {
+      "title": "Passkey 管理",
+      "description": "使用 Passkey（生物识别或安全密钥）进行无密码认证",
+      "nameLabel": "Passkey 名称",
+      "namePlaceholder": "例如：我的笔记本电脑",
+      "registerNewButton": "注册新 Passkey",
+      "registeredKeysTitle": "已注册的 Passkey",
+      "unnamedKey": "未命名 Passkey",
+      "createdDate": "创建于",
+      "lastUsedDate": "上次使用",
+      "noKeysRegistered": "尚未注册任何 Passkey。",
+      "confirmDelete": "确定要删除此 Passkey 吗？此操作无法撤销。",
+      "error": {
+        "nameRequired": "请输入 Passkey 名称。",
+        "cancelled": "Passkey 注册已被用户取消。",
+        "genericRegistration": "无法注册 Passkey: {message}",
+        "verificationFailed": "注册失败: {message}",
+        "userNotLoggedIn": "用户未登录或用户名不可用。",
+        "registrationCancelled": "Passkey 注册已取消。",
+        "registrationFailed": "Passkey 注册失败。",
+        "deleteFailedGeneral": "删除 Passkey 失败。请重试。"
+      },
+      "success": {
+        "registered": "新的 Passkey 已成功注册！",
+        "deleted": "Passkey 已成功删除。",
+        "nameUpdated": "Passkey 名称已更新。"
+      }
+    },
+    "notifications": {
+      "title": "通知设置",
+      "addChannel": "添加通知渠道",
+      "noChannels": "尚未配置任何通知渠道。",
+      "triggers": "触发事件",
+      "noEventsEnabled": "未启用任何事件",
+      "confirmDelete": "确定要删除通知渠道 \"{name}\" 吗？此操作不可撤销。",
+      "types": {
+        "webhook": "Webhook",
+        "email": "邮件",
+        "telegram": "Telegram"
+      },
+      "form": {
+        "addTitle": "添加通知渠道",
+        "editTitle": "编辑通知渠道",
+        "name": "渠道名称:",
+        "channelType": "渠道类型:",
+        "channelTypeEditNote": "创建后无法修改渠道类型。",
+        "webhookMethod": "HTTP 方法:",
+        "webhookHeaders": "自定义 Headers",
+        "webhookBodyTemplate": "请求体模板 (可选)",
+        "webhookBodyPlaceholder": "默认: JSON 格式负载。可使用",
+        "emailTo": "收件人邮箱:",
+        "emailToHelp": "多个邮箱用逗号分隔。",
+        "emailBodyTemplate": "邮件内容模板 (可选)",
+        "emailBodyPlaceholder": "默认: 基于事件的通知内容。可使用",
+        "smtpHost": "SMTP 主机:",
+        "smtpPort": "SMTP 端口:",
+        "smtpSecure": "使用 TLS/SSL",
+        "smtpUser": "SMTP 用户名:",
+        "smtpPass": "SMTP 密码:",
+        "smtpFrom": "发件人邮箱:",
+        "smtpFromHelp": "用于邮件 'From' 字段的地址。",
+        "testButton": "测试通知",
+        "testSuccess": "测试通知发送成功！",
+        "testFailed": "测试通知发送失败",
+        "fillRequiredToTest": "请填写必填字段以启用测试。",
+        "telegramToken": "机器人 Token:",
+        "telegramTokenHelp": "请安全存储。建议使用环境变量。",
+        "telegramChatId": "聊天 ID:",
+        "telegramMessageTemplate": "消息模板 (可选)",
+        "telegramMessagePlaceholder": "默认: Markdown 格式。可使用",
+        "telegramCustomDomain": "自定义 Telegram API 域名",
+        "enabledEvents": "启用的事件:",
+        "templateHelp": "可用占位符:",
+        "invalidJson": "无效的 JSON 格式"
+      },
+      "events": {
+        "LOGIN_SUCCESS": "登录成功",
+        "LOGIN_FAILURE": "登录失败",
+        "LOGOUT": "登出",
+        "PASSWORD_CHANGED": "密码已修改",
+        "2FA_ENABLED": "两步验证已启用",
+        "2FA_DISABLED": "两步验证已禁用",
+        "PASSKEY_REGISTERED": "Passkey 已注册",
+        "PASSKEY_AUTH_SUCCESS": "Passkey 认证成功",
+        "PASSKEY_AUTH_FAILURE": "Passkey 认证失败",
+        "PASSKEY_DELETED": "Passkey 已删除",
+        "CONNECTION_CREATED": "连接已创建",
+        "CONNECTION_UPDATED": "连接已更新",
+        "CONNECTION_DELETED": "连接已删除",
+        "CONNECTIONS_EXPORTED": "连接已导出",
+        "PROXY_CREATED": "代理已创建",
+        "PROXY_UPDATED": "代理已更新",
+        "PROXY_DELETED": "代理已删除",
+        "TAG_CREATED": "标签已创建",
+        "TAG_UPDATED": "标签已更新",
+        "TAG_DELETED": "标签已删除",
+        "SETTINGS_UPDATED": "设置已更新",
+        "IP_WHITELIST_UPDATED": "IP 白名单已更新",
+        "IP_BLOCKED": "IP 已封禁",
+        "NOTIFICATION_SETTING_CREATED": "通知设置已创建",
+        "NOTIFICATION_SETTING_UPDATED": "通知设置已更新",
+        "NOTIFICATION_SETTING_DELETED": "通知设置已删除",
+        "SSH_CONNECT_SUCCESS": "SSH 连接成功",
+        "SSH_CONNECT_FAILURE": "SSH 连接失败",
+        "SSH_SHELL_FAILURE": "SSH Shell 打开失败",
+        "DATABASE_MIGRATION": "数据库迁移",
+        "ADMIN_SETUP_COMPLETE": "初始管理员设置完成"
+      }
+    },
+    "appearance": {
+      "title": "外观设置",
+      "description": "自定义应用程序的视觉主题和背景。",
+      "customizeButton": "自定义外观"
+    },
+    "autoCopyOnSelect": {
+      "title": "终端自动复制",
+      "enableLabel": "松开鼠标时自动复制选中文本",
+      "saveButton": "保存",
+      "success": {
+        "saved": "自动复制设置已成功保存。"
+      },
+      "error": {
+        "saveFailed": "保存自动复制设置失败。"
+      }
+    },
+    "docker": {
+      "title": "Docker 管理器设置",
+      "refreshIntervalLabel": "状态刷新间隔 (秒):",
+      "refreshIntervalHint": "获取 Docker 容器状态和统计信息的频率（最小为 1）。",
+      "defaultExpandLabel": "默认展开容器详情",
+      "saveButton": "保存 Docker 设置",
+      "success": {
+        "saved": "Docker 设置已成功保存。"
+      },
+      "error": {
+        "saveFailed": "保存 Docker 设置失败。",
+        "invalidInterval": "刷新间隔必须是正整数。"
+      }
+    },
+    "statusMonitor": {
+      "title": "状态监控设置",
+      "refreshIntervalLabel": "状态刷新间隔 (秒):",
+      "refreshIntervalHint": "获取服务器 CPU、内存、磁盘等状态的频率（最小为 1）。",
+      "saveButton": "保存状态监控设置",
+      "success": {
+        "saved": "状态监控设置已成功保存。"
+      },
+      "error": {
+        "saveFailed": "保存状态监控设置失败。",
+        "invalidInterval": "刷新间隔必须是正整数。"
+      }
+    },
+    "workspace": {
+      "title": "工作区与终端",
+      "sidebarPersistentTitle": "侧边栏行为",
+      "sidebarPersistentLabel": "弹出后固定侧边栏 (不自动收回)",
+      "sidebarPersistentDescription": "开启后，点击侧边栏外部区域不会自动收回侧边栏。",
+      "success": {
+        "sidebarPersistentSaved": "侧边栏设置已保存。",
+        "showConnectionTagsSaved": "连接标签显示设置已保存。",
+        "showQuickCommandTagsSaved": "快捷指令标签显示设置已保存。"
+      },
+      "error": {
+        "sidebarPersistentSaveFailed": "保存侧边栏设置失败。",
+        "showConnectionTagsSaveFailed": "保存连接标签显示设置失败。",
+        "showQuickCommandTagsSaveFailed": "保存快捷指令标签显示设置失败。"
+      },
+      "showConnectionTagsTitle": "显示连接标签",
+      "showConnectionTagsLabel": "在连接列表中显示标签",
+      "showConnectionTagsDescription": "关闭后将隐藏连接列表中的标签，并从搜索中排除标签。",
+      "showQuickCommandTagsTitle": "显示快捷指令标签",
+      "showQuickCommandTagsLabel": "在快捷指令列表中显示标签",
+      "showQuickCommandTagsDescription": "关闭后将隐藏快捷指令列表中的标签，并从搜索中排除标签。",
+      "fileManagerDeleteConfirmTitle": "文件管理器删除确认",
+      "fileManagerShowDeleteConfirmationLabel": "删除文件或文件夹时显示确认提示框",
+      "fileManagerDeleteConfirmSuccess": "文件管理器删除确认设置已保存。",
+      "fileManagerDeleteConfirmError": "保存文件管理器删除确认设置失败。",
+      "terminalRightClickPasteTitle": "终端右键粘贴",
+      "terminalEnableRightClickPasteLabel": "启用终端右键粘贴",
+      "terminalEnableRightClickPasteDescription": "允许在终端区域内使用鼠标右键粘贴剪贴板内容。",
+      "terminalRightClickPasteSuccess": "终端右键粘贴设置已保存。",
+      "terminalRightClickPasteError": "保存终端右键粘贴设置失败。"
+    },
+    "statusMonitorShowIp": {
+      "title": "状态监视器显示IP地址",
+      "enableLabel": "在状态监视器中显示IP地址"
+    },
+    "terminalScrollback": {
+      "title": "终端回滚行数",
+      "limitLabel": "最大行数",
+      "limitHint": "设置终端保留的最大输出行数。0 表示无限制 (使用默认值 5000)。此设置将在下次打开终端时生效。",
+      "saveButton": "保存",
+      "success": {
+        "saved": "终端回滚行数设置已保存。"
+      },
+      "error": {
+        "saveFailed": "保存终端回滚行数设置失败。",
+        "invalidInput": "请输入一个有效的非负整数。"
+      }
+    },
+    "ipBlacklist": {
+      "title": "IP 黑名单管理",
+      "description": "配置登录失败次数限制和自动封禁时长。本地地址 (127.0.0.1, ::1) 不会被封禁。",
+      "maxAttemptsLabel": "最大失败次数:",
+      "banDurationLabel": "封禁时长 (秒):",
+      "saveConfigButton": "保存配置",
+      "currentBannedTitle": "当前已封禁的 IP 地址",
+      "loadingList": "正在加载黑名单...",
+      "noBannedIps": "当前没有 IP 地址在黑名单中。",
+      "confirmRemoveIp": "确定要从黑名单中移除 IP 地址 \"{ip}\" 吗？",
+      "table": {
+        "ipAddress": "IP 地址",
+        "attempts": "失败次数",
+        "lastAttempt": "最后尝试时间",
+        "bannedUntil": "封禁截止时间",
+        "actions": "操作",
+        "removeButton": "移除",
+        "deleting": "删除中..."
+      },
+      "success": {
+        "configUpdated": "黑名单配置已成功更新。"
+      },
+      "error": {
+        "fetchFailed": "获取黑名单失败",
+        "deleteFailed": "删除失败",
+        "invalidMaxAttempts": "最大失败次数必须是正整数。",
+        "invalidBanDuration": "封禁时长必须是正整数（秒）。",
+        "updateConfigFailed": "更新黑名单配置失败"
+      }
+    },
+    "captcha": {
+      "title": "CAPTCHA 设置",
+      "description": "为登录页面配置 CAPTCHA 验证，以防止自动化攻击。",
+      "enableLabel": "在登录页面启用 CAPTCHA",
+      "providerLabel": "CAPTCHA 提供商:",
+      "providerNone": "无 (禁用)",
+      "hcaptchaHint": "请从此网站获取:",
+      "recaptchaHint": "请从此网站获取:",
+      "siteKeyLabel": "站点密钥 (公开):",
+      "secretKeyLabel": "秘密密钥 (私有):",
+      "secretKeyHint": "请妥善保管此密钥，它将安全地存储在服务器上。",
+      "saveButton": "保存 CAPTCHA 设置",
+      "success": {
+        "saved": "CAPTCHA 设置已成功保存。"
+      },
+      "error": {
+        "saveFailed": "保存 CAPTCHA 设置失败。",
+        "hcaptchaKeysRequired": "hCaptcha Site Key 和 Secret Key 是必填项，以便进行验证。",
+        "recaptchaKeysRequired": "reCAPTCHA Site Key 和 Secret Key 是必填项，以便进行验证。",
+        "verificationFailed": "CAPTCHA 凭据验证失败。请检查您输入的 Site Key 和 Secret Key 是否正确。"
+      }
+    },
+    "commandInputSync": {
+      "title": "命令输入同步",
+      "selectLabel": "同步目标:",
+      "targetNone": "无",
+      "targetQuickCommands": "快捷指令",
+      "targetCommandHistory": "命令历史",
+      "description": "将命令输入栏的内容实时同步到所选面板的搜索框。键盘上下选中后使用 Enter 使用指令",
+      "success": {
+        "saved": "同步目标已保存。"
+      },
+      "error": {
+        "saveFailed": "保存同步目标失败。"
+      }
+    },
+    "about": {
+      "version": "版本",
+      "checkingUpdate": "正在检查更新...",
+      "latestVersion": "已是最新版本",
+      "updateAvailable": "发现新版本 {version}！",
+      "error": {
+        "checkFailed": "检查更新失败",
+        "checkFailedShort": "检查失败",
+        "noReleases": "未找到发布版本",
+        "rateLimit": "GitHub API 速率限制，请稍后再试"
+      }
+    },
+    "exportConnections": {
+      "title": "导出连接数据",
+      "decryptKeyInfo": "解压密码是您 data/.env 文件中的 ENCRYPTION_KEY。请妥善保管此文件。",
+      "buttonText": "开始导出"
+    },
+    "tabs": {
+      "security": "安全",
+      "ipControl": "IP 管控",
+      "workspace": "工作区",
+      "system": "系统",
+      "dataManagement": "数据管理",
+      "appearance": "外观",
+      "about": "关于"
+    },
+    "loading": "加载中...",
+    "webdavBackup": {
+      "title": "WebDAV 备份",
+      "setupTitle": "配置备份服务器",
+      "configTitle": "备份服务器配置",
+      "configuredHint": "已连接到:",
+      "url": "服务器地址",
+      "username": "用户名",
+      "password": "密码",
+      "saveAndTest": "保存并测试连接",
+      "disconnect": "断开连接",
+      "testConnection": "测试连接",
+      "backupTitle": "备份操作",
+      "createBackup": "创建备份",
+      "restore": "恢复",
+      "noBackups": "暂无备份文件",
+      "configSaved": "配置已保存，连接正常",
+      "configDeleted": "配置已删除",
+      "connectionOk": "连接正常",
+      "backupCreated": "备份成功",
+      "confirmRestore": "确定要恢复数据吗？此操作将覆盖现有数据。",
+      "restoreSuccess": "恢复成功",
+      "confirmDelete": "确定要删除此备份吗？",
+      "deleteSuccess": "备份已删除"
+    }
+  },
+  "notificationController": {
+    "errorFetchSettings": "获取通知设置失败",
+    "errorMissingFields": "缺少必要的通知设置字段 (channel_type, name, config)",
+    "errorCreateSetting": "创建通知设置失败",
+    "errorInvalidId": "无效的通知设置 ID",
+    "errorNoUpdateData": "没有提供要更新的数据",
+    "errorNotFound": "未找到 ID 为 {id} 的通知设置",
+    "errorUpdateSetting": "更新通知设置失败",
+    "errorDeleteNotFound": "删除 ID 为 {id} 的通知设置失败，可能已被删除",
+    "errorDeleteSetting": "删除通知设置失败",
+    "testMessageSaved": "为设置 ID {id} ({name}) 触发的测试",
+    "testEventTriggered": "测试通知事件已触发。请检查对应渠道的接收情况。",
+    "errorTriggerTest": "触发测试通知时发生内部错误",
+    "errorMissingTestInfo": "缺少必要的测试信息 (channel_type, config)",
+    "errorInvalidChannelType": "无效的渠道类型",
+    "testMessageUnsaved": "为未保存的 {channelType} 配置触发的测试"
+  },
+  "common": {
+    "apply": "应用",
+    "loading": "加载中...",
+    "cancel": "取消",
+    "save": "保存",
+    "saving": "保存中...",
+    "saved": "已保存",
+    "testing": "测试中...",
+    "edit": "编辑",
+    "delete": "删除",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "settings": "设置",
+    "errorOccurred": "发生错误。",
+    "close": "关闭",
+    "remove": "移除",
+    "expand": "展开",
+    "collapse": "折叠",
+    "search": "搜索",
+    "all": "全部",
+    "filter": "筛选",
+    "width": "宽度",
+    "height": "高度",
+    "reconnect": "重新连接",
+    "retry": "重试",
+    "sortAscending": "升序",
+    "sortDescending": "降序",
+    "restore": "还原",
+    "minimize": "最小化",
+    "send": "发送",
+    "copied": "已复制到剪贴板",
+    "ok": "确认",
+    "success": "成功",
+    "error": "失败",
+    "alert": "提示",
+    "confirm": "确认",
+    "updateSuccess": "更新成功"
+  },
+  "layoutConfigurator": {
+    "title": "布局管理器",
+    "availablePanes": "可用面板",
+    "layoutPreview": "主布局预览（拖拽到此处）",
+    "resetDefault": "恢复默认",
+    "noAvailablePanes": "所有面板都已在布局中",
+    "emptyLayout": "布局为空，请从左侧拖拽面板或添加容器。",
+    "leftSidebar": "左侧栏面板",
+    "rightSidebar": "右侧栏面板",
+    "dropHere": "从可用面板拖拽到此处",
+    "confirmClose": "有未保存的更改，确定要关闭吗？",
+    "confirmReset": "确定要恢复默认布局和侧栏配置吗？当前更改将丢失。",
+    "saveError": "保存布局时出错，请稍后再试。",
+    "confirmClearLayout": "确定要清空整个布局吗？所有面板将返回可用列表。",
+    "lockLayout": "锁定布局",
+    "lockUpdateError": "更新布局锁定状态失败。"
+  },
+  "layoutNodeEditor": {
+    "containerLabel": "容器 ({direction})",
+    "horizontal": "水平",
+    "vertical": "垂直",
+    "toggleDirection": "切换方向",
+    "addHorizontalContainer": "添加水平容器",
+    "addVerticalContainer": "添加垂直容器",
+    "removeNode": "移除此节点",
+    "dragHandle": "拖拽调整顺序或移动",
+    "dropHere": "将面板或容器拖拽到此处"
+  },
+  "auditLog": {
+    "title": "审计日志",
+    "searchPlaceholder": "搜索详细信息...",
+    "noLogs": "未找到审计日志记录。",
+    "table": {
+      "timestamp": "时间戳",
+      "actionType": "操作类型",
+      "details": "详细信息"
+    },
+    "paginationInfo": "第 {currentPage} 页 / 共 {totalPages} 页 (总计 {totalLogs} 条记录)",
+    "actions": {
+      "LOGIN_SUCCESS": "登录成功",
+      "LOGIN_FAILURE": "登录失败",
+      "LOGOUT": "登出",
+      "PASSWORD_CHANGED": "密码已修改",
+      "2FA_ENABLED": "两步验证已启用",
+      "2FA_DISABLED": "两步验证已禁用",
+      "CONNECTION_CREATED": "连接已创建",
+      "CONNECTION_UPDATED": "连接已更新",
+      "CONNECTION_DELETED": "连接已删除",
+      "PROXY_CREATED": "代理已创建",
+      "PROXY_UPDATED": "代理已更新",
+      "PROXY_DELETED": "代理已删除",
+      "TAG_CREATED": "标签已创建",
+      "TAG_UPDATED": "标签已更新",
+      "TAG_DELETED": "标签已删除",
+      "SETTINGS_UPDATED": "设置已更新",
+      "IP_WHITELIST_UPDATED": "IP 白名单已更新",
+      "NOTIFICATION_SETTING_CREATED": "通知设置已创建",
+      "NOTIFICATION_SETTING_UPDATED": "通知设置已更新",
+      "NOTIFICATION_SETTING_DELETED": "通知设置已删除",
+      "SSH_CONNECT_SUCCESS": "SSH 连接成功",
+      "SSH_CONNECT_FAILURE": "SSH 连接失败",
+      "SSH_SHELL_FAILURE": "SSH Shell 打开失败",
+      "DATABASE_MIGRATION": "数据库迁移",
+      "ADMIN_SETUP_COMPLETE": "初始管理员设置完成",
+      "REMOTE_DESKTOP_CONNECTING": "远程桌面连接中",
+      "REMOTE_DESKTOP_CONNECTED": "远程桌面已连接",
+      "REMOTE_DESKTOP_DISCONNECTED": "远程桌面已断开",
+      "PASSKEY_REGISTERED": "Passkey 已注册",
+      "PASSKEY_AUTH_SUCCESS": "Passkey 认证成功",
+      "PASSKEY_AUTH_FAILURE": "Passkey 认证失败",
+      "PASSKEY_DELETED": "Passkey 已删除",
+      "PASSKEY_DELETE_UNAUTHORIZED": "Passkey 删除未授权",
+      "PASSKEY_NAME_UPDATED": "Passkey 名称已更新",
+      "PASSKEY_NAME_UPDATE_UNAUTHORIZED": "Passkey 名称更新未授权"
+    }
+  },
+  "workspaceConnectionList": {
+    "untagged": "未标记",
+    "searchPlaceholder": "搜索名称或主机...",
+    "noResults": "未找到匹配 \"{searchTerm}\" 的连接。",
+    "allConnectionsTaggedSuccess": "所有连接已成功添加标签。",
+    "noConnectionsToTag": "没有需要添加标签的连接。",
+    "clickToEditTag": "点击编辑标签名称",
+    "connectAllInGroup": "连接组内全部 (SSH)",
+    "connectingAllInGroup": "正在连接组 '{groupName}' 中的所有连接...",
+    "noConnectionsInGroup": "组 '{groupName}' 中没有可连接的项。",
+    "noConnectionsToConnect": "没有可连接的项",
+    "connectingAllSshInGroup": "正在连接组 '{groupName}' 中的 {count} 个 SSH 连接...",
+    "noSshConnectionsInGroup": "组 '{groupName}' 中没有 SSH 类型的连接可供连接。",
+    "connectAllSshInGroupMenu": "连接全部",
+    "noSshConnectionsToConnectMenu": "无 SSH 连接",
+    "manageTags": {
+      "title": "管理标签连接",
+      "searchPlaceholder": "搜索连接...",
+      "selectAll": "全选",
+      "deselectAll": "取消全选",
+      "noConnectionsFound": "未找到连接。",
+      "saveSuccess": "标签连接更新成功。",
+      "saveFailed": "更新标签连接失败。",
+      "menuItem": "管理标签",
+      "cannotManageUntagged": "无法管理“未标记”分组的连接。",
+      "invertSelection": "反选"
+    },
+    "deleteAllConnectionsInGroupMenu": "删除分组内所有连接",
+    "noConnectionsToDeleteInGroup": "分组 '{groupName}' 中没有可删除的连接。",
+    "confirmDeleteAllConnectionsInGroup": "确定要删除分组 '{groupName}' 中的全部 {count} 个连接吗？此操作不可撤销。",
+    "allConnectionsInGroupDeletedSuccess": "已成功从分组 '{groupName}' 中删除 {count} 个连接。",
+    "cannotDeleteFromUntagged": "不能使用此选项从“未标记”分组中删除连接。",
+    "someConnectionsInGroupDeleteFailed": "分组 '{groupName}' 中的 {count} 个连接未能删除。"
+  },
+  "remoteDesktopModal": {
+    "title": "远程桌面",
+    "titlePlaceholder": "远程桌面连接",
+    "status": {
+      "fetchingToken": "正在获取连接令牌...",
+      "connectingWs": "正在连接 WebSocket...",
+      "idle": "空闲",
+      "connectingRdp": "正在连接远程桌面...",
+      "connectingVnc": "正在连接 VNC...",
+      "waiting": "等待服务器响应...",
+      "connecting": "连接中...",
+      "error": "错误",
+      "connected": "已连接",
+      "disconnecting": "正在断开连接...",
+      "disconnected": "已断开连接",
+      "unknownState": "未知状态"
+    },
+    "errors": {
+      "missingInfo": "连接信息或显示元素丢失。",
+      "tunnelError": "通道错误",
+      "clientError": "客户端错误",
+      "connectionFailed": "连接失败",
+      "inputError": "设置输入监听器时出错。",
+      "noConnection": "未提供连接信息。",
+      "tokenError": "获取令牌失败"
+    },
+    "reconnectTooltip": "重新连接到远程桌面"
+  },
+  "vncModal": {
+    "title": "VNC 会话",
+    "textInputPlaceholder": "在此输入文本以发送到 VNC",
+    "sendButtonTitle": "将文本发送到 VNC (模拟键盘输入)",
+    "errors": {
+      "simulateInputError": "模拟键盘输入时出错: {error}"
+    }
+  },
+  "commandInputBar": {
+    "placeholder": "在此输入命令后按 Enter 发送到终端...",
+    "searchPlaceholder": "在终端中搜索...",
+    "openSearch": "打开终端搜索",
+    "closeSearch": "关闭终端搜索",
+    "findPrevious": "查找上一个",
+    "findNext": "查找下一个",
+    "configureFocusSwitch": "配置焦点切换器",
+    "clearTerminal": "清空终端"
+  },
+  "layout": {
+    "loading": "加载中...",
+    "configure": "配置布局",
+    "pane": {
+      "connections": "连接列表",
+      "terminal": "终端",
+      "commandBar": "命令栏",
+      "fileManager": "文件管理器",
+      "editor": "编辑器",
+      "statusMonitor": "状态监视器",
+      "commandHistory": "命令历史",
+      "quickCommands": "快捷指令",
+      "dockerManager": "Docker 管理器",
+      "suspendedSshSessions": "挂起会话管理"
+    },
+    "panes": {
+      "suspendedSshSessions": "挂起会话管理器"
+    },
+    "noActiveSession": {
+      "title": "无活动会话",
+      "message": "请先连接一个会话",
+      "fileManagerSidebar": "文件管理器需要活动会话",
+      "statusMonitorSidebar": "状态监视器需要活动会话"
+    }
+  },
+  "header": {
+    "hide": "隐藏",
+    "show": "显示顶部导航"
+  },
+  "commandHistory": {
+    "searchPlaceholder": "搜索历史记录...",
+    "clear": "清空",
+    "copy": "复制",
+    "delete": "删除",
+    "loading": "加载中...",
+    "empty": "没有历史记录",
+    "confirmClear": "确定要清空所有历史记录吗？",
+    "copied": "已复制到剪贴板",
+    "copyFailed": "复制失败",
+    "actions": {
+      "sendToAllSessions": "发送到全部会话"
+    },
+    "notifications": {
+      "sentToAllSessions": "指令已发送到 {count} 个会话。",
+      "noActiveSshSessions": "没有活动的 SSH 会话可发送指令。"
+    }
+  },
+  "quickCommands": {
+    "searchPlaceholder": "搜索名称或指令...",
+    "add": "添加",
+    "sortByName": "名称",
+    "sortByUsage": "使用频率",
+    "usageCount": "使用次数",
+    "empty": "没有快捷指令。点击“+”按钮创建一个吧！",
+    "addFirst": "添加第一个快捷指令",
+    "confirmDelete": "确定要删除快捷指令 \"{name}\" 吗？",
+    "form": {
+      "titleAdd": "添加快捷指令",
+      "titleEdit": "编辑快捷指令",
+      "name": "名称:",
+      "namePlaceholder": "可选，用于快速识别",
+      "command": "指令:",
+      "commandPlaceholder": "例如：",
+      "errorCommandRequired": "指令内容不能为空",
+      "add": "添加",
+      "tags": "标签:",
+      "tagsPlaceholder": "选择或创建标签...",
+      "variablesTitle": "变量管理",
+      "noVariables": "暂无变量。点击下方按钮添加。",
+      "variableNamePlaceholder": "变量名",
+      "variableValuePlaceholder": "变量值",
+      "addVariable": "+ 添加变量",
+      "execute": "执行",
+      "warningUndefinedVariables": "警告：指令模板中存在未定义的变量: {variables}",
+      "errorNoActiveSession": "没有活动的SSH会话可执行指令。"
+    },
+    "untagged": "未标记",
+    "tags": {
+      "clickToEditTag": "点击编辑标签名称"
+    },
+    "actions": {
+      "sendToAllSessions": "发送到全部会话"
+    },
+    "notifications": {
+      "sentToAllSessions": "指令已发送到 {count} 个会话。",
+      "noActiveSshSessions": "没有活动的 SSH 会话可发送指令。"
+    }
+  },
+  "setup": {
+    "title": "初始设置",
+    "description": "创建第一个管理员账号。",
+    "username": "用户名",
+    "usernamePlaceholder": "输入用户名",
+    "password": "密码",
+    "passwordPlaceholder": "输入密码",
+    "confirmPassword": "确认密码",
+    "confirmPasswordPlaceholder": "再次输入密码确认",
+    "submitButton": "创建账号",
+    "settingUp": "正在创建账号...",
+    "success": "账号创建成功！正在跳转到登录页面...",
+    "error": {
+      "passwordsDoNotMatch": "两次输入的密码不一致。",
+      "fieldsRequired": "用户名和密码不能为空。",
+      "generic": "设置过程中发生错误，请检查服务器日志。"
+    }
+  },
+  "focusSwitcher": {
+    "configTitle": "配置焦点切换器",
+    "availableInputs": "可用输入源",
+    "configuredSequence": "已配置序列 (拖拽排序)",
+    "dragHere": "从左侧拖拽输入框到此处",
+    "allInputsConfigured": "所有可用输入源都已配置",
+    "input": {
+      "commandHistorySearch": "命令历史搜索",
+      "quickCommandsSearch": "快捷指令搜索",
+      "fileManagerSearch": "文件管理器搜索",
+      "commandInput": "命令输入",
+      "terminalSearch": "终端内搜索",
+      "connectionListSearch": "连接列表搜索",
+      "fileEditorActive": "文件编辑器",
+      "fileManagerPathInput": "文件管理器路径编辑"
+    },
+    "confirmClose": "有未保存的更改，确定要关闭吗？",
+    "shortcutPlaceholder": "例如 Alt+K",
+    "shortcutSettings": "快捷键设置",
+    "noInputsAvailable": "没有可配置的输入项",
+    "altSwitchHint": "提示：按下 Alt 键可在配置的输入源之间快速切换焦点。"
+  },
+  "dockerManager": {
+    "loading": "正在加载 Docker 容器...",
+    "notAvailable": "远程主机 Docker 不可用",
+    "installHintRemote": "请确保远程主机上已安装并运行 Docker。",
+    "error": {
+      "fetchFailed": "获取远程容器状态失败",
+      "commandFailed": "执行远程命令 '{command}' 失败",
+      "invalidResponse": "收到无效的服务器响应",
+      "noActiveSession": "无活动会话",
+      "connectFirst": "请先连接一个会话",
+      "sshDisconnected": "SSH 会话已断开。",
+      "sshError": "SSH 连接错误",
+      "sshNotConnected": "SSH 会话未连接。"
+    },
+    "noContainers": "在远程主机上未找到正在运行或已停止的容器。",
+    "header": {
+      "name": "名称",
+      "image": "镜像",
+      "status": "状态",
+      "ports": "端口",
+      "actions": "操作"
+    },
+    "action": {
+      "restart": "重启",
+      "stop": "停止",
+      "start": "启动",
+      "remove": "移除",
+      "enter": "进入",
+      "logs": "日志"
+    },
+    "waitingForSsh": "等待 SSH 连接...",
+    "stats": {
+      "noData": "无可用状态数据。",
+      "cpu": "CPU 使用率",
+      "memory": "内存使用 / 限制",
+      "netIO": "网络 I/O",
+      "blockIO": "磁盘 I/O",
+      "pids": "进程数"
+    }
+  },
+  "dashboard": {
+    "recentConnections": "最近连接",
+    "lastConnected": "上次连接:",
+    "noRecentConnections": "没有最近连接记录",
+    "viewAllConnections": "查看所有连接",
+    "recentActivity": "最近活动",
+    "noRecentActivity": "没有最近活动记录",
+    "viewFullAuditLog": "查看完整审计日志",
+    "connectionList": "连接列表",
+    "noConnections": "没有连接记录",
+    "sortOptions": {
+      "lastConnected": "最近连接",
+      "name": "名称",
+      "type": "类型",
+      "updated": "修改时间",
+      "created": "创建时间"
+    },
+    "filterTags": {
+      "all": "所有标签"
+    },
+    "noConnectionsWithTag": "该标签下没有连接记录",
+    "noConnectionsMatchSearch": "没有连接匹配搜索条件",
+    "searchConnectionsPlaceholder": "搜索连接..."
+  },
+  "terminalTabBar": {
+    "selectServerTitle": "选择要连接的服务器",
+    "showTransferProgressTooltip": "显示/隐藏传输进度"
+  },
+  "tabs": {
+    "contextMenu": {
+      "close": "关闭标签页",
+      "closeOthers": "关闭其他标签页",
+      "closeRight": "关闭右侧标签页",
+      "closeLeft": "关闭左侧标签页",
+      "suspendSession": "挂起会话",
+      "unmarkForSuspend": "取消挂起"
+    },
+    "closeTabTooltip": "关闭标签页",
+    "newTabTooltip": "新建连接标签页"
+  },
+  "sshKeys": {
+    "selector": {
+      "selectPlaceholder": "选择一个 SSH 密钥...",
+      "useDirectInput": "或直接输入密钥内容",
+      "manageKeysTitle": "管理 SSH 密钥",
+      "loadingKeys": "正在加载密钥..."
+    },
+    "modal": {
+      "title": "SSH 密钥管理",
+      "addKey": "添加密钥",
+      "keyName": "密钥名称",
+      "actions": "操作",
+      "loading": "加载中...",
+      "noKeys": "没有找到 SSH 密钥。请添加一个。",
+      "close": "关闭",
+      "addTitle": "添加新 SSH 密钥",
+      "editTitle": "编辑 SSH 密钥",
+      "privateKey": "私钥内容",
+      "passphrase": "私钥密码",
+      "cancel": "取消",
+      "saveChanges": "保存更改",
+      "edit": "编辑",
+      "delete": "删除",
+      "errorFetchDetails": "获取密钥详情失败",
+      "errorRequiredFields": "密钥名称和私钥内容不能为空。",
+      "confirmDelete": "确定要删除密钥 \"{name}\" 吗？此操作不可撤销。",
+      "keyUpdateNote": "将私钥留空以保留现有密钥。密码短语始终需要重新输入（如果需要）。",
+      "passphraseUpdateNote": "留空表示不修改或移除密码短语。输入新密码短语以更新。"
+    }
+  },
+  "suspendedSshSessions": {
+    "modalTitle": "挂起的 SSH 会话",
+    "searchPlaceholder": "搜索会话 (名称, 连接名...)",
+    "loading": "正在加载挂起的会话...",
+    "noResults": "没有找到符合条件的挂起会话。",
+    "tooltip": {
+      "editName": "点击编辑名称"
+    },
+    "label": {
+      "originalConnection": "原始连接",
+      "suspendedAt": "挂起于"
+    },
+    "disconnectedAt": "已于 {time} 断开",
+    "status": {
+      "hanging": "活跃",
+      "disconnected": "已断开"
+    },
+    "action": {
+      "resume": "恢复",
+      "remove": "移除",
+      "exportLog": "导出日志"
+    }
+  },
+  "transferProgressModal": {
+    "title": "文件传输进度",
+    "loading": "正在加载传输任务...",
+    "errorLoadingTitle": "加载错误",
+    "errorLoading": "加载传输任务失败：{error}",
+    "error": {
+      "unknown": "未知错误",
+      "cancelFailed": "终止任务失败。"
+    },
+    "noTasks": "当前没有活动的传输任务。",
+    "task": {
+      "idLabel": "任务",
+      "createdAt": "创建于",
+      "overallProgress": "整体进度"
+    },
+    "status": {
+      "queued": "排队中",
+      "inProgress": "进行中",
+      "completed": "已完成",
+      "failed": "已失败",
+      "partiallyCompleted": "部分完成",
+      "connecting": "连接中",
+      "transferring": "传输中",
+      "cancelling": "正在终止...",
+      "cancelled": "已终止"
+    },
+    "confirmCancel": "您确定要终止此传输任务吗？",
+    "cancelRequested": "已发送终止请求。",
+    "cancelTaskTooltip": "终止任务",
+    "cancellingTooltip": "正在终止......",
+    "cancelButton": "终止",
+    "cancellingButton": "正在终止...",
+    "subTasks": {
+      "titleToggle": "查看 {count} 个子任务",
+      "noSubTasks": "没有子任务。"
+    },
+    "subTask": {
+      "source": "源文件",
+      "connectionId": "目标连接",
+      "status": "状态",
+      "method": "方法",
+      "error": "错误"
+    },
+    "connectionIdFallback": "连接ID: {connectionId}",
+    "unknownFileName": "[文件名未知]",
+    "unknownSourceServer": "[源服务器未知]",
+    "unknownTargetPath": "[目标路径未知]",
+    "taskIdFallback": "任务ID: {taskId}"
+  },
+  "sendFilesModal": {
+    "title": "发送文件",
+    "searchConnectionsPlaceholder": "搜索连接...",
+    "targetPathLabel": "目标路径",
+    "targetPathPlaceholder": "目标路径",
+    "transferMethodLabel": "传输方式",
+    "transferMethodAuto": "自动",
+    "loadingConnections": "正在加载连接...",
+    "noConnections": "没有可用的连接。请先添加连接。",
+    "noConnectionsFound": "未找到匹配搜索的连接。",
+    "untaggedConnections": "未标记",
+    "itemsToSendTitle": "待发送项目:",
+    "noItemsSelected": "未选择待发送的项目。",
+    "sendButton": "发送",
+    "cancelButton": "取消",
+    "errorFetchingData": "获取模态框数据时出错。",
+    "errorFetchingConnections": "获取连接数据时出错。",
+    "errorFetchingTags": "获取标签数据时出错。",
+    "validationError": "请至少选择一个连接并指定目标路径。",
+    "transferInitiated": "传输任务已创建",
+    "transferInitiatedGeneric": "传输任务创建成功。",
+    "transferFailedError": "发起传输失败。请重试。"
+  },
+  "time": {
+    "unknown": "未知时间",
+    "invalidDate": "无效日期"
+  },
+  "sshSuspend": {
+    "notifications": {
+      "markedForSuspendInfo": "会话 {id} 已标记为挂起。关闭标签页时，该会话将被挂起。",
+      "wsNotConnectedError": "WebSocket 未连接。无法执行挂起/恢复操作。",
+      "sessionNotFoundError": "未找到会话或 WebSocket 管理器不可用。",
+      "notMarkedWarning": "会话未被标记为待挂起。",
+      "fetchListError": "获取挂起的会话列表失败: {error}",
+      "resumeErrorInfoNotFound": "恢复错误：在列表中未找到已挂起的会话 {id}。",
+      "resumeErrorConnectionConfigNotFound": "恢复错误：未找到 {id} 的原始连接配置。",
+      "resumeErrorGeneric": "恢复会话失败: {error}",
+      "terminatedSuccess": "已成功终止挂起的会话 \"{name}\"。",
+      "terminateError": "终止挂起的会话失败: {error}",
+      "entryRemovedSuccess": "已成功移除挂起的会话条目 \"{name}\"。",
+      "entryRemovedError": "移除挂起的会话条目失败: {error}",
+      "nameEditedSuccess": "已挂起会话名称已更新为 \"{name}\"。",
+      "nameEditedError": "编辑已挂起会话名称失败: {error}",
+      "markedForSuspendSuccess": "会话 {id} 已成功标记为待挂起。",
+      "markForSuspendError": "标记会话为待挂起失败: {error}",
+      "unmarkedSuccess": "会话 {id} 已成功取消标记挂起。",
+      "unmarkError": "取消标记会话挂起失败: {error}",
+      "defaultSessionName": "会话",
+      "resumeSuccess": "会话 \"{name}\" 已成功恢复。",
+      "resumeErrorBackend": "后端恢复会话失败: {error}",
+      "autoTerminated": "已挂起的会话 \"{name}\" 因以下原因被后端自动终止: {reason}",
+      "logExportSuccess": "已挂起会话日志 {name} 已开始下载。",
+      "logExportError": "导出已挂起会话日志失败: {error}"
+    }
+  },
+  "favoritePaths": {
+    "addEditForm": {
+      "validation": {
+        "pathRequired": "路径不能为空。"
+      },
+      "editTitle": "编辑收藏路径",
+      "addTitle": "添加新收藏路径",
+      "pathLabel": "路径",
+      "pathPlaceholder": "/example/folder/path",
+      "nameLabel": "名称 (可选)",
+      "namePlaceholder": "我的文档",
+      "errors": {
+        "genericSaveError": "保存收藏路径失败。"
+      }
+    },
+    "confirmDelete": "您确定要删除 \"{name}\" 吗？",
+    "searchPlaceholder": "按名称或路径搜索...",
+    "addNew": "添加新收藏路径",
+    "loading": "正在加载收藏...",
+    "noResults": "未找到匹配的收藏。",
+    "noFavorites": "还没有收藏路径，快添加一个吧！",
+    "notifications": {
+      "fetchError": "加载收藏路径失败。",
+      "addSuccess": "收藏路径添加成功。",
+      "addError": "添加收藏路径失败。",
+      "updateSuccess": "收藏路径更新成功。",
+      "updateError": "更新收藏路径失败。",
+      "deleteSuccess": "收藏路径删除成功。",
+      "deleteError": "删除收藏路径失败。"
+    }
+  },
+  "pathHistory": {
+    "loading": "加载中...",
+    "empty": "没有路径历史记录",
+    "copy": "复制路径",
+    "delete": "删除此条历史",
+    "copiedSuccess": "路径已复制到剪贴板",
+    "copiedError": "复制路径失败"
+  }
+}

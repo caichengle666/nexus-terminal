@@ -1,0 +1,195 @@
+<style>
+    #circuit-board-container {
+        width: 100%; height: 100%;
+        background-color: #0a192f; /* 非常深的科技蓝 */
+        overflow: hidden; position: relative;
+    }
+    #circuit-canvas { display: block; position: absolute; top: 0; left: 0; }
+</style>
+<div id="circuit-board-container">
+    <canvas id="circuit-canvas"></canvas>
+</div>
+<script>
+(function() {
+    const canvas = document.getElementById('circuit-canvas');
+    const layerElement = canvas.closest('.terminal-custom-html-layer') || canvas.parentElement;
+    if (!canvas || !layerElement) return;
+    const ctx = canvas.getContext('2d');
+
+    let width, height, animationFrameId;
+    const traces = [];
+    const numTraces = 30;
+    const gridSize = 40; // 网格大小，用于确定路径点
+    const traceColor = "rgba(50, 180, 220, 0.15)"; // 静态轨迹颜色
+    const signalColor = "rgba(100, 220, 255, 0.9)"; // 信号颜色
+    const signalSpeed = 2; // 信号移动速度 (px/frame)
+
+    class Trace {
+        constructor() {
+            this.points = [];
+            this.generatePath();
+            this.signalPosition = 0; // 信号在路径上的当前距离
+            this.signalActive = Math.random() < 0.7; // 70% 的轨迹初始有信号
+            this.signalRestartDelay = 0; // 信号消失后的重启延迟
+        }
+
+        generatePath() {
+            this.points = [];
+            const startX = Math.floor(Math.random() * (width / gridSize)) * gridSize;
+            const startY = Math.floor(Math.random() * (height / gridSize)) * gridSize;
+            this.points.push({ x: startX, y: startY });
+
+            let currentX = startX;
+            let currentY = startY;
+            const pathLength = 5 + Math.floor(Math.random() * 10); // 路径段数
+
+            for (let i = 0; i < pathLength; i++) {
+                const directions = []; // 0: up, 1: down, 2: left, 3: right
+                if (currentY > 0) directions.push(0);
+                if (currentY < height - gridSize) directions.push(1);
+                if (currentX > 0) directions.push(2);
+                if (currentX < width - gridSize) directions.push(3);
+
+                if (directions.length === 0) break; // No valid moves
+
+                const move = directions[Math.floor(Math.random() * directions.length)];
+                let nextX = currentX, nextY = currentY;
+
+                switch (move) {
+                    case 0: nextY -= gridSize; break; // Up
+                    case 1: nextY += gridSize; break; // Down
+                    case 2: nextX -= gridSize; break; // Left
+                    case 3: nextX += gridSize; break; // Right
+                }
+                // 避免立即回头
+                if (this.points.length > 1) {
+                    const prevPoint = this.points[this.points.length - 2];
+                    if (prevPoint.x === nextX && prevPoint.y === nextY) {
+                        i--; // Try again
+                        continue;
+                    }
+                }
+                this.points.push({ x: nextX, y: nextY });
+                currentX = nextX;
+                currentY = nextY;
+            }
+            this.totalLength = 0;
+            for(let i = 0; i < this.points.length -1; i++) {
+                this.totalLength += gridSize; // All segments are gridSize long
+            }
+        }
+
+        update() {
+            if (this.signalActive) {
+                this.signalPosition += signalSpeed;
+                if (this.signalPosition > this.totalLength + 20) { // +20 to let it fade out
+                    this.signalActive = false;
+                    this.signalPosition = 0;
+                    this.signalRestartDelay = 100 + Math.random() * 300; // 100-400 frames delay
+                }
+            } else {
+                this.signalRestartDelay--;
+                if (this.signalRestartDelay <= 0 && Math.random() < 0.01) { // Low chance to reactivate
+                    this.signalActive = true;
+                    // Optional: re-generate path
+                    // this.generatePath();
+                }
+            }
+        }
+
+        draw() {
+            if (this.points.length < 2) return;
+
+            // Draw static trace
+            ctx.beginPath();
+            ctx.moveTo(this.points[0].x, this.points[0].y);
+            for (let i = 1; i < this.points.length; i++) {
+                ctx.lineTo(this.points[i].x, this.points[i].y);
+            }
+            ctx.strokeStyle = traceColor;
+            ctx.lineWidth = 1 + Math.random()*0.5;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.stroke();
+
+            // Draw signal
+            if (this.signalActive) {
+                ctx.beginPath();
+                let distanceTraveled = 0;
+                let signalDrawn = false;
+                for (let i = 0; i < this.points.length - 1; i++) {
+                    const p1 = this.points[i];
+                    const p2 = this.points[i+1];
+                    const segmentLength = gridSize;
+
+                    if (!signalDrawn && this.signalPosition >= distanceTraveled && this.signalPosition < distanceTraveled + segmentLength) {
+                        const progressInSegment = (this.signalPosition - distanceTraveled) / segmentLength;
+                        const sigX = p1.x + (p2.x - p1.x) * progressInSegment;
+                        const sigY = p1.y + (p2.y - p1.y) * progressInSegment;
+                        ctx.moveTo(sigX, sigY); // Start of signal for this frame
+                        signalDrawn = true; // Draw only one moveTo
+                    }
+                    if(signalDrawn && this.signalPosition + 10 > distanceTraveled) { // 10 is signal "tail" length
+                         ctx.lineTo(p2.x, p2.y);
+                         if(this.signalPosition > distanceTraveled + segmentLength + 10) {
+                           // break; // Signal has passed this segment
+                         }
+                    }
+                     if (this.signalPosition < distanceTraveled + segmentLength && signalDrawn) {
+                        // Draw up to the end of current segment or signal head
+                        const endProgress = Math.min(1, (this.signalPosition + 10 - distanceTraveled) / segmentLength); // +10 for tail
+                        const endX = p1.x + (p2.x - p1.x) * endProgress;
+                        const endY = p1.y + (p2.y - p1.y) * endProgress;
+                        ctx.lineTo(endX, endY);
+                        break; // Signal is within this segment or ends here
+                    }
+                    distanceTraveled += segmentLength;
+                }
+                 if (signalDrawn) {
+                    ctx.strokeStyle = signalColor;
+                    ctx.lineWidth = 2 + Math.random();
+                    ctx.shadowColor = signalColor;
+                    ctx.shadowBlur = 8 + Math.random() * 5;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0; // Reset shadow
+                }
+            }
+        }
+    }
+
+    function init() {
+        width = layerElement.offsetWidth;
+        height = layerElement.offsetHeight;
+        canvas.width = width;
+        canvas.height = height;
+        traces.length = 0;
+        for (let i = 0; i < numTraces; i++) {
+            traces.push(new Trace());
+        }
+    }
+
+    function animate() {
+        ctx.clearRect(0, 0, width, height);
+        traces.forEach(trace => {
+            trace.update();
+            trace.draw();
+        });
+        animationFrameId = requestAnimationFrame(animate);
+    }
+    
+    let resizeTimeout;
+    function onResize() {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            init();
+            animate();
+        }, 250);
+    }
+
+    init();
+    animate();
+    window.addEventListener('resize', onResize);
+    canvas.cleanup = function() { if (animationFrameId) cancelAnimationFrame(animationFrameId); };
+})();
+</script>
