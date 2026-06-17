@@ -22,24 +22,26 @@ jobs:
         with:
           node-version: "22"
 
-      # 前端：先确保 node_modules，然后构建
+      - name: Install all workspace dependencies (root)
+        run: npm install --ignore-scripts 2>$null
+        continue-on-error: true
+
       - name: Build frontend
         working-directory: packages/frontend
-        run: |
-          npm install
-          npx vite build
+        run: npx vite build
 
-      # 后端：清除根目录 workspace 影响，就地安装依赖并编译
-      - name: Build backend
+      - name: Install backend dependencies (standalone for electron bundle)
         working-directory: packages/backend
-        run: |
-          npm install
-          npx tsc
-          xcopy /E /I /Y "src\locales" "dist\locales" 2>nul || copy "src\locales" "dist\locales"
+        run: npm install
+
+      - name: Build backend (TypeScript)
+        working-directory: packages/backend
+        run: npx tsc
 
       - name: Prepare backend bundle for Electron
         shell: pwsh
         run: |
+          Copy-Item -Path "packages/backend/src/locales" -Destination "packages/backend/dist/locales" -Recurse -Force -ErrorAction SilentlyContinue
           Copy-Item -Path "packages/backend/node_modules" -Destination "packages/backend/dist/node_modules" -Recurse -Force
           Copy-Item -Path "packages/backend/html-presets" -Destination "packages/backend/dist/html-presets" -Recurse -Force -ErrorAction SilentlyContinue
 
