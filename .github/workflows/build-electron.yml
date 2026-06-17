@@ -22,32 +22,30 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install frontend dependencies & build
+      # 前端：先确保 node_modules，然后构建
+      - name: Build frontend
         working-directory: packages/frontend
         run: |
-          npm ci
+          npm install
           npx vite build
 
-      - name: Install backend dependencies (standalone)
+      # 后端：清除根目录 workspace 影响，就地安装依赖并编译
+      - name: Build backend
         working-directory: packages/backend
         run: |
-          # Remove workspace reference to install deps locally
-          npm ci --install-strategy=nested
-
-      - name: Build backend (TypeScript)
-        working-directory: packages/backend
-        run: npx tsc
+          npm install
+          npx tsc
+          xcopy /E /I /Y "src\locales" "dist\locales" 2>nul || copy "src\locales" "dist\locales"
 
       - name: Prepare backend bundle for Electron
         shell: pwsh
         run: |
-          Copy-Item -Path "packages/backend/src/locales" -Destination "packages/backend/dist/locales" -Recurse -Force
           Copy-Item -Path "packages/backend/node_modules" -Destination "packages/backend/dist/node_modules" -Recurse -Force
-          Copy-Item -Path "packages/backend/html-presets" -Destination "packages/backend/dist/html-presets" -Recurse -Force
+          Copy-Item -Path "packages/backend/html-presets" -Destination "packages/backend/dist/html-presets" -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Install Electron app dependencies
         working-directory: electron-app
-        run: npm ci
+        run: npm install
 
       - name: Build Electron app (Windows)
         working-directory: electron-app
