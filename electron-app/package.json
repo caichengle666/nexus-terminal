@@ -47,14 +47,18 @@
     ],
     "extraResources": [
       {
-        "from": "../packages/backend/dist",
-        "to": "packages/backend",
+        "from": "../packages/backend/dist/",
+        "to": "packages/backend/dist",
         "filter": [
           "**/*"
         ]
       },
       {
-        "from": "../packages/frontend/dist",
+        "from": "../packages/backend/html-presets/",
+        "to": "packages/backend/html-presets"
+      },
+      {
+        "from": "../packages/frontend/dist/",
         "to": "packages/frontend/dist"
       }
     ],
