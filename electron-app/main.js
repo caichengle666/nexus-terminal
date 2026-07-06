@@ -223,9 +223,19 @@ async function createWindow() {
       return; // 停止执行 createWindow
     }
     
-    console.log(`[Prod Mode] Starting backend service from ${backendResourcesPath} using Node.js at ${nodeExecutablePath}...`);
-    backendProcess = spawn(nodeExecutablePath, ['dist/index.js'], {
-      cwd: backendResourcesPath,
+    const backendEntryCandidates = [
+      path.join(backendResourcesPath, 'dist', 'index.js'),
+      path.join(backendResourcesPath, 'index.js'),
+      path.join(backendResourcesPath, 'dist', 'dist', 'index.js'),
+    ];
+    const backendEntryPath = backendEntryCandidates.find(candidate => fs.existsSync(candidate));
+    if (!backendEntryPath) {
+      throw new Error(`Backend entry not found. Checked: ${backendEntryCandidates.join(', ')}`);
+    }
+
+    console.log(`[Prod Mode] Starting backend service from ${backendEntryPath} using Node.js at ${nodeExecutablePath}...`);
+    backendProcess = spawn(nodeExecutablePath, [backendEntryPath], {
+      cwd: path.dirname(backendEntryPath),
       stdio: ['pipe', 'pipe', 'pipe'], // 'inherit' for debugging, or 'pipe'
       env: {
         ...process.env, // 继承当前进程的环境变量
