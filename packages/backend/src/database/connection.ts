@@ -4,8 +4,9 @@ import path from 'path';
 import fs from 'fs';
 import { tableDefinitions } from './schema.registry';
 import { runMigrations } from './migrations'; // +++ Import runMigrations +++
+import { getBackendDataPath } from '../utils/paths';
 
-const dbDir = path.join(__dirname, '..', '..', 'data');
+const dbDir = getBackendDataPath();
 const dbFilename = 'nexus-terminal.db';
 const dbPath = path.join(dbDir, dbFilename);
 
@@ -148,5 +149,4 @@ process.on('SIGINT', async () => {
         process.exit(0);
     }
 });
-
 

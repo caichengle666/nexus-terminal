@@ -5,11 +5,12 @@ import { AppearanceSettings, UpdateAppearanceDto } from '../types/appearance.typ
 import * as terminalThemeRepository from '../terminal-themes/terminal-theme.repository';
 import axios from 'axios';
 import sanitize from 'sanitize-filename'; // 用于清理文件名
+import { resolveBackendDataPath } from '../utils/paths';
 
 // 预设 HTML 主题的存储路径 (作为只读预设)
 const PRESET_HTML_THEMES_DIR = path.join(__dirname, '../../html-presets/');
 
-const USER_CUSTOM_HTML_THEMES_DIR = path.join(__dirname, '../../data/custom_html_theme/');
+const USER_CUSTOM_HTML_THEMES_DIR = resolveBackendDataPath('custom_html_theme');
 
 
 // 确保预设 html-themes 目录存在
@@ -676,5 +677,4 @@ export const getRemoteHtmlPresetContent = async (fileUrl: string): Promise<strin
         throw new Error(`请求远程文件内容时出错: ${error.message}`);
     }
 };
-
 

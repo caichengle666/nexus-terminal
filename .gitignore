@@ -158,5 +158,6 @@ dist-scripts/
 
 /packages/backend/data
 electron-app/node_modules/
+electron-app/nodejs-runtime/
 electron-app/dist_electron/
 electron-app/dist/

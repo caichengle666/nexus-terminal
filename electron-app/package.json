@@ -25,7 +25,8 @@
     "start": "electron .",
     "build:backend": "cd ../packages/backend && npm run build",
     "build:frontend": "cd ../packages/frontend && npm run build",
-    "build:electron": "electron-builder build --win --config",
+    "prepare:node-runtime": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"New-Item -ItemType Directory -Force -Path 'nodejs-runtime/win-x64' | Out-Null; Copy-Item -Path (Get-Command node).Source -Destination 'nodejs-runtime/win-x64/node.exe' -Force\"",
+    "build:electron": "npm run prepare:node-runtime && electron-builder build --win --config",
     "build": "npm run build:frontend && npm run build:backend && npm run build:electron"
   },
   "devDependencies": {
@@ -56,6 +57,10 @@
       {
         "from": "../packages/frontend/dist",
         "to": "packages/frontend/dist"
+      },
+      {
+        "from": "nodejs-runtime",
+        "to": "nodejs-runtime"
       }
     ],
     "win": {

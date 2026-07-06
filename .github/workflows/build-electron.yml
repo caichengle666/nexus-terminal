@@ -53,6 +53,12 @@ jobs:
         working-directory: electron-app
         run: npm install
 
+      - name: Prepare bundled Node.js runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "electron-app/nodejs-runtime/win-x64" | Out-Null
+          Copy-Item -Path (Get-Command node).Source -Destination "electron-app/nodejs-runtime/win-x64/node.exe" -Force
+
       - name: Build Electron app (Windows)
         working-directory: electron-app
         env:
