@@ -26,8 +26,7 @@
     "build:backend": "cd ../packages/backend && npm run build",
     "build:frontend": "cd ../packages/frontend && npm run build",
     "build:electron": "electron-builder build --win --config",
-    "build": "npm run build:frontend && npm run build:backend && npm run build:electron",
-    "postinstall": "cd .. && npm ci"
+    "build": "npm run build:frontend && npm run build:backend && npm run build:electron"
   },
   "devDependencies": {
     "electron": "^33.0.0",

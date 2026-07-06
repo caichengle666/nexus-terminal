@@ -42,8 +42,12 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item -Path "packages/backend/src/locales" -Destination "packages/backend/dist/locales" -Recurse -Force -ErrorAction SilentlyContinue
-          Copy-Item -Path "packages/backend/node_modules" -Destination "packages/backend/dist/node_modules" -Recurse -Force
           Copy-Item -Path "packages/backend/html-presets" -Destination "packages/backend/dist/html-presets" -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "packages/backend/package.json" -Destination "packages/backend/dist/package.json" -Force
+          Copy-Item -Path "packages/backend/package-lock.json" -Destination "packages/backend/dist/package-lock.json" -Force
+          Push-Location "packages/backend/dist"
+          npm install --omit=dev
+          Pop-Location
 
       - name: Install Electron app dependencies
         working-directory: electron-app
