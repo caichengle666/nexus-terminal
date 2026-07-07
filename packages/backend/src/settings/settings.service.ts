@@ -383,8 +383,8 @@ export const settingsService = {
      const validPaneNames: Set<PaneName> = new Set([
          'connections', 'terminal', 'commandBar', 'fileManager',
          'editor', 'statusMonitor', 'commandHistory', 'quickCommands',
-         'dockerManager', 'suspendedSshSessions' // 添加 "suspendedSshSessions"
-     ]);
+         'dockerManager', 'suspendedSshSessions', 'aiAssistant' // 添加 "suspendedSshSessions"
+      ]);
 
      const validatePaneArray = (arr: any[], side: string) => {
          if (!arr.every(item => typeof item === 'string' && validPaneNames.has(item as PaneName))) {

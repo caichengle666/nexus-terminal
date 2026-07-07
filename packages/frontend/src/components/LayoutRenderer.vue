@@ -93,6 +93,7 @@ const componentMap: Record<PaneName, Component> = {
   quickCommands: defineAsyncComponent(() => import('../views/QuickCommandsView.vue')),
   dockerManager: defineAsyncComponent(() => import('./DockerManager.vue')), // <--- 添加 dockerManager 映射
   suspendedSshSessions: defineAsyncComponent(() => import('../views/SuspendedSshSessionsView.vue')),
+  aiAssistant: defineAsyncComponent(() => import('./AiTerminalAssistant.vue')),
 };
 
 // --- Computed ---
@@ -136,6 +137,7 @@ const paneLabels = computed(() => ({
   quickCommands: t('layout.pane.quickCommands', '快捷指令'),
   dockerManager: t('layout.pane.dockerManager', 'Docker 管理器'),
   suspendedSshSessions: t('layout.panes.suspendedSshSessions', '挂起会话管理'),
+  aiAssistant: t('layout.pane.aiAssistant', 'AI 终端助手'),
 }));
 
 
@@ -359,6 +361,7 @@ const getIconClasses = (paneName: PaneName): string[] => {
     case 'editor': return ['fas', 'fa-file-alt'];
     case 'statusMonitor': return ['fas', 'fa-tachometer-alt'];
     case 'suspendedSshSessions': return ['fas', 'fa-pause-circle']; // 图标：暂停圈
+    case 'aiAssistant': return ['fas', 'fa-robot'];
     // Add other specific icons here if needed
     default: return ['fas', 'fa-question-circle']; // Default icon
   }
@@ -816,4 +819,3 @@ onBeforeUnmount(() => {
 
 
 </style>
-

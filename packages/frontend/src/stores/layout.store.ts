@@ -3,7 +3,7 @@ import { ref, computed, watch, type Ref, type ComputedRef } from 'vue';
 import apiClient from '../utils/apiClient';
 
 // 定义所有可用面板的名称
-export type PaneName = 'connections' | 'terminal' | 'commandBar' | 'fileManager' | 'editor' | 'statusMonitor' | 'commandHistory' | 'quickCommands' | 'dockerManager' | 'suspendedSshSessions';
+export type PaneName = 'connections' | 'terminal' | 'commandBar' | 'fileManager' | 'editor' | 'statusMonitor' | 'commandHistory' | 'quickCommands' | 'dockerManager' | 'suspendedSshSessions' | 'aiAssistant';
 
 // 定义布局节点接口
 export interface LayoutNode {
@@ -104,7 +104,8 @@ const getDefaultLayout = (): LayoutNode => ({
 const getDefaultSidebarPanes = (): { left: PaneName[], right: PaneName[] } => ({
   "left": [
     "connections",
-    "dockerManager"
+    "dockerManager",
+    "aiAssistant"
   ],
   "right": []
 });
@@ -166,7 +167,7 @@ export const useLayoutStore = defineStore('layout', () => {
   const allPossiblePanes: Ref<PaneName[]> = ref([
     'connections', 'terminal', 'commandBar', 'fileManager',
     'editor', 'statusMonitor', 'commandHistory', 'quickCommands',
-    'dockerManager', 'suspendedSshSessions' // <-- 添加新的挂起 SSH 会话视图
+    'dockerManager', 'suspendedSshSessions', 'aiAssistant' // <-- 添加新的挂起 SSH 会话视图
   ]);
   // 控制布局（Header/Footer）可见性的状态
   const isLayoutVisible: Ref<boolean> = ref(true); // 控制整体布局（Header/Footer）可见性
@@ -331,6 +332,10 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
      if (!sidebarPanes.value || !Array.isArray(sidebarPanes.value.left) || !Array.isArray(sidebarPanes.value.right)) {
          console.warn('[Layout Store] Final Check: Sidebar panes invalid. Applying default.');
          sidebarPanes.value = getDefaultSidebarPanes();
+     }
+     if (!sidebarPanes.value.left.includes('aiAssistant') && !sidebarPanes.value.right.includes('aiAssistant')) {
+         sidebarPanes.value.left.push('aiAssistant');
+         await persistSidebarPanes();
      }
 
     console.log('[Layout Store] initializeLayout finished.');

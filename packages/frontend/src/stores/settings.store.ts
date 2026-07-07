@@ -162,7 +162,7 @@ export const useSettingsStore = defineStore('settings', () => {
       //  Load and parse sidebar pane widths
       const defaultPaneWidth = '350px';
       // +++ Ensure PaneName type is available or define it here +++
-      const knownPanes: PaneName[] = ['connections', 'fileManager', 'editor', 'statusMonitor', 'commandHistory', 'quickCommands', 'dockerManager']; // Add all possible sidebar panes
+      const knownPanes: PaneName[] = ['connections', 'fileManager', 'editor', 'statusMonitor', 'commandHistory', 'quickCommands', 'dockerManager', 'suspendedSshSessions', 'aiAssistant']; // Add all possible sidebar panes
       let loadedWidths: Record<string, string> = {};
       try {
           if (settings.value.sidebarPaneWidths) {
