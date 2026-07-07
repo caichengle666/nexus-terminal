@@ -104,10 +104,11 @@ const getDefaultLayout = (): LayoutNode => ({
 const getDefaultSidebarPanes = (): { left: PaneName[], right: PaneName[] } => ({
   "left": [
     "connections",
-    "dockerManager",
-    "aiAssistant"
+    "dockerManager"
   ],
-  "right": []
+  "right": [
+    "aiAssistant"
+  ]
 });
 
 // 递归查找主布局树中使用的面板
@@ -135,6 +136,43 @@ function getAllUsedPaneNames(mainNode: LayoutNode | null, sidebars: { left: Pane
   return usedNames;
 }
 
+function placeAiAssistantOnRight(sidebars: { left: PaneName[], right: PaneName[] }): boolean {
+  const original = JSON.stringify(sidebars);
+  sidebars.left = sidebars.left.filter(pane => pane !== 'aiAssistant');
+  sidebars.right = sidebars.right.filter(pane => pane !== 'aiAssistant');
+  sidebars.right.push('aiAssistant');
+  return JSON.stringify(sidebars) !== original;
+}
+
+function removePaneFromLayout(node: LayoutNode | null, paneName: PaneName): { node: LayoutNode | null; removed: boolean } {
+  if (!node) {
+    return { node, removed: false };
+  }
+
+  if (node.type === 'pane') {
+    return node.component === paneName
+      ? { node: null, removed: true }
+      : { node, removed: false };
+  }
+
+  if (!node.children) {
+    return { node, removed: false };
+  }
+
+  let removed = false;
+  const children = node.children
+    .map(child => {
+      const result = removePaneFromLayout(child, paneName);
+      removed = removed || result.removed;
+      return result.node;
+    })
+    .filter(Boolean) as LayoutNode[];
+
+  return {
+    node: children.length > 0 ? { ...node, children } : null,
+    removed,
+  };
+}
 
 // --- Validation Helper ---
 // Checks if a value is a valid PaneName
@@ -329,12 +367,16 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
         console.error('[Layout Store] FATAL: layoutTree is STILL null after all attempts! Applying default as last resort.');
         layoutTree.value = ensureNodeIds(getDefaultLayout());
     }
+    const aiLayoutMigration = removePaneFromLayout(layoutTree.value, 'aiAssistant');
+    if (aiLayoutMigration.removed) {
+        layoutTree.value = ensureNodeIds(aiLayoutMigration.node) || ensureNodeIds(getDefaultLayout());
+        await persistLayoutTree();
+    }
      if (!sidebarPanes.value || !Array.isArray(sidebarPanes.value.left) || !Array.isArray(sidebarPanes.value.right)) {
          console.warn('[Layout Store] Final Check: Sidebar panes invalid. Applying default.');
          sidebarPanes.value = getDefaultSidebarPanes();
      }
-     if (!sidebarPanes.value.left.includes('aiAssistant') && !sidebarPanes.value.right.includes('aiAssistant')) {
-         sidebarPanes.value.left.push('aiAssistant');
+     if (placeAiAssistantOnRight(sidebarPanes.value)) {
          await persistSidebarPanes();
      }
 

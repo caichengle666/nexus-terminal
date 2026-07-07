@@ -27,6 +27,9 @@ type TerminalInputArgs = {
 };
 
 const CONFIG_KEY = 'nexus_ai_terminal_config';
+const MESSAGES_KEY = 'nexus_ai_terminal_messages';
+const MAX_SAVED_MESSAGES = 80;
+const MAX_SAVED_CONTENT_LENGTH = 16000;
 const MAX_TOOL_STEPS = 10;
 
 const sessionStore = useSessionStore();
@@ -57,11 +60,39 @@ const loadConfig = () => {
   }
 };
 
+const normalizeMessagesForStorage = (items: ChatMessage[]) => items
+  .slice(-MAX_SAVED_MESSAGES)
+  .map(message => ({
+    ...message,
+    content: typeof message.content === 'string'
+      ? message.content.slice(0, MAX_SAVED_CONTENT_LENGTH)
+      : message.content,
+  }));
+
+const loadMessages = () => {
+  try {
+    const raw = localStorage.getItem(MESSAGES_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        messages.value = normalizeMessagesForStorage(parsed);
+      }
+    }
+  } catch (error) {
+    console.warn('[AI Terminal] Failed to load messages:', error);
+  }
+};
+
 watch(config, (next) => {
   localStorage.setItem(CONFIG_KEY, JSON.stringify(next));
 }, { deep: true });
 
+watch(messages, (next) => {
+  localStorage.setItem(MESSAGES_KEY, JSON.stringify(normalizeMessagesForStorage(next)));
+}, { deep: true });
+
 loadConfig();
+loadMessages();
 
 const aiTools = [
   {
@@ -254,6 +285,7 @@ const sendMessage = async () => {
 const clearChat = () => {
   messages.value = [];
   errorMessage.value = '';
+  localStorage.removeItem(MESSAGES_KEY);
 };
 </script>
 

@@ -755,6 +755,7 @@ onBeforeUnmount(() => {
 .splitpanes.default-theme .splitpanes__splitter {
   background-image: none !important; /* Ensure no background image in normal state */
   z-index: 5; /* Ensure splitter is above terminal content and its overlays */
+  background-color: transparent !important;
 }
 .splitpanes.default-theme .splitpanes__splitter:hover { /* Apply hover style to the pseudo-element */
   background-color: transparent !important; /* Make splitter transparent on hover */
@@ -769,8 +770,8 @@ onBeforeUnmount(() => {
 .splitpanes__splitter:before {
   content: ""; /* Ensure content for pseudo-element */
   display: block; /* Ensure it takes space */
-  width: 100%; /* Fill splitter width */
-  height: 100%; /* Fill splitter height */
+  width: 1px;
+  height: 1px;
   background-color: var(--border-color); /* Set background to border color */
   border: none !important; /* Ensure no extra borders */
   /* Ensure it still occupies space and has cursor */
@@ -787,14 +788,32 @@ onBeforeUnmount(() => {
 /* Vertical splitter width */
 .splitpanes--vertical > .splitpanes__splitter {
   border-color: var(--border-color) !important;
-  width: 1px !important;
+  width: 8px !important;
+  min-width: 8px !important;
+  margin-left: -4px !important;
+  margin-right: -4px !important;
+  cursor: col-resize !important;
   z-index: 5 !important; /* Ensure z-index for vertical splitters */
+}
+.splitpanes--vertical > .splitpanes__splitter:before {
+  width: 1px;
+  height: 100%;
+  margin: 0 auto;
 }
 /* Horizontal splitter height */
 .splitpanes--horizontal > .splitpanes__splitter {
   border-color: var(--border-color) !important;
-  height: 1px !important;
+  height: 8px !important;
+  min-height: 8px !important;
+  margin-top: -4px !important;
+  margin-bottom: -4px !important;
+  cursor: row-resize !important;
   z-index: 5 !important; /* Ensure z-index for horizontal splitters */
+}
+.splitpanes--horizontal > .splitpanes__splitter:before {
+  width: 100%;
+  height: 1px;
+  top: 3px;
 }
 
 /* --- Styles for Locked Layout --- */
