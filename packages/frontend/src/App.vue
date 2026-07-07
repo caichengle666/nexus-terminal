@@ -276,9 +276,10 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
 <template>
   
   <div id="app-container">
+    <div v-if="isWorkspaceRoute && !isHeaderVisible" class="electron-drag-strip"></div>
     <!-- *** 修改 v-if 条件以使用 isHeaderVisible *** -->
     <!-- Header with Tailwind classes using theme variables -->
-    <header v-if="!isWorkspaceRoute || isHeaderVisible" class="sticky top-0 z-10 flex items-center h-14 pl-3 pr-6 bg-header border-b border-border shadow-sm"> <!-- 减少左侧内边距 -->
+    <header v-if="!isWorkspaceRoute || isHeaderVisible" class="electron-titlebar sticky top-0 z-10 flex items-center h-14 pl-3 pr-6 bg-header border-b border-border shadow-sm"> <!-- 减少左侧内边距 -->
       <!-- Nav with Tailwind classes -->
       <nav ref="navRef" class="flex items-center justify-between w-full relative"> <!-- Added relative positioning for underline -->
         <!-- Left navigation links with Tailwind classes using theme variables -->
@@ -372,6 +373,33 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
   flex-direction: column;
   min-height: 100vh;
   font-family: var(--font-family-sans-serif); /* 使用字体变量 */
+}
+
+.electron-titlebar {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.electron-titlebar a,
+.electron-titlebar button,
+.electron-titlebar input,
+.electron-titlebar select,
+.electron-titlebar textarea,
+.electron-titlebar [role="button"],
+.electron-titlebar img,
+.electron-titlebar svg {
+  -webkit-app-region: no-drag;
+}
+
+.electron-drag-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  z-index: 2147483647;
+  -webkit-app-region: drag;
+  user-select: none;
 }
 
 

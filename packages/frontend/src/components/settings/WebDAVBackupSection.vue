@@ -216,7 +216,7 @@ async function handleCreateBackup() {
   backupMessage.value = '';
   try {
     const res = await axios.post('/api/v1/webdav-backup/run');
-    backupMessage.value = t('settings.webdavBackup.backupCreated', '备份成功: {{name}} ({{size}})', {
+    backupMessage.value = t('settings.webdavBackup.backupCreated', {
       name: res.data.fileName,
       size: formatSize(res.data.size),
     });
@@ -248,14 +248,14 @@ async function handleRefreshList() {
 }
 
 async function handleRestoreBackup(fileName: string) {
-  if (!confirm(t('settings.webdavBackup.confirmRestore', '确定要从 {{name}} 恢复数据吗？此操作将覆盖现有数据。', { name: fileName }))) {
+  if (!confirm(t('settings.webdavBackup.confirmRestore', { name: fileName }))) {
     return;
   }
   restoring.value = true;
   backupMessage.value = '';
   try {
     const res = await axios.post('/api/v1/webdav-backup/restore', { fileName });
-    backupMessage.value = t('settings.webdavBackup.restoreSuccess', '恢复成功: {{message}}', { message: res.data.message });
+    backupMessage.value = t('settings.webdavBackup.restoreSuccess', { message: res.data.message });
     backupSuccess.value = true;
   } catch (err: any) {
     backupMessage.value = err.response?.data?.message || t('common.error', '恢复失败');
@@ -266,7 +266,7 @@ async function handleRestoreBackup(fileName: string) {
 }
 
 async function handleDeleteBackup(fileName: string) {
-  if (!confirm(t('settings.webdavBackup.confirmDelete', '确定要删除备份 {{name}} 吗？', { name: fileName }))) {
+  if (!confirm(t('settings.webdavBackup.confirmDelete', { name: fileName }))) {
     return;
   }
   deletingFile.value = fileName;
