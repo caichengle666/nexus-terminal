@@ -180,7 +180,7 @@ app.use(ipWhitelistMiddleware as RequestHandler);
 app.use(express.json());
 
 // --- 静态文件服务 ---
-const uploadsPath = path.join(__dirname, '../uploads');
+const uploadsPath = resolveBackendDataPath('uploads');
 if (!fs.existsSync(uploadsPath)) { // 确保 uploads 目录存在
     fs.mkdirSync(uploadsPath, { recursive: true });
 }

@@ -4,11 +4,11 @@ import { CreateTerminalThemeDto, UpdateTerminalThemeDto } from '../types/termina
 import type { ITheme } from 'xterm';
 import multer from 'multer';
 import fs from 'fs';
-import path from 'path';
+import { resolveBackendDataPath } from '../utils/paths';
 
 // 配置 multer 用于处理 JSON 文件上传 (导入)
 const upload = multer({
-    dest: path.join(__dirname, '../../temp-uploads/'), // 临时存储目录
+    dest: resolveBackendDataPath('temp-uploads'), // 临时存储目录
     fileFilter: (req, file, cb) => {
         if (file.mimetype === 'application/json' || file.originalname.endsWith('.json')) {
             cb(null, true);
