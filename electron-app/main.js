@@ -6,6 +6,7 @@ const http = require('http');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const iconv = require('iconv-lite');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 let mainWindow;
 let expressApp;
@@ -239,7 +240,8 @@ async function createWindow() {
       stdio: ['pipe', 'pipe', 'pipe'], // 'inherit' for debugging, or 'pipe'
       env: {
         ...process.env, // 继承当前进程的环境变量
-        APP_BACKEND_DATA_PATH: backendDataPath // 将定义好的后端数据路径传递给子进程
+        APP_BACKEND_DATA_PATH: backendDataPath,
+        PORT: String(PROD_BACKEND_PORT)
       },
     });
 
@@ -301,6 +303,15 @@ async function createWindow() {
 
     // 启动 express 前端服务器
     expressApp = express();
+    const backendTarget = `http://127.0.0.1:${PROD_BACKEND_PORT}`;
+    const backendProxy = createProxyMiddleware({
+      pathFilter: ['/api', '/uploads', '/ws'],
+      target: backendTarget,
+      ws: true,
+      changeOrigin: true,
+      logLevel: 'warn',
+    });
+    expressApp.use(backendProxy);
 
     // 恢复静态文件服务和 SPA fallback
     const staticPath = path.join(process.resourcesPath, 'packages/frontend/dist'); 
@@ -314,6 +325,7 @@ async function createWindow() {
     });
 
     httpServer = http.createServer(expressApp);
+    httpServer.on('upgrade', backendProxy.upgrade);
 
     const frontendServerReadyPromise = new Promise((resolveFrontend, rejectFrontend) => {
       httpServer.listen(PROD_FRONTEND_PORT, () => {
