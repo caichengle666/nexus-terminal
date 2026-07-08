@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAiStore, type AiTaskStatus, type AiToolRun } from '../stores/ai.store';
 import { useConfirmDialog } from '../composables/useConfirmDialog';
 
 const aiStore = useAiStore();
 const { showConfirmDialog } = useConfirmDialog();
+type DrawerPanel = 'context' | 'tools' | null;
 
 const {
   userInput,
@@ -27,6 +28,8 @@ const {
 
 const sessionLabel = computed(() => activeSession.value?.connectionName || '没有活动终端');
 const hasMemorySummary = computed(() => !!memorySummary.value.trim());
+const drawerPanel = ref<DrawerPanel>(null);
+const isDrawerOpen = computed(() => drawerPanel.value !== null);
 
 const quickTasks = [
   '查看当前终端报错并给出修复方案',
@@ -69,6 +72,14 @@ const formatToolSummary = (run: AiToolRun) => {
     return `读取最近 ${run.args.maxLines || 120} 行`;
   }
   return JSON.stringify(run.args);
+};
+
+const openDrawer = (panel: Exclude<DrawerPanel, null>) => {
+  drawerPanel.value = drawerPanel.value === panel ? null : panel;
+};
+
+const closeDrawer = () => {
+  drawerPanel.value = null;
 };
 
 const sendMessage = () => aiStore.sendMessage({
@@ -132,6 +143,7 @@ const compactContext = async () => {
       cancelText: '关闭',
     });
   }
+  drawerPanel.value = 'context';
 };
 
 const useQuickTask = (task: string) => {
@@ -153,6 +165,19 @@ const testConfig = async () => {
     errorMessage.value = error.response?.data?.message || error.message || 'AI 配置测试失败。';
   }
 };
+
+const deleteHistory = async () => {
+  const confirmed = await showConfirmDialog({
+    title: '删除当前 AI 历史会话',
+    message: `将删除当前终端「${sessionLabel.value}」的 AI 对话、记忆摘要和工具调用记录。这个操作不会删除 SSH 连接本身。`,
+    confirmText: '删除',
+    cancelText: '取消',
+  });
+  if (confirmed) {
+    aiStore.clearChat();
+    closeDrawer();
+  }
+};
 </script>
 
 <template>
@@ -164,7 +189,7 @@ const testConfig = async () => {
       </div>
       <div class="flex items-center gap-1">
         <button class="rounded px-2 py-1 text-xs hover:bg-hover" @click="showConfig = !showConfig">配置</button>
-        <button class="rounded px-2 py-1 text-xs hover:bg-hover" @click="aiStore.clearChat">清空</button>
+        <button class="rounded px-2 py-1 text-xs text-error hover:bg-error/10" @click="deleteHistory">删除历史</button>
       </div>
     </div>
 
@@ -192,7 +217,11 @@ const testConfig = async () => {
     <div class="border-b border-border px-3 py-2 text-xs">
       <div class="mb-2 flex items-center justify-between gap-2">
         <span class="text-text-secondary">状态：{{ formatTaskStatus(taskStatus) }}</span>
-        <button class="rounded px-2 py-1 hover:bg-hover" @click="compactContext">压缩上下文</button>
+        <div class="flex items-center gap-1">
+          <button class="rounded px-2 py-1 hover:bg-hover" @click="openDrawer('tools')">工具</button>
+          <button class="rounded px-2 py-1 hover:bg-hover" @click="openDrawer('context')">上下文</button>
+          <button class="rounded px-2 py-1 hover:bg-hover" @click="compactContext">压缩</button>
+        </div>
       </div>
       <div class="grid grid-cols-3 overflow-hidden rounded border border-border">
         <button
@@ -217,13 +246,10 @@ const testConfig = async () => {
           自动
         </button>
       </div>
-      <details v-if="hasMemorySummary" class="mt-2 rounded border border-border/60 p-2">
-        <summary class="cursor-pointer text-text-secondary">记忆摘要</summary>
-        <pre class="mt-2 max-h-36 overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-relaxed">{{ memorySummary }}</pre>
-      </details>
     </div>
 
-    <div class="flex-1 space-y-3 overflow-auto p-3 text-sm">
+    <div class="relative flex-1 min-h-0 overflow-hidden">
+      <div class="h-full space-y-3 overflow-auto p-3 text-sm">
       <div v-if="visibleMessages.length === 0" class="rounded border border-dashed border-border p-3 text-sm text-text-secondary">
         让 AI 查看当前终端、输入命令、读取结果并继续处理。Enter 发送，Shift+Enter 换行。
         <div class="mt-3 flex flex-wrap gap-2">
@@ -241,22 +267,69 @@ const testConfig = async () => {
       <div
         v-for="(message, index) in visibleMessages"
         :key="index"
-        class="rounded border border-border/60 p-2"
-        :class="message.role === 'user' ? 'bg-header/40' : 'bg-background'"
+        class="flex"
+        :class="message.role === 'user' ? 'justify-end' : 'justify-start'"
       >
-        <div class="mb-1 text-xs font-medium text-text-secondary">
-          {{ message.role === 'user' ? '你' : 'AI' }}
+        <div
+          class="max-w-[88%] rounded border px-3 py-2 shadow-sm"
+          :class="message.role === 'user'
+            ? 'border-primary/30 bg-primary/10'
+            : 'border-border/70 bg-header/30'"
+        >
+          <div
+            class="mb-1 text-xs font-medium"
+            :class="message.role === 'user' ? 'text-primary' : 'text-text-secondary'"
+          >
+            {{ message.role === 'user' ? '你' : 'AI' }}
+          </div>
+          <pre class="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{{ message.content || (message.tool_calls ? '正在调用终端工具...' : '') }}</pre>
         </div>
-        <pre class="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{{ message.content || (message.tool_calls ? '正在调用终端工具...' : '') }}</pre>
       </div>
 
-      <div v-if="latestToolRuns.length > 0" class="rounded border border-border/60">
-        <div class="border-b border-border/60 px-2 py-1 text-xs font-medium text-text-secondary">最近工具调用</div>
-        <div class="max-h-44 overflow-auto">
+      <div v-if="errorMessage" class="rounded border border-error/40 bg-error/10 p-2 text-error">
+        {{ errorMessage }}
+      </div>
+      </div>
+
+      <div
+        v-if="isDrawerOpen"
+        class="absolute inset-0 z-10 bg-black/20"
+        @click="closeDrawer"
+      />
+      <aside
+        v-if="isDrawerOpen"
+        class="absolute right-0 top-0 z-20 flex h-full w-[86%] max-w-sm flex-col border-l border-border bg-background shadow-xl"
+      >
+        <div class="flex items-center justify-between border-b border-border px-3 py-2">
+          <div class="text-sm font-semibold">
+            {{ drawerPanel === 'context' ? '上下文与记忆' : '最近工具调用' }}
+          </div>
+          <button class="rounded px-2 py-1 text-xs hover:bg-hover" @click="closeDrawer">关闭</button>
+        </div>
+
+        <div v-if="drawerPanel === 'context'" class="flex-1 overflow-auto p-3 text-xs">
+          <div class="mb-3 flex gap-2">
+            <button class="rounded bg-primary px-3 py-1.5 text-white" @click="compactContext">压缩上下文</button>
+            <button class="rounded border border-error/40 px-3 py-1.5 text-error hover:bg-error/10" @click="deleteHistory">删除历史</button>
+          </div>
+          <div v-if="hasMemorySummary" class="rounded border border-border/60 p-2">
+            <div class="mb-2 font-medium text-text-secondary">记忆摘要</div>
+            <pre class="max-h-[55vh] overflow-auto whitespace-pre-wrap break-words font-sans leading-relaxed">{{ memorySummary }}</pre>
+          </div>
+          <div v-else class="rounded border border-dashed border-border p-3 text-text-secondary">
+            当前会话还没有记忆摘要。
+          </div>
+        </div>
+
+        <div v-else class="flex-1 overflow-auto p-3">
+          <div v-if="latestToolRuns.length === 0" class="rounded border border-dashed border-border p-3 text-sm text-text-secondary">
+            当前会话还没有工具调用。
+          </div>
           <div
             v-for="run in latestToolRuns"
+            v-else
             :key="run.id"
-            class="border-b border-border/40 px-2 py-1.5 last:border-b-0"
+            class="mb-2 rounded border border-border/60 px-2 py-2 last:mb-0"
           >
             <div class="flex items-center justify-between gap-2 text-xs">
               <span class="font-medium">{{ formatToolName(run.name) }}</span>
@@ -273,11 +346,7 @@ const testConfig = async () => {
             <div class="mt-1 truncate font-mono text-xs text-text-secondary">{{ formatToolSummary(run) }}</div>
           </div>
         </div>
-      </div>
-
-      <div v-if="errorMessage" class="rounded border border-error/40 bg-error/10 p-2 text-error">
-        {{ errorMessage }}
-      </div>
+      </aside>
     </div>
 
     <div class="border-t border-border p-3">
