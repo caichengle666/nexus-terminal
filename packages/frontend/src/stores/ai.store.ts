@@ -72,6 +72,8 @@ const MAX_SAVED_CONTENT_LENGTH = 24000;
 const MAX_MODEL_RECENT_MESSAGES = 16;
 const COMPACT_MESSAGE_TRIGGER = 30;
 const COMPACT_CHAR_TRIGGER = 32000;
+const MAX_AI_REQUEST_BYTES = 256 * 1024;
+const AI_REQUEST_COMPACT_BYTES = Math.floor(MAX_AI_REQUEST_BYTES * 0.8);
 const MAX_MODEL_CONTEXT_CHARS = 90000;
 const MAX_MODEL_MESSAGE_CONTENT_LENGTH = 8000;
 const MAX_MODEL_SUMMARY_LENGTH = 8000;
@@ -122,6 +124,8 @@ const aiTools = [
 ] as const;
 
 const sleep = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms));
+
+const estimateJsonBytes = (value: unknown) => new Blob([JSON.stringify(value)]).size;
 
 const normalizeMessagesForStorage = (items: AiChatMessage[]) => items
   .slice(-MAX_SAVED_MESSAGES)
@@ -543,6 +547,13 @@ export const useAiStore = defineStore('ai', () => {
     memory.lastCompactedAt = Date.now();
   };
 
+  const shrinkModelMessagesToBudget = (items: AiChatMessage[]) => {
+    const firstRecentMessageIndex = memorySummary.value ? 2 : 1;
+    while (items.length > 6 && estimateMessageChars(items) > MAX_MODEL_CONTEXT_CHARS) {
+      removeOldestModelContextMessage(items, firstRecentMessageIndex);
+    }
+  };
+
   const buildModelMessages = () => {
     compactContextIfNeeded();
     const contextMessages: AiChatMessage[] = [buildSystemMessage()];
@@ -560,12 +571,33 @@ export const useAiStore = defineStore('ai', () => {
     }));
     contextMessages.push(...recentMessages);
 
-    const firstRecentMessageIndex = memorySummary.value ? 2 : 1;
-    while (contextMessages.length > 6 && estimateMessageChars(contextMessages) > MAX_MODEL_CONTEXT_CHARS) {
-      removeOldestModelContextMessage(contextMessages, firstRecentMessageIndex);
-    }
+    shrinkModelMessagesToBudget(contextMessages);
 
     return contextMessages;
+  };
+
+  const buildChatPayload = () => ({
+    ...config.value,
+    messages: buildModelMessages(),
+    tools: aiTools,
+    toolChoice: 'auto',
+  });
+
+  const buildBudgetedChatPayload = () => {
+    let payload = buildChatPayload();
+    if (estimateJsonBytes(payload) <= AI_REQUEST_COMPACT_BYTES) return payload;
+
+    compactContextIfNeeded();
+    compactContextNow();
+    payload = buildChatPayload();
+
+    const messagesForModel = payload.messages as AiChatMessage[];
+    const firstRecentMessageIndex = memorySummary.value ? 2 : 1;
+    while (messagesForModel.length > 4 && estimateJsonBytes(payload) > AI_REQUEST_COMPACT_BYTES) {
+      removeOldestModelContextMessage(messagesForModel, firstRecentMessageIndex);
+    }
+
+    return payload;
   };
 
   const ensureConfigured = () => {
@@ -609,12 +641,7 @@ export const useAiStore = defineStore('ai', () => {
     while (!stopRequested.value) {
       const controller = abortController.value;
       taskStatus.value = 'thinking';
-      const response = await apiClient.post('/ai/chat', {
-        ...config.value,
-        messages: buildModelMessages(),
-        tools: aiTools,
-        toolChoice: 'auto',
-      }, {
+      const response = await apiClient.post('/ai/chat', buildBudgetedChatPayload(), {
         signal: controller?.signal,
         timeout: 130000,
       });
