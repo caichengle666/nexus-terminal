@@ -409,7 +409,11 @@
   },
   "workspace": {
     "terminal": {
-      "reconnectingMsg": "正在尝试重新连接..."
+      "reconnectingMsg": "正在尝试重新连接...",
+      "genericErrorMsg": "错误: {message}",
+      "disconnectMsg": "连接已断开: {reason}",
+      "infoPrefix": "[信息]",
+      "errorPrefix": "[错误]"
     }
   },
   "fileEditor": {

@@ -408,7 +408,11 @@
   },
   "workspace": {
     "terminal": {
-      "reconnectingMsg": "Attempting to reconnect..."
+      "reconnectingMsg": "Attempting to reconnect...",
+      "genericErrorMsg": "Error: {message}",
+      "disconnectMsg": "Disconnected: {reason}",
+      "infoPrefix": "[Info]",
+      "errorPrefix": "[Error]"
     }
   },
   "fileEditor": {
