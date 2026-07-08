@@ -95,15 +95,6 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            electron-app/dist/*Setup*.exe
-            electron-app/dist/*Portable*.exe
-            electron-app/dist/*Portable win-unpacked.zip
-
 
   build-macos:
     runs-on: macos-14
@@ -180,8 +171,9 @@ jobs:
         uses: actions/download-artifact@v4
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
+          overwrite: true
           files: |
             Nexus-Terminal-Windows-Installer/*.exe
             Nexus-Terminal-Windows-Portable-Exe/*.exe
