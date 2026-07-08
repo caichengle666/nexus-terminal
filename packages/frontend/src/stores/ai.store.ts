@@ -26,9 +26,12 @@ type TerminalInputArgs = {
   pressEnter?: boolean;
   sessionId?: string;
   waitMs?: number;
+  reason?: string;
 };
 
 export type AiToolRunStatus = 'running' | 'done' | 'error' | 'cancelled';
+export type AiRunMode = 'readOnly' | 'confirm' | 'auto';
+export type AiTaskStatus = 'idle' | 'thinking' | 'awaitingConfirmation' | 'runningTool' | 'waitingOutput' | 'compressing' | 'done' | 'stopped' | 'error';
 
 export type AiToolRun = {
   id: string;
@@ -46,16 +49,38 @@ type RiskConfirmation = {
   reason: string;
 };
 
+export type CommandPreview = {
+  command: string;
+  reason: string;
+  riskReason?: string;
+  riskLevel: 'normal' | 'risky';
+  sessionId: string;
+  connectionName?: string;
+};
+
 type SendMessageOptions = {
-  confirmRiskCommand?: (risk: RiskConfirmation) => Promise<boolean>;
+  confirmCommand?: (preview: CommandPreview) => Promise<boolean>;
 };
 
 const CONFIG_KEY = 'nexus_ai_terminal_config';
-const MESSAGES_KEY = 'nexus_ai_terminal_messages';
-const TOOL_RUNS_KEY = 'nexus_ai_terminal_tool_runs';
+const MEMORIES_KEY = 'nexus_ai_terminal_session_memories';
+const LEGACY_MESSAGES_KEY = 'nexus_ai_terminal_messages';
+const LEGACY_TOOL_RUNS_KEY = 'nexus_ai_terminal_tool_runs';
 const MAX_SAVED_MESSAGES = 120;
 const MAX_SAVED_TOOL_RUNS = 80;
 const MAX_SAVED_CONTENT_LENGTH = 24000;
+const MAX_MODEL_RECENT_MESSAGES = 28;
+const COMPACT_MESSAGE_TRIGGER = 48;
+const COMPACT_CHAR_TRIGGER = 60000;
+const MAX_TOOL_RESULT_CONTENT_LENGTH = 22000;
+
+type AiSessionMemory = {
+  messages: AiChatMessage[];
+  toolRuns: AiToolRun[];
+  summary: string;
+  summaryUpdatedAt?: number;
+  lastCompactedAt?: number;
+};
 
 const aiTools = [
   {
@@ -85,6 +110,7 @@ const aiTools = [
           text: { type: 'string', description: 'Text or command to send to terminal.' },
           pressEnter: { type: 'boolean', description: 'Append Enter after text. Default false.' },
           waitMs: { type: 'number', description: 'Milliseconds to wait before reading output after input. Default 900.' },
+          reason: { type: 'string', description: 'Short reason why this input is needed.' },
         },
       },
     },
@@ -103,6 +129,26 @@ const normalizeMessagesForStorage = (items: AiChatMessage[]) => items
   }));
 
 const normalizeToolRunsForStorage = (items: AiToolRun[]) => items.slice(-MAX_SAVED_TOOL_RUNS);
+
+const stringifyToolResultForModel = (result: unknown) => {
+  const content = JSON.stringify(result);
+  if (content.length <= MAX_TOOL_RESULT_CONTENT_LENGTH) return content;
+  return `${content.slice(0, MAX_TOOL_RESULT_CONTENT_LENGTH)}\n...<tool result truncated, ask get_terminal_output with narrower maxLines if needed>`;
+};
+
+const createEmptyMemory = (): AiSessionMemory => ({
+  messages: [],
+  toolRuns: [],
+  summary: '',
+});
+
+const normalizeMemoryForStorage = (memory: AiSessionMemory): AiSessionMemory => ({
+  messages: normalizeMessagesForStorage(memory.messages || []),
+  toolRuns: normalizeToolRunsForStorage(memory.toolRuns || []),
+  summary: typeof memory.summary === 'string' ? memory.summary.slice(0, MAX_SAVED_CONTENT_LENGTH) : '',
+  summaryUpdatedAt: memory.summaryUpdatedAt,
+  lastCompactedAt: memory.lastCompactedAt,
+});
 
 const parseToolArgs = (toolCall: AiToolCall): Record<string, any> => {
   try {
@@ -144,79 +190,122 @@ export const useAiStore = defineStore('ai', () => {
   const userInput = ref('');
   const isRunning = ref(false);
   const stopRequested = ref(false);
+  const taskStatus = ref<AiTaskStatus>('idle');
   const errorMessage = ref('');
+  const configMessage = ref('');
+  const hasSavedApiKey = ref(false);
   const showConfig = ref(false);
-  const messages = ref<AiChatMessage[]>([]);
-  const toolRuns = ref<AiToolRun[]>([]);
+  const sessionMemories = ref<Record<string, AiSessionMemory>>({});
   const abortController = ref<AbortController | null>(null);
 
   const config = ref({
     apiBaseUrl: '',
     apiKey: '',
     model: '',
+    runMode: 'confirm' as AiRunMode,
   });
 
   const activeSession = computed(() => sessionStore.activeSession);
   const activeSessionId = computed(() => activeSession.value?.sessionId || '');
+  const activeMemoryKey = computed(() => activeSessionId.value || 'global');
+  const currentMemory = computed(() => {
+    const key = activeMemoryKey.value;
+    if (!sessionMemories.value[key]) {
+      sessionMemories.value[key] = createEmptyMemory();
+    }
+    return sessionMemories.value[key];
+  });
+  const messages = computed(() => currentMemory.value.messages);
+  const toolRuns = computed(() => currentMemory.value.toolRuns);
   const visibleMessages = computed(() => messages.value.filter(message => message.role !== 'tool'));
   const latestToolRuns = computed(() => toolRuns.value.slice(-20).reverse());
+  const memorySummary = computed(() => currentMemory.value.summary);
+  const runMode = computed({
+    get: () => config.value.runMode,
+    set: (value: AiRunMode) => {
+      config.value.runMode = value;
+    },
+  });
   const canSend = computed(() => !!userInput.value.trim() && !isRunning.value);
   const hasActiveTerminal = computed(() => !!activeSession.value?.terminalManager?.terminalInstance?.value);
 
-  const loadConfig = () => {
+  const persistableConfig = () => ({
+    apiBaseUrl: config.value.apiBaseUrl,
+    model: config.value.model,
+    runMode: config.value.runMode,
+  });
+
+  const loadConfig = async () => {
     try {
       const raw = localStorage.getItem(CONFIG_KEY);
       if (raw) {
         config.value = { ...config.value, ...JSON.parse(raw) };
+        localStorage.setItem(CONFIG_KEY, JSON.stringify(persistableConfig()));
       }
     } catch (error) {
       console.warn('[AI Terminal] Failed to load config:', error);
     }
-  };
 
-  const loadMessages = () => {
     try {
-      const raw = localStorage.getItem(MESSAGES_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          messages.value = normalizeMessagesForStorage(parsed);
-        }
+      const response = await apiClient.get('/ai/config');
+      config.value.apiBaseUrl = response.data?.apiBaseUrl || config.value.apiBaseUrl;
+      config.value.model = response.data?.model || config.value.model;
+      hasSavedApiKey.value = !!response.data?.hasApiKey;
+      if (hasSavedApiKey.value) {
+        config.value.apiKey = '';
       }
     } catch (error) {
-      console.warn('[AI Terminal] Failed to load messages:', error);
+      console.warn('[AI Terminal] Failed to load server config:', error);
     }
   };
 
-  const loadToolRuns = () => {
+  const loadMemories = () => {
     try {
-      const raw = localStorage.getItem(TOOL_RUNS_KEY);
+      const raw = localStorage.getItem(MEMORIES_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          toolRuns.value = normalizeToolRunsForStorage(parsed);
+        if (parsed && typeof parsed === 'object') {
+          sessionMemories.value = Object.fromEntries(
+            Object.entries(parsed).map(([key, value]) => [key, normalizeMemoryForStorage(value as AiSessionMemory)]),
+          );
         }
       }
     } catch (error) {
-      console.warn('[AI Terminal] Failed to load tool runs:', error);
+      console.warn('[AI Terminal] Failed to load memories:', error);
+    }
+
+    if (Object.keys(sessionMemories.value).length > 0) return;
+
+    try {
+      const legacyMessages = JSON.parse(localStorage.getItem(LEGACY_MESSAGES_KEY) || '[]');
+      const legacyToolRuns = JSON.parse(localStorage.getItem(LEGACY_TOOL_RUNS_KEY) || '[]');
+      if (Array.isArray(legacyMessages) || Array.isArray(legacyToolRuns)) {
+        sessionMemories.value.global = normalizeMemoryForStorage({
+          messages: Array.isArray(legacyMessages) ? legacyMessages : [],
+          toolRuns: Array.isArray(legacyToolRuns) ? legacyToolRuns : [],
+          summary: '',
+        });
+        localStorage.removeItem(LEGACY_MESSAGES_KEY);
+        localStorage.removeItem(LEGACY_TOOL_RUNS_KEY);
+      }
+    } catch (error) {
+      console.warn('[AI Terminal] Failed to migrate legacy memories:', error);
     }
   };
 
-  watch(config, (next) => {
-    localStorage.setItem(CONFIG_KEY, JSON.stringify(next));
+  watch(config, () => {
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(persistableConfig()));
   }, { deep: true });
 
-  watch(messages, (next) => {
-    localStorage.setItem(MESSAGES_KEY, JSON.stringify(normalizeMessagesForStorage(next)));
+  watch(sessionMemories, (next) => {
+    const normalized = Object.fromEntries(
+      Object.entries(next).map(([key, value]) => [key, normalizeMemoryForStorage(value)]),
+    );
+    localStorage.setItem(MEMORIES_KEY, JSON.stringify(normalized));
   }, { deep: true });
 
-  watch(toolRuns, (next) => {
-    localStorage.setItem(TOOL_RUNS_KEY, JSON.stringify(normalizeToolRunsForStorage(next)));
-  }, { deep: true });
-
-  loadConfig();
-  loadMessages();
-  loadToolRuns();
+  void loadConfig();
+  loadMemories();
 
   const getTargetSession = (sessionId?: string) => {
     if (sessionId) return sessionStore.sessions.get(sessionId) || null;
@@ -261,15 +350,30 @@ export const useAiStore = defineStore('ai', () => {
       return { ok: false, cancelled: true, error: 'AI run was stopped before terminal input.' };
     }
 
+    if (runMode.value === 'readOnly') {
+      return { ok: false, cancelled: true, error: '当前是只读模式，AI 不会向终端发送输入。' };
+    }
+
     const risk = detectRiskyCommand(args);
-    if (risk && options?.confirmRiskCommand) {
-      const confirmed = await options.confirmRiskCommand(risk);
+    const session = getTargetSession(args.sessionId);
+    const command = normalizeCommand(String(args.text || ''));
+    const needsConfirmation = runMode.value === 'confirm' || !!risk;
+    if (needsConfirmation && options?.confirmCommand) {
+      taskStatus.value = 'awaitingConfirmation';
+      const confirmed = await options.confirmCommand({
+        command,
+        reason: String(args.reason || 'AI 需要执行这一步来继续处理当前任务。'),
+        riskReason: risk?.reason,
+        riskLevel: risk ? 'risky' : 'normal',
+        sessionId: session?.sessionId || args.sessionId || activeSessionId.value,
+        connectionName: session?.connectionName,
+      });
       if (!confirmed) {
         return {
           ok: false,
           cancelled: true,
           risk,
-          error: 'User rejected risky terminal command.',
+          error: 'User rejected terminal command.',
         };
       }
     }
@@ -278,7 +382,6 @@ export const useAiStore = defineStore('ai', () => {
       return { ok: false, cancelled: true, error: 'AI run was stopped before terminal input.' };
     }
 
-    const session = getTargetSession(args.sessionId);
     if (!session?.terminalManager?.sendData) {
       return {
         ok: false,
@@ -292,6 +395,7 @@ export const useAiStore = defineStore('ai', () => {
 
     const waitMs = Math.max(0, Math.min(Number(args.waitMs) || 900, 10000));
     if (waitMs > 0) {
+      taskStatus.value = 'waitingOutput';
       await sleep(waitMs);
     }
 
@@ -327,6 +431,12 @@ export const useAiStore = defineStore('ai', () => {
     toolRuns.value.push(toolRun);
 
     try {
+      if (stopRequested.value) {
+        toolRun.status = 'cancelled';
+        return { ok: false, cancelled: true, error: 'AI run was stopped before tool execution.' };
+      }
+
+      taskStatus.value = 'runningTool';
       let result: unknown;
       if (toolCall.function.name === 'get_terminal_output') {
         result = readTerminalOutput(args.sessionId, args.maxLines);
@@ -353,9 +463,13 @@ export const useAiStore = defineStore('ai', () => {
     content: [
       'You are an AI terminal operator inside Nexus Terminal.',
       'You can inspect the active terminal and operate it with tools.',
+      `Run mode: ${runMode.value}. In readOnly mode, inspect only and explain what you would do.`,
       'Use get_terminal_output before deciding what to do when context is unclear.',
       'Use terminal_input to type into the active SSH terminal. Use pressEnter=true only when you intend to submit a command.',
+      'When using terminal_input, always include a short reason field explaining why the input is needed.',
       'After sending a command, inspect output and continue until the user request is complete, blocked, or needs confirmation.',
+      'You may decide how many tool calls are needed. Do not stop early when more inspection or verification is required.',
+      'For troubleshooting, follow this loop: inspect, plan briefly, run one safe step, read output, verify, then continue or report the blocker.',
       'Do not ask the user to manually run commands that you can safely run with terminal_input.',
       'Avoid destructive or service-impacting commands unless the user clearly requested them and the app confirms them.',
       'If a command may take a long time, explain what is happening after observing output.',
@@ -363,11 +477,90 @@ export const useAiStore = defineStore('ai', () => {
     ].join('\n'),
   });
 
+  const estimateMessageChars = (items: AiChatMessage[]) => items.reduce((total, message) => {
+    const contentLength = typeof message.content === 'string' ? message.content.length : 0;
+    const toolLength = message.tool_calls ? JSON.stringify(message.tool_calls).length : 0;
+    return total + contentLength + toolLength;
+  }, 0);
+
+  const summarizeMessages = (items: AiChatMessage[]) => {
+    const lines: string[] = [];
+    for (const message of items) {
+      if (message.role === 'user' && message.content) {
+        lines.push(`用户目标: ${String(message.content).slice(0, 500)}`);
+      } else if (message.role === 'assistant' && message.content) {
+        lines.push(`AI 结论: ${String(message.content).slice(0, 700)}`);
+      } else if (message.role === 'assistant' && message.tool_calls?.length) {
+        const names = message.tool_calls.map(call => call.function.name).join(', ');
+        lines.push(`AI 调用工具: ${names}`);
+      } else if (message.role === 'tool' && message.content) {
+        lines.push(`工具结果: ${String(message.content).slice(0, 700)}`);
+      }
+    }
+    return lines.slice(-80).join('\n');
+  };
+
+  const compactContextIfNeeded = () => {
+    const memory = currentMemory.value;
+    const totalChars = estimateMessageChars(memory.messages);
+    if (memory.messages.length <= COMPACT_MESSAGE_TRIGGER && totalChars <= COMPACT_CHAR_TRIGGER) return;
+
+    taskStatus.value = 'compressing';
+    const recentMessages = memory.messages.slice(-MAX_MODEL_RECENT_MESSAGES);
+    const olderMessages = memory.messages.slice(0, -MAX_MODEL_RECENT_MESSAGES);
+    const previousSummary = memory.summary ? `此前摘要:\n${memory.summary}\n\n` : '';
+    memory.summary = `${previousSummary}本次压缩摘要:\n${summarizeMessages(olderMessages)}`.slice(-MAX_SAVED_CONTENT_LENGTH);
+    memory.messages = recentMessages;
+    memory.summaryUpdatedAt = Date.now();
+    memory.lastCompactedAt = Date.now();
+  };
+
+  const buildModelMessages = () => {
+    compactContextIfNeeded();
+    const contextMessages: AiChatMessage[] = [buildSystemMessage()];
+    if (memorySummary.value) {
+      contextMessages.push({
+        role: 'system',
+        content: `Memory summary for earlier conversation and terminal work:\n${memorySummary.value}`,
+      });
+    }
+    contextMessages.push(...messages.value.slice(-MAX_MODEL_RECENT_MESSAGES));
+    return contextMessages;
+  };
+
   const ensureConfigured = () => {
-    if (!config.value.apiBaseUrl || !config.value.apiKey || !config.value.model) {
+    if (!config.value.apiBaseUrl || (!config.value.apiKey && !hasSavedApiKey.value) || !config.value.model) {
       showConfig.value = true;
       throw new Error('请先配置 AI API Base URL、API Key 和 Model。');
     }
+  };
+
+  const saveConfig = async () => {
+    configMessage.value = '';
+    const response = await apiClient.put('/ai/config', {
+      apiBaseUrl: config.value.apiBaseUrl,
+      apiKey: config.value.apiKey,
+      model: config.value.model,
+    });
+    hasSavedApiKey.value = !!response.data?.hasApiKey;
+    if (hasSavedApiKey.value) {
+      config.value.apiKey = '';
+    }
+    configMessage.value = 'AI 配置已保存。';
+  };
+
+  const testConfig = async () => {
+    configMessage.value = '';
+    const response = await apiClient.post('/ai/config/test', {
+      apiBaseUrl: config.value.apiBaseUrl,
+      apiKey: config.value.apiKey,
+      model: config.value.model,
+    });
+    hasSavedApiKey.value = !!response.data?.hasApiKey;
+    if (hasSavedApiKey.value) {
+      config.value.apiKey = '';
+    }
+    configMessage.value = 'AI 配置测试通过。';
   };
 
   const runAgentLoop = async (options?: SendMessageOptions) => {
@@ -375,9 +568,10 @@ export const useAiStore = defineStore('ai', () => {
 
     while (!stopRequested.value) {
       const controller = abortController.value;
+      taskStatus.value = 'thinking';
       const response = await apiClient.post('/ai/chat', {
         ...config.value,
-        messages: [buildSystemMessage(), ...messages.value],
+        messages: buildModelMessages(),
         tools: aiTools,
         toolChoice: 'auto',
       }, {
@@ -394,7 +588,10 @@ export const useAiStore = defineStore('ai', () => {
 
       messages.value.push(assistantMessage);
       const toolCalls = assistantMessage.tool_calls || [];
-      if (toolCalls.length === 0) return;
+      if (toolCalls.length === 0) {
+        taskStatus.value = 'done';
+        return;
+      }
 
       for (const toolCall of toolCalls) {
         if (stopRequested.value) break;
@@ -402,7 +599,7 @@ export const useAiStore = defineStore('ai', () => {
         messages.value.push({
           role: 'tool',
           tool_call_id: toolCall.id,
-          content: JSON.stringify(result),
+          content: stringifyToolResultForModel(result),
         });
       }
     }
@@ -423,17 +620,23 @@ export const useAiStore = defineStore('ai', () => {
       await runAgentLoop(options);
       if (stopRequested.value) {
         messages.value.push({ role: 'assistant', content: '已停止本轮 AI 操作。' });
+        taskStatus.value = 'stopped';
       }
     } catch (error: any) {
       if (error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || stopRequested.value) {
         messages.value.push({ role: 'assistant', content: '已停止本轮 AI 操作。' });
+        taskStatus.value = 'stopped';
       } else {
         errorMessage.value = error.response?.data?.message || error.message || 'AI 请求失败。';
+        taskStatus.value = 'error';
       }
     } finally {
       isRunning.value = false;
       abortController.value = null;
       stopRequested.value = false;
+      if (taskStatus.value === 'thinking' || taskStatus.value === 'runningTool' || taskStatus.value === 'waitingOutput') {
+        taskStatus.value = 'idle';
+      }
     }
   };
 
@@ -444,31 +647,54 @@ export const useAiStore = defineStore('ai', () => {
   };
 
   const clearChat = () => {
-    messages.value = [];
-    toolRuns.value = [];
+    currentMemory.value.messages = [];
+    currentMemory.value.toolRuns = [];
+    currentMemory.value.summary = '';
+    currentMemory.value.summaryUpdatedAt = undefined;
+    currentMemory.value.lastCompactedAt = undefined;
     errorMessage.value = '';
-    localStorage.removeItem(MESSAGES_KEY);
-    localStorage.removeItem(TOOL_RUNS_KEY);
+  };
+
+  const compactContextNow = () => {
+    const memory = currentMemory.value;
+    if (memory.messages.length <= MAX_MODEL_RECENT_MESSAGES) return false;
+
+    const recentMessages = memory.messages.slice(-MAX_MODEL_RECENT_MESSAGES);
+    const olderMessages = memory.messages.slice(0, -MAX_MODEL_RECENT_MESSAGES);
+    const previousSummary = memory.summary ? `此前摘要:\n${memory.summary}\n\n` : '';
+    memory.summary = `${previousSummary}手动压缩摘要:\n${summarizeMessages(olderMessages)}`.slice(-MAX_SAVED_CONTENT_LENGTH);
+    memory.messages = recentMessages;
+    memory.summaryUpdatedAt = Date.now();
+    memory.lastCompactedAt = Date.now();
+    return true;
   };
 
   return {
     userInput,
     isRunning,
     stopRequested,
+    taskStatus,
     errorMessage,
+    configMessage,
+    hasSavedApiKey,
     showConfig,
     messages,
     visibleMessages,
     toolRuns,
     latestToolRuns,
+    memorySummary,
+    runMode,
     config,
     activeSession,
     activeSessionId,
     canSend,
     hasActiveTerminal,
+    saveConfig,
+    testConfig,
     sendMessage,
     stopRun,
     clearChat,
+    compactContextNow,
     sendInterruptToTerminal,
   };
 });

@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { settingsRepository } from '../settings/settings.repository';
+import { decrypt, encrypt } from '../utils/crypto';
 
 export interface AiChatRequest {
   apiBaseUrl: unknown;
@@ -10,6 +12,14 @@ export interface AiChatRequest {
   temperature?: unknown;
 }
 
+export interface AiConfigRequest {
+  apiBaseUrl?: unknown;
+  apiKey?: unknown;
+  model?: unknown;
+}
+
+const AI_CONFIG_KEY = 'aiTerminalConfig';
+
 const normalizeApiBaseUrl = (value: unknown): string => {
   const apiBaseUrl = String(value || '').trim().replace(/\/+$/, '');
   if (!apiBaseUrl) {
@@ -18,16 +28,75 @@ const normalizeApiBaseUrl = (value: unknown): string => {
   return apiBaseUrl;
 };
 
+const readStoredConfig = async () => {
+  const raw = await settingsRepository.getSetting(AI_CONFIG_KEY);
+  if (!raw) {
+    return { apiBaseUrl: '', model: '', encryptedApiKey: '' };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      apiBaseUrl: typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl : '',
+      model: typeof parsed.model === 'string' ? parsed.model : '',
+      encryptedApiKey: typeof parsed.encryptedApiKey === 'string' ? parsed.encryptedApiKey : '',
+    };
+  } catch {
+    return { apiBaseUrl: '', model: '', encryptedApiKey: '' };
+  }
+};
+
+const decryptStoredApiKey = (encryptedApiKey: string) => {
+  if (!encryptedApiKey) return '';
+  return decrypt(encryptedApiKey);
+};
+
+export const getConfig = async () => {
+  const stored = await readStoredConfig();
+  return {
+    apiBaseUrl: stored.apiBaseUrl,
+    model: stored.model,
+    hasApiKey: !!stored.encryptedApiKey,
+  };
+};
+
+export const saveConfig = async (payload: AiConfigRequest) => {
+  const current = await readStoredConfig();
+  const nextApiKey = typeof payload.apiKey === 'string' && payload.apiKey.trim()
+    ? encrypt(payload.apiKey.trim())
+    : current.encryptedApiKey;
+
+  const next = {
+    apiBaseUrl: typeof payload.apiBaseUrl === 'string' ? payload.apiBaseUrl.trim() : current.apiBaseUrl,
+    model: typeof payload.model === 'string' ? payload.model.trim() : current.model,
+    encryptedApiKey: nextApiKey,
+  };
+
+  await settingsRepository.setSetting(AI_CONFIG_KEY, JSON.stringify(next));
+  return {
+    apiBaseUrl: next.apiBaseUrl,
+    model: next.model,
+    hasApiKey: !!next.encryptedApiKey,
+  };
+};
+
+const resolveConfig = async (payload: AiChatRequest) => {
+  const stored = await readStoredConfig();
+  return {
+    apiBaseUrl: payload.apiBaseUrl || stored.apiBaseUrl,
+    apiKey: payload.apiKey || decryptStoredApiKey(stored.encryptedApiKey),
+    model: payload.model || stored.model,
+  };
+};
+
 export const forwardChatCompletion = async (payload: AiChatRequest) => {
   const {
-    apiBaseUrl,
-    apiKey,
-    model,
     messages,
     tools,
     toolChoice,
     temperature,
   } = payload;
+  const { apiBaseUrl, apiKey, model } = await resolveConfig(payload);
 
   if (!apiKey || !model || !Array.isArray(messages)) {
     const error = new Error('Missing required AI chat fields.');
@@ -58,4 +127,20 @@ export const forwardChatCompletion = async (payload: AiChatRequest) => {
     status: response.status,
     data: response.data,
   };
+};
+
+export const testConfig = async (payload: AiConfigRequest) => {
+  const saved = await saveConfig(payload);
+  const stored = await readStoredConfig();
+  const endpoint = `${normalizeApiBaseUrl(stored.apiBaseUrl)}/models`;
+
+  await axios.get(endpoint, {
+    timeout: 20000,
+    headers: {
+      Authorization: `Bearer ${decryptStoredApiKey(stored.encryptedApiKey)}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  return saved;
 };

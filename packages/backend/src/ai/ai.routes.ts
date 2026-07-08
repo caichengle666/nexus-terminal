@@ -6,6 +6,9 @@ const router = Router();
 
 router.use(isAuthenticated);
 
+router.get('/config', AiController.getConfig);
+router.put('/config', AiController.saveConfig);
+router.post('/config/test', AiController.testConfig);
 router.post('/chat', AiController.chat);
 
 export default router;
