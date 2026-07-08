@@ -69,10 +69,14 @@ const LEGACY_TOOL_RUNS_KEY = 'nexus_ai_terminal_tool_runs';
 const MAX_SAVED_MESSAGES = 120;
 const MAX_SAVED_TOOL_RUNS = 80;
 const MAX_SAVED_CONTENT_LENGTH = 24000;
-const MAX_MODEL_RECENT_MESSAGES = 28;
-const COMPACT_MESSAGE_TRIGGER = 48;
-const COMPACT_CHAR_TRIGGER = 60000;
-const MAX_TOOL_RESULT_CONTENT_LENGTH = 22000;
+const MAX_MODEL_RECENT_MESSAGES = 16;
+const COMPACT_MESSAGE_TRIGGER = 30;
+const COMPACT_CHAR_TRIGGER = 32000;
+const MAX_MODEL_CONTEXT_CHARS = 90000;
+const MAX_MODEL_MESSAGE_CONTENT_LENGTH = 8000;
+const MAX_MODEL_SUMMARY_LENGTH = 8000;
+const MAX_TERMINAL_OUTPUT_CHARS = 12000;
+const MAX_TOOL_RESULT_CONTENT_LENGTH = 8000;
 
 type AiSessionMemory = {
   messages: AiChatMessage[];
@@ -134,6 +138,11 @@ const stringifyToolResultForModel = (result: unknown) => {
   const content = JSON.stringify(result);
   if (content.length <= MAX_TOOL_RESULT_CONTENT_LENGTH) return content;
   return `${content.slice(0, MAX_TOOL_RESULT_CONTENT_LENGTH)}\n...<tool result truncated, ask get_terminal_output with narrower maxLines if needed>`;
+};
+
+const truncateForModel = (content: string, maxLength = MAX_MODEL_MESSAGE_CONTENT_LENGTH) => {
+  if (content.length <= maxLength) return content;
+  return `${content.slice(0, maxLength)}\n...<content truncated to keep the AI request small>`;
 };
 
 const createEmptyMemory = (): AiSessionMemory => ({
@@ -337,11 +346,15 @@ export const useAiStore = defineStore('ai', () => {
       }
     }
 
+    const output = lines.join('\n').trimEnd();
+
     return {
       ok: true,
       sessionId: session.sessionId,
       connectionName: session.connectionName,
-      output: lines.join('\n').trimEnd(),
+      output: output.length > MAX_TERMINAL_OUTPUT_CHARS
+        ? `...<terminal output truncated>\n${output.slice(-MAX_TERMINAL_OUTPUT_CHARS)}`
+        : output,
     };
   };
 
@@ -483,6 +496,21 @@ export const useAiStore = defineStore('ai', () => {
     return total + contentLength + toolLength;
   }, 0);
 
+  const removeOldestModelContextMessage = (items: AiChatMessage[], startIndex: number) => {
+    const [removed] = items.splice(startIndex, 1);
+    const removedToolCallIds = new Set((removed?.tool_calls || []).map(call => call.id));
+
+    for (let index = items.length - 1; index >= startIndex; index -= 1) {
+      if (items[index].role === 'tool' && removedToolCallIds.has(String(items[index].tool_call_id || ''))) {
+        items.splice(index, 1);
+      }
+    }
+
+    while (items[startIndex]?.role === 'tool') {
+      items.splice(startIndex, 1);
+    }
+  };
+
   const summarizeMessages = (items: AiChatMessage[]) => {
     const lines: string[] = [];
     for (const message of items) {
@@ -521,10 +549,22 @@ export const useAiStore = defineStore('ai', () => {
     if (memorySummary.value) {
       contextMessages.push({
         role: 'system',
-        content: `Memory summary for earlier conversation and terminal work:\n${memorySummary.value}`,
+        content: `Memory summary for earlier conversation and terminal work:\n${truncateForModel(memorySummary.value, MAX_MODEL_SUMMARY_LENGTH)}`,
       });
     }
-    contextMessages.push(...messages.value.slice(-MAX_MODEL_RECENT_MESSAGES));
+    const recentMessages = messages.value.slice(-MAX_MODEL_RECENT_MESSAGES).map(message => ({
+      ...message,
+      content: typeof message.content === 'string'
+        ? truncateForModel(message.content)
+        : message.content,
+    }));
+    contextMessages.push(...recentMessages);
+
+    const firstRecentMessageIndex = memorySummary.value ? 2 : 1;
+    while (contextMessages.length > 6 && estimateMessageChars(contextMessages) > MAX_MODEL_CONTEXT_CHARS) {
+      removeOldestModelContextMessage(contextMessages, firstRecentMessageIndex);
+    }
+
     return contextMessages;
   };
 
