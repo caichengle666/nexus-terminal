@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useAppearanceStore } from '../../stores/appearance.store';
 import { useUiNotificationsStore } from '../../stores/uiNotifications.store';
 import { storeToRefs } from 'pinia';
-import { defaultUiTheme } from '../../features/appearance/config/default-themes';
+import { defaultUiTheme, uiThemePresets, type UiThemePreset } from '../../features/appearance/config/default-themes';
 import { safeJsonParse } from '../../stores/appearance.store';
 
 const { t } = useI18n();
@@ -15,37 +15,6 @@ const { appearanceSettings } = storeToRefs(appearanceStore);
 const editableUiTheme = ref<Record<string, string>>({});
 const editableUiThemeString = ref('');
 const themeParseError = ref<string | null>(null);
-
-// 定义黑暗模式主题变量
-const darkModeTheme = {
-  '--app-bg-color': '#212529',
-  '--text-color': '#e9ecef',
-  '--text-color-secondary': '#adb5bd',
-  '--border-color': '#495057',
-  '--link-color': '#BB86FC',
-  '--link-hover-color': '#D1A9FF',
-  '--link-active-color': '#A06CD5',
-  '--link-active-bg-color': 'rgba(160, 108, 213, 0.2)',
-  '--nav-item-active-bg-color': 'var(--link-active-bg-color)',
-  '--header-bg-color': '#343a40',
-  '--footer-bg-color': '#343a40',
-  '--button-bg-color': 'var(--link-active-color)',
-  '--button-text-color': '#ffffff',
-  '--button-hover-bg-color': '#8E44AD',
-  '--icon-color': 'var(--text-color-secondary)',
-  '--icon-hover-color': 'var(--link-hover-color)',
-  '--split-line-color': 'var(--border-color)',
-  '--split-line-hover-color': 'var(--border-color)',
-  '--input-focus-border-color': 'var(--link-active-color)',
-  '--input-focus-glow': 'var(--link-active-color)',
-  '--overlay-bg-color': 'rgba(0, 0, 0, 0.8)',
-  '--color-success': '#5cb85c',
-  '--color-error': '#d9534f',
-  '--color-warning': '#f0ad4e',
-  '--font-family-sans-serif': 'sans-serif',
-  '--base-padding': '1rem',
-  '--base-margin': '0.5rem'
-};
 
 const initializeEditableState = () => {
   const userThemeJson = appearanceSettings.value.customUiTheme;
@@ -95,16 +64,28 @@ const handleResetUiTheme = async () => {
     }
 };
 
-const applyDarkMode = async () => {
+const applyThemePreset = async (preset: UiThemePreset) => {
   try {
-    editableUiTheme.value = JSON.parse(JSON.stringify(darkModeTheme));
+    editableUiTheme.value = JSON.parse(JSON.stringify(preset.theme));
     await appearanceStore.saveCustomUiTheme(editableUiTheme.value);
-    notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.darkModeApplied') });
+    notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.themePresetApplied', { name: preset.name }) });
   } catch (error: any) {
-    console.error("应用黑暗模式失败:", error);
-    notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.darkModeApplyFailed', { message: error.message || '未知错误' }) });
+    console.error("应用主题预设失败:", error);
+    notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.themePresetApplyFailed', { message: error.message || '未知错误' }) });
   }
 };
+
+const isPresetActive = (preset: UiThemePreset) => {
+  const currentTheme = JSON.stringify(editableUiTheme.value);
+  return currentTheme === JSON.stringify(preset.theme);
+};
+
+const getPresetSwatches = (preset: UiThemePreset) => [
+  preset.theme['--app-bg-color'],
+  preset.theme['--header-bg-color'],
+  preset.theme['--link-active-color'],
+  preset.theme['--button-bg-color'],
+];
 
 const formattedEditableUiThemeJson = computed(() => {
     try {
@@ -215,9 +196,31 @@ defineExpose({
     <h3 class="mt-0 border-b border-border pb-2 mb-4 text-lg font-semibold text-foreground">{{ t('styleCustomizer.uiStyles') }}</h3>
     <div class="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start md:items-center gap-2 md:gap-3 mb-6">
         <label class="text-left text-foreground text-sm font-medium mb-1 md:mb-0">{{ t('styleCustomizer.themeModeLabel', '主题模式:') }}</label>
-        <div class="flex gap-2 justify-start flex-wrap">
-            <button @click="handleResetUiTheme" class="px-3 py-1.5 text-sm border border-border rounded bg-header hover:bg-border transition duration-200 ease-in-out whitespace-nowrap">{{ t('styleCustomizer.defaultMode', '默认模式') }}</button>
-            <button @click="applyDarkMode" class="px-3 py-1.5 text-sm border border-border rounded bg-header hover:bg-border transition duration-200 ease-in-out whitespace-nowrap">{{ t('styleCustomizer.darkMode', '黑暗模式') }}</button>
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            <button
+              v-for="preset in uiThemePresets"
+              :key="preset.key"
+              type="button"
+              @click="applyThemePreset(preset)"
+              class="text-left border rounded-md p-3 bg-header hover:bg-border transition duration-200 ease-in-out"
+              :class="isPresetActive(preset) ? 'border-primary ring-1 ring-primary' : 'border-border'"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-sm font-semibold text-foreground">{{ preset.name }}</span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full border border-border text-text-secondary">
+                  {{ preset.mode === 'dark' ? t('styleCustomizer.darkMode', '黑暗模式') : t('styleCustomizer.defaultMode', '默认模式') }}
+                </span>
+              </div>
+              <p class="mt-1 mb-3 text-xs text-text-secondary leading-relaxed">{{ preset.description }}</p>
+              <div class="flex items-center gap-1.5">
+                <span
+                  v-for="color in getPresetSwatches(preset)"
+                  :key="`${preset.key}-${color}`"
+                  class="h-5 flex-1 rounded border border-border"
+                  :style="{ backgroundColor: color }"
+                ></span>
+              </div>
+            </button>
         </div>
     </div>
     <p class="text-text-secondary text-sm leading-relaxed mb-3">{{ t('styleCustomizer.uiDescription') }}</p>

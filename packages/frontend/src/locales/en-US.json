@@ -93,6 +93,8 @@
     "themeModeLabel": "Theme Mode:",
     "defaultMode": "Default Mode",
     "darkMode": "Dark Mode",
+    "themePresetApplied": "Theme applied: {name}",
+    "themePresetApplyFailed": "Failed to apply theme: {message}",
     "darkModeApplied": "Dark mode applied",
     "darkModeApplyFailed": "Failed to apply dark mode: {message}",
     "terminalBgOverlayOpacity": "Terminal Background Overlay Opacity:",

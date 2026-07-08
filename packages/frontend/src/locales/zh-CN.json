@@ -92,6 +92,8 @@
     "themeModeLabel": "主题模式:",
     "defaultMode": "默认模式",
     "darkMode": "黑暗模式",
+    "themePresetApplied": "已应用主题：{name}",
+    "themePresetApplyFailed": "应用主题失败: {message}",
     "darkModeApplied": "黑暗模式已应用",
     "darkModeApplyFailed": "应用黑暗模式失败: {message}",
     "terminalBgOverlayOpacity": "终端背景蒙版透明度:",

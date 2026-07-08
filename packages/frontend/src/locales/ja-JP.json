@@ -1307,6 +1307,8 @@
     "themeDeleteFailed": "テーマの削除に失敗しました: {message}",
     "themeDeletedSuccess": "テーマの削除に成功しました。",
     "themeModeLabel": "テーマモード:",
+    "themePresetApplied": "テーマを適用しました: {name}",
+    "themePresetApplyFailed": "テーマの適用に失敗しました: {message}",
     "themeName": "テーマ名",
     "themeSaveFailed": "テーマの保存に失敗しました。",
     "themeUpdatedSuccess": "テーマの更新に成功しました。",
