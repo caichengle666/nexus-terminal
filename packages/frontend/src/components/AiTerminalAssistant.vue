@@ -134,7 +134,7 @@ const interruptTerminal = async () => {
 };
 
 const compactContext = async () => {
-  const result = aiStore.compactContextNow();
+  const result = aiStore.compactContextNow(true);
   if (!result.compacted) {
     const requestKb = Math.ceil(result.requestBytes / 1024);
     const thresholdKb = Math.floor(result.thresholdBytes / 1024);
