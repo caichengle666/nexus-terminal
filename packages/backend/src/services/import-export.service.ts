@@ -531,7 +531,7 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
             }
         }
 
-        const connectionsToInsert: Array<Omit<ConnectionRepository.FullConnectionData, 'id' | 'created_at' | 'updated_at' | 'last_connected_at'> & { tag_ids?: number[] }> = [];
+        const connectionsToInsert: Array<Omit<ConnectionRepository.FullConnectionData, 'id' | 'created_at' | 'updated_at' | 'last_connected_at'> & { tag_ids?: number[]; tag_names?: string[]; ssh_key_id?: number | null; notes?: string | null }> = [];
         const proxyCache: { [key: string]: number } = {};
 
         for (const connData of importedData) {
@@ -590,19 +590,25 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
                 if (connData.ssh_key_name && sshKeyNameToId[connData.ssh_key_name]) {
                     sshKeyId = sshKeyNameToId[connData.ssh_key_name];
                 }
+                const encPassword = connData.password ? encrypt(connData.password) : (connData.encrypted_password || null);
+                const encPrivateKey = connData.private_key ? encrypt(connData.private_key) : (connData.encrypted_private_key || null);
+                const encPassphrase = connData.passphrase ? encrypt(connData.passphrase) : (connData.encrypted_passphrase || null);
                 connectionsToInsert.push({
                     name: connData.name,
-                    type: connData.type, // Add type
+                    type: connData.type,
                     host: connData.host,
                     port: connData.port,
                     username: connData.username,
-                    auth_method: authMethodForDb, // Use determined auth method
-                    encrypted_password: connData.encrypted_password || null,
-                    encrypted_private_key: connData.encrypted_private_key || null,
-                    encrypted_passphrase: connData.encrypted_passphrase || null,
+                    auth_method: authMethodForDb,
+                    encrypted_password: encPassword,
+                    encrypted_private_key: encPrivateKey,
+                    encrypted_passphrase: encPassphrase,
                     proxy_id: proxyIdToUse,
+                    ssh_key_id: sshKeyId,
+                    notes: connData.notes || null,
                     tag_ids: [],
-                    jump_chain: null, // 为 jump_chain 添加默认值
+                    tag_names: connData.tag_names || [],
+                    jump_chain: null,
                 });
 
             } catch (connError: any) {
