@@ -154,11 +154,11 @@ jobs:
           cp $(which node) electron-app/nodejs-runtime/darwin-arm64/node
           chmod +x electron-app/nodejs-runtime/darwin-arm64/node
 
-      - name: Build Electron app (macOS universal)
+      - name: Build Electron app (macOS arm64)
         working-directory: electron-app
         env:
           GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder build --mac --universal --config --publish never
+        run: npx electron-builder build --mac --arm64 --config --publish never
 
       - name: Upload macOS universal artifact
         uses: actions/upload-artifact@v4
