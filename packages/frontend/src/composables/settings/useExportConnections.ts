@@ -19,7 +19,7 @@ export function useExportConnections() {
         responseType: 'blob',
       });
 
-      let filename = 'nexus_connections_export.zip';
+      let filename = 'nexus_connections_export.json';
       const disposition = response.headers['content-disposition'];
       if (disposition && disposition.includes('attachment')) {
         const filenameRegex = /filename[^;=\n]*=(?:(['"])(.*?)\1|([^;\n]*))/;
@@ -29,7 +29,7 @@ export function useExportConnections() {
         }
       }
 
-      const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/zip' });
+      const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/json' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;

@@ -17,6 +17,10 @@ export const getTagById = async (id: number): Promise<TagData | null> => {
     return TagRepository.findTagById(id);
 };
 
+export const getTagByName = async (name: string): Promise<TagData | null> => {
+    return TagRepository.findTagByName(name);
+};
+
 /**
  * 创建新标签
  */

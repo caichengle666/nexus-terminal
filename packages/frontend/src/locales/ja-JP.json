@@ -646,9 +646,10 @@
       "dataManagement": "Data Management"
     },
     "exportConnections": {
-      "title": "Export Connection Data",
-      "decryptKeyInfo": "The decryption password is the ENCRYPTION_KEY in your data/.env file. Please keep this file secure.",
-      "buttonText": "Start Export"
+      "title": "接続データのエクスポート",
+      "decryptKeyInfo": "エクスポートされた JSON ファイルには平文のパスワードと鍵が含まれています。安全に保管してください。",
+      "buttonText": "エクスポート開始",
+      "success": "エクスポート成功。ダウンロードを開始しました。"
     },
     "timezone": {
       "title": "Timezone Settings",

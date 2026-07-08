@@ -39,6 +39,21 @@ export const findTagById = async (id: number): Promise<TagData | null> => {
  };
 
 
+
+/**
+ * 根据名称获取标签
+ */
+export const findTagByName = async (name: string): Promise<TagData | null> => {
+    try {
+        const db = await getDbInstance();
+        const row = await getDbRow<TagData>(db, `SELECT * FROM tags WHERE name = ?`, [name]);
+        return row || null;
+    } catch (err: any) {
+        console.error(`[仓库] 按名称查询标签 "${name}" 时出错:`, err.message);
+        throw new Error('获取标签信息失败');
+    }
+};
+
 /**
  * 创建新标签
  */

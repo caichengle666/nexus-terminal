@@ -1,7 +1,8 @@
 
 import * as ConnectionRepository from '../connections/connection.repository';
 import * as ProxyRepository from '../proxies/proxy.repository';
-import * as TagService from '../tags/tag.service'; 
+import * as TagService from '../tags/tag.service';
+import { encrypt } from '../utils/crypto'; 
 import { getDbInstance, runDb, getDb as getDbRow, allDb } from '../database/connection';
 import { decrypt, getEncryptionKeyBuffer as getCryptoKeyBuffer } from '../utils/crypto'; 
 import { getAllDecryptedSshKeys, DecryptedSshKeyDetails } from '../ssh_keys/ssh_key.service'; 
@@ -27,6 +28,9 @@ interface ImportedConnectionData {
     encrypted_private_key?: string | null;
     encrypted_passphrase?: string | null;
     tag_ids?: number[];
+    tag_names?: string[];
+    ssh_key_name?: string | null;
+    notes?: string | null;
     proxy?: {
         name: string;
         type: 'SOCKS5' | 'HTTP';
@@ -224,6 +228,99 @@ function escapeCliArgument(value: string | number | null | undefined): string {
 }
 
 
+export interface ExportJsonData {
+    version: number;
+    exported_at: string;
+    tags: { id: number; name: string }[];
+    connections: {
+        name: string;
+        type: 'SSH' | 'RDP' | 'VNC';
+        host: string;
+        port: number;
+        username: string;
+        auth_method: 'password' | 'key';
+        password?: string | null;
+        private_key?: string | null;
+        passphrase?: string | null;
+        ssh_key_name?: string | null;
+        notes?: string | null;
+        tag_names?: string[];
+        proxy?: {
+            name: string;
+            type: 'SOCKS5' | 'HTTP';
+            host: string;
+            port: number;
+            username?: string | null;
+            auth_method?: 'none' | 'password' | 'key';
+            password?: string | null;
+        } | null;
+    }[];
+    ssh_keys?: { name: string; private_key: string; passphrase?: string | null }[];
+}
+
+export const exportConnectionsAsJson = async (): Promise<Buffer> => {
+    const connectionsData = await getPlaintextConnectionsData();
+    const allTags = await TagService.getAllTags();
+    const allSshKeys = await getAllDecryptedSshKeys();
+
+    const tagsMap = new Map(allTags.map(tag => [tag.id, tag.name]));
+    const sshKeyNames = new Map(allSshKeys.map(k => [k.id, k.name]));
+
+    const exportData: ExportJsonData = {
+        version: 1,
+        exported_at: new Date().toISOString(),
+        tags: allTags.map(t => ({ id: t.id, name: t.name })),
+        connections: connectionsData.map(conn => {
+            const tagNames = (conn.tag_ids || [])
+                .map(id => tagsMap.get(id))
+                .filter((n): n is string => !!n);
+
+            const result: ExportJsonData['connections'][0] = {
+                name: conn.name || `${conn.username}@${conn.host}`,
+                type: conn.type,
+                host: conn.host,
+                port: conn.port,
+                username: conn.username,
+                auth_method: conn.auth_method,
+            };
+
+            if (conn.password) result.password = conn.password;
+            if (conn.private_key) result.private_key = conn.private_key;
+            if (conn.passphrase) result.passphrase = conn.passphrase;
+            if (conn.ssh_key_id && sshKeyNames.has(conn.ssh_key_id)) {
+                result.ssh_key_name = sshKeyNames.get(conn.ssh_key_id)!;
+            }
+
+            const connWithNotes = conn as PlaintextExportConnectionData & { notes?: string | null };
+            if (connWithNotes.notes) result.notes = connWithNotes.notes;
+
+            if (tagNames.length > 0) result.tag_names = tagNames;
+
+            if (conn.proxy) {
+                result.proxy = {
+                    name: conn.proxy.name,
+                    type: conn.proxy.type,
+                    host: conn.proxy.host,
+                    port: conn.proxy.port,
+                    username: conn.proxy.username || null,
+                    auth_method: conn.proxy.auth_method || 'none',
+                    password: conn.proxy.password || null,
+                };
+            }
+
+            return result;
+        }),
+        ssh_keys: allSshKeys.map(k => ({
+            name: k.name!,
+            private_key: k.privateKey!,
+            passphrase: k.passphrase || null,
+        })),
+    };
+
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    return Buffer.from(jsonStr, 'utf8');
+};
+
 export const exportConnectionsAsEncryptedZip = async (includeSshKeys: boolean = false): Promise<Buffer> => {
     try {
         const connectionsData = await getPlaintextConnectionsData(); // This now returns PlaintextExportConnectionData[]
@@ -360,11 +457,22 @@ export const exportConnectionsAsEncryptedZip = async (includeSshKeys: boolean = 
  */
 export const importConnections = async (fileBuffer: Buffer): Promise<ImportResult> => {
     let importedData: ImportedConnectionData[];
+    let importTags: { id: number; name: string }[] = [];
+    let importSshKeys: { name: string; private_key: string; passphrase?: string | null }[] = [];
+
     try {
         const fileContent = fileBuffer.toString('utf8');
-        importedData = JSON.parse(fileContent);
-        if (!Array.isArray(importedData)) {
-            throw new Error('JSON 文件内容必须是一个数组。');
+        const parsed = JSON.parse(fileContent);
+
+        // Support both array format (legacy) and object format (new with tags)
+        if (Array.isArray(parsed)) {
+            importedData = parsed;
+        } else if (parsed && Array.isArray(parsed.connections)) {
+            importedData = parsed.connections;
+            importTags = parsed.tags || [];
+            importSshKeys = parsed.ssh_keys || [];
+        } else {
+            throw new Error('JSON content must be an array or an object with a connections array.');
         }
     } catch (error: any) {
         console.error('Service: 解析导入文件失败:', error);
@@ -379,9 +487,52 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
     try {
         await runDb(db, 'BEGIN TRANSACTION');
 
-        const connectionsToInsert: Array<Omit<ConnectionRepository.FullConnectionData, 'id' | 'created_at' | 'updated_at' | 'last_connected_at'> & { tag_ids?: number[] }> = [];
-        const proxyCache: { [key: string]: number } = {}; 
+        // Create/reuse tags by name
+        const tagNameToId: { [name: string]: number } = {};
+        for (const tagName of importTags.map(t => t.name)) {
+            try {
+                const existing = await TagService.getTagByName(tagName);
+                if (existing) {
+                    tagNameToId[tagName] = existing.id;
+                } else {
+                    const newTag = await TagService.createTag(tagName);
+                    tagNameToId[tagName] = newTag.id;
+                }
+            } catch (err: any) {
+                if (err.message.includes('已存在')) {
+                    const existing = await TagService.getTagByName(tagName);
+                    if (existing) tagNameToId[tagName] = existing.id;
+                } else {
+                    console.warn(`Service: 创建标签 "${tagName}" 失败: ${err.message}`);
+                }
+            }
+        }
 
+        // Import SSH keys
+        const sshKeyNameToId: { [name: string]: number } = {};
+        if (importSshKeys.length > 0) {
+            
+            for (const keyData of importSshKeys) {
+                try {
+                    const existingKeys = await getAllDecryptedSshKeys();
+                    const existing = existingKeys.find(k => k.name === keyData.name);
+                    if (existing) {
+                        sshKeyNameToId[keyData.name] = existing.id!;
+                    } else {
+                        const encKey = encrypt(keyData.private_key);
+                        const encPassphrase = keyData.passphrase ? encrypt(keyData.passphrase) : null;
+                        const insertKeySql = `INSERT INTO ssh_keys (name, encrypted_private_key, encrypted_passphrase) VALUES (?, ?, ?)`;
+                        const result = await runDb(db, insertKeySql, [keyData.name, encKey, encPassphrase]);
+                        sshKeyNameToId[keyData.name] = result.lastID;
+                    }
+                } catch (err: any) {
+                    console.warn(`Service: 导入 SSH 密钥 "${keyData.name}" 失败: ${err.message}`);
+                }
+            }
+        }
+
+        const connectionsToInsert: Array<Omit<ConnectionRepository.FullConnectionData, 'id' | 'created_at' | 'updated_at' | 'last_connected_at'> & { tag_ids?: number[] }> = [];
+        const proxyCache: { [key: string]: number } = {};
 
         for (const connData of importedData) {
              try {
@@ -435,6 +586,10 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
 
                 // Prepare data for repository, ensuring correct auth_method for RDP
                 const authMethodForDb = (connData.type === 'RDP' || connData.type === 'VNC') ? 'password' : connData.auth_method!;
+                let sshKeyId: number | null = null;
+                if (connData.ssh_key_name && sshKeyNameToId[connData.ssh_key_name]) {
+                    sshKeyId = sshKeyNameToId[connData.ssh_key_name];
+                }
                 connectionsToInsert.push({
                     name: connData.name,
                     type: connData.type, // Add type
@@ -446,7 +601,7 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
                     encrypted_private_key: connData.encrypted_private_key || null,
                     encrypted_passphrase: connData.encrypted_passphrase || null,
                     proxy_id: proxyIdToUse,
-                    tag_ids: connData.tag_ids || [],
+                    tag_ids: [],
                     jump_chain: null, // 为 jump_chain 添加默认值
                 });
 
@@ -463,18 +618,17 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
              successCount = insertedResults.length;
         }
 
-        const insertTagSql = `INSERT OR IGNORE INTO connection_tags (connection_id, tag_id) VALUES (?, ?)`; 
+        const insertTagSql = `INSERT OR IGNORE INTO connection_tags (connection_id, tag_id) VALUES (?, ?)`;
         for (const result of insertedResults) {
-            const originalTagIds = result.originalData?.tag_ids;
-            if (Array.isArray(originalTagIds) && originalTagIds.length > 0) {
-                const validTagIds = originalTagIds.filter((id: any) => typeof id === 'number' && id > 0);
-                if (validTagIds.length > 0) {
-                    const tagPromises = validTagIds.map(tagId =>
-                        runDb(db, insertTagSql, [result.connectionId, tagId]).catch(tagError => {
-                             console.warn(`Service: 导入连接 ${result.originalData.name}: 关联标签 ID ${tagId} 失败: ${tagError.message}`);
-                        })
-                    );
-                    await Promise.all(tagPromises);
+            const tagNames = result.originalData?.tag_names as string[] | undefined;
+            if (tagNames && Array.isArray(tagNames) && tagNames.length > 0) {
+                for (const tagName of tagNames) {
+                    const tagId = tagNameToId[tagName];
+                    if (tagId) {
+                        await runDb(db, insertTagSql, [result.connectionId, tagId]).catch(tagError => {
+                            console.warn(`Service: 导入连接 ${result.originalData.name}: 关联标签 "${tagName}" 失败: ${tagError.message}`);
+                        });
+                    }
                 }
             }
         }

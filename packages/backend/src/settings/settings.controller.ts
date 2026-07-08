@@ -3,7 +3,7 @@ import { settingsService } from './settings.service';
 import { AuditLogService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service'; 
 import { ipBlacklistService } from '../auth/ip-blacklist.service';
-import { exportConnectionsAsEncryptedZip } from '../services/import-export.service'; 
+import { exportConnectionsAsJson } from '../services/import-export.service'; 
 import { UpdateSidebarConfigDto, UpdateCaptchaSettingsDto, CaptchaSettings } from '../types/settings.types'; 
 import { AppearanceSettings, UpdateAppearanceDto } from '../types/appearance.types';
 import { getAppearanceSettings, updateAppearanceSettings as updateAppearanceSettingsInRepo } from '../appearance/appearance.repository';
@@ -567,11 +567,11 @@ async setCaptchaConfig(req: Request, res: Response): Promise<void> {
   */
  async exportAllConnections(req: Request, res: Response): Promise<void> {
    try {
-     const encryptedZipBuffer = await exportConnectionsAsEncryptedZip(true);
+     const jsonBuffer = await exportConnectionsAsJson();
 
-     res.setHeader('Content-Type', 'application/zip');
-     res.setHeader('Content-Disposition', 'attachment; filename="nexus_connections_export.zip"');
-     res.send(encryptedZipBuffer);
+     res.setHeader('Content-Type', 'application/json');
+     res.setHeader('Content-Disposition', 'attachment; filename="nexus_connections_export.json"');
+     res.send(jsonBuffer);
      
      // auditLogService.logAction('CONNECTIONS_EXPORTED', { userId: (req.user as any)?.id || 'unknown' }); // 移除审计日志
      

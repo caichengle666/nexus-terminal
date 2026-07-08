@@ -1027,8 +1027,9 @@
     },
     "exportConnections": {
       "title": "导出连接数据",
-      "decryptKeyInfo": "解压密码是您 data/.env 文件中的 ENCRYPTION_KEY。请妥善保管此文件。",
-      "buttonText": "开始导出"
+      "decryptKeyInfo": "导出的 JSON 文件包含明文密码和私钥，请务必妥善保管。",
+      "buttonText": "开始导出",
+      "success": "导出成功。文件已开始下载。"
     },
     "tabs": {
       "security": "安全",
