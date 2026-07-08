@@ -58,6 +58,13 @@ export type CommandPreview = {
   connectionName?: string;
 };
 
+export type AiCompactResult = {
+  compacted: boolean;
+  reason: 'empty' | 'underBudget' | 'compacted';
+  requestBytes: number;
+  thresholdBytes: number;
+};
+
 type SendMessageOptions = {
   confirmCommand?: (preview: CommandPreview) => Promise<boolean>;
 };
@@ -588,7 +595,7 @@ export const useAiStore = defineStore('ai', () => {
     if (estimateJsonBytes(payload) <= AI_REQUEST_COMPACT_BYTES) return payload;
 
     compactContextIfNeeded();
-    compactContextNow();
+    compactContextNow(true);
     payload = buildChatPayload();
 
     const messagesForModel = payload.messages as AiChatMessage[];
@@ -722,18 +729,46 @@ export const useAiStore = defineStore('ai', () => {
     errorMessage.value = '';
   };
 
-  const compactContextNow = () => {
+  const compactContextNow = (force = false): AiCompactResult => {
     const memory = currentMemory.value;
-    if (memory.messages.length <= MAX_MODEL_RECENT_MESSAGES) return false;
+    const requestBytes = estimateJsonBytes(buildChatPayload());
+    const hasEnoughMessages = memory.messages.length > 4;
+    const isOverBudget = requestBytes > AI_REQUEST_COMPACT_BYTES;
 
-    const recentMessages = memory.messages.slice(-MAX_MODEL_RECENT_MESSAGES);
-    const olderMessages = memory.messages.slice(0, -MAX_MODEL_RECENT_MESSAGES);
+    if (!hasEnoughMessages) {
+      return {
+        compacted: false,
+        reason: 'empty',
+        requestBytes,
+        thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+      };
+    }
+
+    if (!force && !isOverBudget && memory.messages.length <= MAX_MODEL_RECENT_MESSAGES) {
+      return {
+        compacted: false,
+        reason: 'underBudget',
+        requestBytes,
+        thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+      };
+    }
+
+    const keepCount = isOverBudget || force
+      ? Math.min(8, MAX_MODEL_RECENT_MESSAGES)
+      : MAX_MODEL_RECENT_MESSAGES;
+    const recentMessages = memory.messages.slice(-keepCount);
+    const olderMessages = memory.messages.slice(0, -keepCount);
     const previousSummary = memory.summary ? `此前摘要:\n${memory.summary}\n\n` : '';
     memory.summary = `${previousSummary}手动压缩摘要:\n${summarizeMessages(olderMessages)}`.slice(-MAX_SAVED_CONTENT_LENGTH);
     memory.messages = recentMessages;
     memory.summaryUpdatedAt = Date.now();
     memory.lastCompactedAt = Date.now();
-    return true;
+    return {
+      compacted: true,
+      reason: 'compacted',
+      requestBytes,
+      thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+    };
   };
 
   return {

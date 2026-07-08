@@ -134,11 +134,15 @@ const interruptTerminal = async () => {
 };
 
 const compactContext = async () => {
-  const compacted = aiStore.compactContextNow();
-  if (!compacted) {
+  const result = aiStore.compactContextNow();
+  if (!result.compacted) {
+    const requestKb = Math.ceil(result.requestBytes / 1024);
+    const thresholdKb = Math.floor(result.thresholdBytes / 1024);
     await showConfirmDialog({
-      title: '上下文无需压缩',
-      message: '当前会话消息还不多，暂时不需要压缩。AI 请求仍会自动只发送必要上下文。',
+      title: result.reason === 'empty' ? '暂无可压缩上下文' : '上下文未超过压缩阈值',
+      message: result.reason === 'empty'
+        ? '当前会话内容太少，还没有可以压缩成摘要的历史。'
+        : `当前 AI 请求约 ${requestKb}KB，压缩阈值是 ${thresholdKb}KB。未超过阈值时不会强行压缩。`,
       confirmText: '知道了',
       cancelText: '关闭',
     });
