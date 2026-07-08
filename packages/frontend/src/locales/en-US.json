@@ -1061,6 +1061,15 @@
       "restoreSuccess": "Restore successful",
       "confirmDelete": "Are you sure you want to delete this backup?",
       "deleteSuccess": "Backup deleted"
+    },
+    "importConnections": {
+      "title": "Import Connections",
+      "description": "Select a previously exported JSON file to import connections.",
+      "buttonText": "Start Import",
+      "noFile": "Please select a file to import first.",
+      "success": "Import successful. Imported {count} connections.",
+      "partialSuccess": "Import complete, {success} succeeded, {failure} failed.",
+      "error": "An error occurred while importing connections."
     }
   },
   "notificationController": {

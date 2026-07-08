@@ -1063,6 +1063,15 @@
       "restoreSuccess": "恢复成功",
       "confirmDelete": "确定要删除此备份吗？",
       "deleteSuccess": "备份已删除"
+    },
+    "importConnections": {
+      "title": "导入连接数据",
+      "description": "选择之前导出的 JSON 文件来导入连接。",
+      "buttonText": "开始导入",
+      "noFile": "请先选择要导入的文件。",
+      "success": "导入成功完成。共导入 {count} 条连接。",
+      "partialSuccess": "导入完成，成功 {success} 条，失败 {failure} 条。",
+      "error": "导入连接时发生错误。"
     }
   },
   "notificationController": {
