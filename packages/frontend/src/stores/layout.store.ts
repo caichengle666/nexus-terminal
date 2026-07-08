@@ -106,9 +106,7 @@ const getDefaultSidebarPanes = (): { left: PaneName[], right: PaneName[] } => ({
     "connections",
     "dockerManager"
   ],
-  "right": [
-    "aiAssistant"
-  ]
+  "right": []
 });
 
 // 递归查找主布局树中使用的面板
@@ -136,61 +134,34 @@ function getAllUsedPaneNames(mainNode: LayoutNode | null, sidebars: { left: Pane
   return usedNames;
 }
 
-function placeAiAssistantOnRight(sidebars: { left: PaneName[], right: PaneName[] }): boolean {
-  const original = JSON.stringify(sidebars);
-  sidebars.left = sidebars.left.filter(pane => pane !== 'aiAssistant');
-  sidebars.right = sidebars.right.filter(pane => pane !== 'aiAssistant');
-  sidebars.right.push('aiAssistant');
-  return JSON.stringify(sidebars) !== original;
+const sidebarExcludedPanes = new Set<PaneName>(['aiAssistant']);
+
+function sanitizeSidebarPaneArray(arr: any, allPanes: PaneName[]): PaneName[] | null {
+    if (!Array.isArray(arr)) return null;
+    const seen = new Set<PaneName>();
+    const result: PaneName[] = [];
+    for (const item of arr) {
+        if (!isValidPaneName(item, allPanes) || sidebarExcludedPanes.has(item) || seen.has(item)) {
+            continue;
+        }
+        seen.add(item);
+        result.push(item);
+    }
+    return result;
 }
 
-function removePaneFromLayout(node: LayoutNode | null, paneName: PaneName): { node: LayoutNode | null; removed: boolean } {
-  if (!node) {
-    return { node, removed: false };
-  }
-
-  if (node.type === 'pane') {
-    return node.component === paneName
-      ? { node: null, removed: true }
-      : { node, removed: false };
-  }
-
-  if (!node.children) {
-    return { node, removed: false };
-  }
-
-  let removed = false;
-  const children = node.children
-    .map(child => {
-      const result = removePaneFromLayout(child, paneName);
-      removed = removed || result.removed;
-      return result.node;
-    })
-    .filter(Boolean) as LayoutNode[];
-
-  return {
-    node: children.length > 0 ? { ...node, children } : null,
-    removed,
-  };
+function sanitizeSidebarPanes(value: any, allPanes: PaneName[]): { left: PaneName[], right: PaneName[] } | null {
+    if (!value || typeof value !== 'object') return null;
+    const left = sanitizeSidebarPaneArray(value.left, allPanes);
+    const right = sanitizeSidebarPaneArray(value.right, allPanes);
+    if (!left || !right) return null;
+    return { left, right };
 }
 
 // --- Validation Helper ---
 // Checks if a value is a valid PaneName
 function isValidPaneName(value: any, allPanes: PaneName[]): value is PaneName {
     return typeof value === 'string' && allPanes.includes(value as PaneName);
-}
-
-// Checks if an array contains only unique, valid PaneName strings
-function isValidPaneNameArray(arr: any, allPanes: PaneName[]): arr is PaneName[] {
-    if (!Array.isArray(arr)) return false;
-    const seen = new Set<PaneName>();
-    for (const item of arr) {
-        if (!isValidPaneName(item, allPanes) || seen.has(item)) {
-            return false; // Not a valid PaneName or duplicate found
-        }
-        seen.add(item);
-    }
-    return true; // All items are unique and valid PaneNames
 }
 
 
@@ -280,17 +251,19 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
     try {
         console.log('[Layout Store] Step 2: Attempting to load sidebar config from backend...');
         const response = await apiClient.get<{ left: any[], right: any[] } | null>('/settings/sidebar');
-        if (response.data &&
-            isValidPaneNameArray(response.data.left, allPossiblePanes.value) &&
-            isValidPaneNameArray(response.data.right, allPossiblePanes.value))
+        const sanitizedSidebars = sanitizeSidebarPanes(response.data, allPossiblePanes.value);
+        if (sanitizedSidebars)
         {
-            sidebarPanes.value = response.data as { left: PaneName[], right: PaneName[] };
+            sidebarPanes.value = sanitizedSidebars;
             sidebarLoadedFromBackend = true;
             console.log('[Layout Store] Step 2: Sidebar config loaded from backend.');
             try {
-                localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify(response.data));
+                localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify(sanitizedSidebars));
             } catch (lsError) {
                 console.error('[Layout Store] Step 2: Failed to save backend sidebar config to localStorage:', lsError);
+            }
+            if (JSON.stringify(sanitizedSidebars) !== JSON.stringify(response.data)) {
+                await persistSidebarPanes();
             }
         } else {
              console.log('[Layout Store] Step 2: Backend did not return valid sidebar data.');
@@ -335,12 +308,14 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
             const savedSidebars = localStorage.getItem(SIDEBAR_STORAGE_KEY);
             if (savedSidebars) {
                 const parsedSidebars = JSON.parse(savedSidebars) as { left: any[], right: any[] };
-                if (parsedSidebars &&
-                    isValidPaneNameArray(parsedSidebars.left, allPossiblePanes.value) &&
-                    isValidPaneNameArray(parsedSidebars.right, allPossiblePanes.value))
+                const sanitizedSidebars = sanitizeSidebarPanes(parsedSidebars, allPossiblePanes.value);
+                if (sanitizedSidebars)
                 {
-                    sidebarPanes.value = parsedSidebars as { left: PaneName[], right: PaneName[] };
+                    sidebarPanes.value = sanitizedSidebars;
                     console.log('[Layout Store] Step 5: Sidebar config loaded from localStorage.');
+                    if (JSON.stringify(sanitizedSidebars) !== JSON.stringify(parsedSidebars)) {
+                        await persistSidebarPanes();
+                    }
                 } else {
                      console.warn('[Layout Store] Step 5: Invalid sidebar config in localStorage. Applying default.');
                      sidebarPanes.value = getDefaultSidebarPanes();
@@ -367,16 +342,13 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
         console.error('[Layout Store] FATAL: layoutTree is STILL null after all attempts! Applying default as last resort.');
         layoutTree.value = ensureNodeIds(getDefaultLayout());
     }
-    const aiLayoutMigration = removePaneFromLayout(layoutTree.value, 'aiAssistant');
-    if (aiLayoutMigration.removed) {
-        layoutTree.value = ensureNodeIds(aiLayoutMigration.node) || ensureNodeIds(getDefaultLayout());
-        await persistLayoutTree();
-    }
      if (!sidebarPanes.value || !Array.isArray(sidebarPanes.value.left) || !Array.isArray(sidebarPanes.value.right)) {
          console.warn('[Layout Store] Final Check: Sidebar panes invalid. Applying default.');
          sidebarPanes.value = getDefaultSidebarPanes();
      }
-     if (placeAiAssistantOnRight(sidebarPanes.value)) {
+     const sanitizedFinalSidebars = sanitizeSidebarPanes(sidebarPanes.value, allPossiblePanes.value) || getDefaultSidebarPanes();
+     if (JSON.stringify(sanitizedFinalSidebars) !== JSON.stringify(sidebarPanes.value)) {
+         sidebarPanes.value = sanitizedFinalSidebars;
          await persistSidebarPanes();
      }
 
@@ -416,13 +388,12 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
   // 更新侧栏配置
   async function updateSidebarPanes(newPanes: { left: PaneName[], right: PaneName[] }) { // Make async
     // --- Add Validation ---
-    if (newPanes &&
-        isValidPaneNameArray(newPanes.left, allPossiblePanes.value) &&
-        isValidPaneNameArray(newPanes.right, allPossiblePanes.value))
+    const sanitizedPanes = sanitizeSidebarPanes(newPanes, allPossiblePanes.value);
+    if (sanitizedPanes)
     {
         // Check if panes actually changed
-        if (JSON.stringify(newPanes) !== JSON.stringify(sidebarPanes.value)) {
-            sidebarPanes.value = newPanes as { left: PaneName[], right: PaneName[] }; // Assign validated data
+        if (JSON.stringify(sanitizedPanes) !== JSON.stringify(sidebarPanes.value)) {
+            sidebarPanes.value = sanitizedPanes;
             console.log('[Layout Store] 侧栏配置已通过验证并更新。 New sidebarPanes value:', JSON.parse(JSON.stringify(sidebarPanes.value)));
             // --- Directly call persist ---
             await persistSidebarPanes(); // Await persistence directly

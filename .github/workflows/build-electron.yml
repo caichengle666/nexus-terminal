@@ -1,4 +1,4 @@
-﻿name: Build Electron Desktop App
+name: Build Windows Desktop App
 
 on:
   push:
@@ -22,23 +22,22 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install all workspace dependencies (root)
-        run: npm install --ignore-scripts 2>$null
-        continue-on-error: true
+      - name: Install workspace dependencies
+        run: npm install --ignore-scripts
 
       - name: Build frontend
         working-directory: packages/frontend
-        run: npx vite build
+        run: npm run build
 
-      - name: Install backend dependencies (standalone for electron bundle)
+      - name: Install backend dependencies
         working-directory: packages/backend
         run: npm install
 
-      - name: Build backend (TypeScript)
+      - name: Build backend
         working-directory: packages/backend
-        run: npx tsc
+        run: npm run build
 
-      - name: Prepare backend bundle for Electron
+      - name: Prepare backend production dependencies
         shell: pwsh
         run: |
           Copy-Item -Path "packages/backend/src/locales" -Destination "packages/backend/dist/locales" -Recurse -Force -ErrorAction SilentlyContinue
@@ -59,17 +58,40 @@ jobs:
           New-Item -ItemType Directory -Force -Path "electron-app/nodejs-runtime/win-x64" | Out-Null
           Copy-Item -Path (Get-Command node).Source -Destination "electron-app/nodejs-runtime/win-x64/node.exe" -Force
 
-      - name: Build Electron app (Windows)
+      - name: Build Electron app
         working-directory: electron-app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder build --win --config
 
-      - name: Upload installer as artifact
+      - name: Create portable unpacked zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType File -Force -Path "electron-app/dist/win-unpacked/.Portable" | Out-Null
+          Compress-Archive -Path "electron-app/dist/win-unpacked/*" -DestinationPath "electron-app/dist/Nexus Terminal Portable win-unpacked.zip" -Force
+
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Nexus-Terminal-Windows
-          path: electron-app/dist/*.exe
+          name: Nexus-Terminal-Windows-Installer
+          path: electron-app/dist/*Setup*.exe
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload portable exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nexus-Terminal-Windows-Portable-Exe
+          path: electron-app/dist/*Portable*.exe
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload portable unpacked artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nexus-Terminal-Windows-Portable-Unpacked
+          path: electron-app/dist/*Portable win-unpacked.zip
+          if-no-files-found: error
           compression-level: 0
 
       - name: Release
@@ -77,5 +99,6 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            electron-app/dist/*.exe
-            electron-app/dist/*.zip
+            electron-app/dist/*Setup*.exe
+            electron-app/dist/*Portable*.exe
+            electron-app/dist/*Portable win-unpacked.zip

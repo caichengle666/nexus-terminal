@@ -48,6 +48,10 @@
     ],
     "extraResources": [
       {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
+      {
         "from": "../packages/backend",
         "to": "packages/backend",
         "filter": [
@@ -66,15 +70,21 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "portable"
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-${name}.${ext}"
     },
     "nsis": {
+      "artifactName": "${productName} Setup ${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "installerIcon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "${productName} Portable ${version}.${ext}"
     },
     "includePdb": false
   }

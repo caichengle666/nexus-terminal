@@ -340,6 +340,18 @@ const onDraggableChange = (event: any, side: 'left' | 'right') => { // Add side 
         const addedElement = event.added.element;
         const targetList = localSidebarPanes.value[side]; // Use the side parameter directly
         const addedIndex = event.added.newIndex;
+        const addedPaneName = (targetList && typeof addedElement === 'object' && addedElement !== null && addedElement.type === 'pane')
+            ? addedElement.component
+            : addedElement;
+
+        if (addedPaneName === 'aiAssistant') {
+            targetList.splice(addedIndex, 1);
+            showAlertDialog({
+                title: '不能放入侧栏',
+                message: 'AI 终端助手现在是正式布局面板，请把它放到主布局区域，不再作为右侧机器人侧栏使用。',
+            });
+            return;
+        }
 
         // Check if the added element is a LayoutNode object (dragged from available panes)
         if (targetList && typeof addedElement === 'object' && addedElement !== null && addedElement.type === 'pane' && typeof addedElement.component === 'string') {

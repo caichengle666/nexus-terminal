@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu } = require('electron');
 const path = require('path');
 const url = require('url');
 const express = require('express'); 
@@ -14,12 +14,59 @@ let httpServer;
 let backendProcess;
 let frontendUrlForDownloads; // 用于IPC处理器访问前端URL
 let actualBackendUrlForFileDownloads; // 新增：用于文件下载的后端URL
+let tray = null;
+let isQuitting = false;
 const PROD_FRONTEND_PORT = 22457;
 const PROD_BACKEND_PORT = 22458;
 
 // 用于在 download-file-request 和 will-download 之间传递期望的文件名
 const pendingDownloadsInfo = new Map();
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setSkipTaskbar(false);
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createTray() {
+  if (tray) return;
+
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'icon.ico')
+    : path.join(__dirname, 'build', 'icon.ico');
+  tray = new Tray(iconPath);
+  tray.setToolTip('Nexus Terminal');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: '显示主窗口',
+      click: showMainWindow,
+    },
+    {
+      label: '退出',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]));
+  tray.on('click', showMainWindow);
+}
+
+function hideMainWindowToTray() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  createTray();
+  mainWindow.setSkipTaskbar(true);
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.hide();
+    }
+  }, 0);
+}
 
 async function createWindow() {
   const appExeDir = path.dirname(app.getPath('exe'));
@@ -78,6 +125,7 @@ async function createWindow() {
       contextIsolation: true, // 启用上下文隔离
     },
   });
+  createTray();
 
   let frontendUrl;
 
@@ -248,6 +296,7 @@ async function createWindow() {
     const backendReadyPromise = new Promise((resolveBackend, rejectBackend) => {
       const backendReadyString = "BACKEND_READY_SIGNAL"; // 重要提示: 请确保您的后端服务在就绪时打印此确切字符串!
       let backendLogs = ""; // 用于在超时或错误时记录日志
+      let backendReadyResolved = false;
       const readyTimeoutDuration = 60000; // 后端启动超时时间 (毫秒)，例如 60 秒
 
       console.log(`[Prod Mode] Backend service process initiated (PID: ${backendProcess.pid}). Waiting for '${backendReadyString}' signal (max ${readyTimeoutDuration / 1000}s)...`);
@@ -266,6 +315,7 @@ async function createWindow() {
         backendLogs += output; // 累积所有 stdout 日志
         if (output.includes(backendReadyString)) {
           clearTimeout(readyTimeout);
+          backendReadyResolved = true;
           console.log('[Backend Watcher] Backend ready signal received!');
           resolveBackend();
         }
@@ -280,6 +330,9 @@ async function createWindow() {
       backendProcess.on('close', (code) => {
         console.log(`[Backend Process] exited with code ${code}`);
         // backendProcess = null; // 在 'before-quit' 中处理 backendProcess 的状态
+        if (isQuitting || backendReadyResolved) {
+          return;
+        }
         if (code !== 0) { // 如果后端在发出就绪信号前非正常退出
           clearTimeout(readyTimeout); // 确保超时被清除
           const errorMessage = `后端进程在发出就绪信号前意外退出，退出码: ${code}。`;
@@ -476,10 +529,21 @@ async function createWindow() {
   });
 
   // 保存窗口状态
-  mainWindow.on('close', () => {
+  mainWindow.on('close', (event) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       const bounds = mainWindow.getBounds();
       store.set('windowBounds', bounds);
+    }
+    if (!isQuitting) {
+      event.preventDefault();
+      hideMainWindowToTray();
+    }
+  });
+
+  mainWindow.on('minimize', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      hideMainWindowToTray();
     }
   });
 
@@ -516,6 +580,7 @@ app.on('window-all-closed', function () {
 
 // 在应用退出前关闭 express 服务器 (如果已启动)
 app.on('before-quit', () => {
+  isQuitting = true;
   console.log('Application is quitting...');
   // 1. 关闭前端 HTTP 服务器
   if (httpServer) {
@@ -557,7 +622,7 @@ ipcMain.on('toMain', (event, args) => {
 // IPC handlers for window controls
 ipcMain.on('minimize-window', () => {
   if (mainWindow) {
-    mainWindow.minimize();
+    hideMainWindowToTray();
   }
 });
 

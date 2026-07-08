@@ -4,7 +4,11 @@ import path from 'path';
 import fs from 'fs';
 
 // --- 动态确定支持的语言 ---
-const localesDir = path.join(__dirname, 'locales');
+const localesDirCandidates = [
+  path.join(__dirname, 'locales'),
+  path.join(__dirname, 'src', 'locales'),
+];
+const localesDir = localesDirCandidates.find(candidate => fs.existsSync(candidate)) || localesDirCandidates[0];
 let dynamicSupportedLngs: string[] = [];
 try {
   const entries = fs.readdirSync(localesDir, { withFileTypes: true });

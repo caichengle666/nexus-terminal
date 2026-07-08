@@ -42,6 +42,8 @@ const route = useRoute();
 const navRef = ref<HTMLElement | null>(null);
 const underlineRef = ref<HTMLElement | null>(null);
 
+const getElectronApi = () => (window as any).electronAPI;
+
 // +++ 存储上一次由切换器聚焦的 ID +++
 const lastFocusedIdBySwitcher = ref<string | null>(null);
 const isAltPressed = ref(false); // 跟踪 Alt 键是否按下
@@ -111,6 +113,18 @@ watch(route, () => {
 
 const handleLogout = () => {
   authStore.logout();
+};
+
+const minimizeWindow = () => {
+  getElectronApi()?.minimizeWindow?.();
+};
+
+const toggleMaximizeWindow = () => {
+  getElectronApi()?.toggleMaximizeWindow?.();
+};
+
+const closeWindow = () => {
+  getElectronApi()?.closeWindow?.();
 };
 
 // 打开样式自定义器的方法现在直接调用 store action
@@ -277,11 +291,22 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
   
   <div id="app-container">
     <div v-if="isWorkspaceRoute && !isHeaderVisible" class="electron-drag-strip"></div>
+    <div v-if="isWorkspaceRoute && !isHeaderVisible" class="window-control-group floating-window-controls">
+      <button class="window-control-button" type="button" title="最小化" @click="minimizeWindow">
+        <span class="window-control-icon minimize-icon"></span>
+      </button>
+      <button class="window-control-button" type="button" title="最大化/还原" @click="toggleMaximizeWindow">
+        <span class="window-control-icon maximize-icon"></span>
+      </button>
+      <button class="window-control-button close-window-button" type="button" title="关闭" @click="closeWindow">
+        <span class="window-control-icon close-icon"></span>
+      </button>
+    </div>
     <!-- *** 修改 v-if 条件以使用 isHeaderVisible *** -->
     <!-- Header with Tailwind classes using theme variables -->
-    <header v-if="!isWorkspaceRoute || isHeaderVisible" class="electron-titlebar sticky top-0 z-10 flex items-center h-14 pl-3 pr-6 bg-header border-b border-border shadow-sm"> <!-- 减少左侧内边距 -->
+    <header v-if="!isWorkspaceRoute || isHeaderVisible" class="electron-titlebar sticky top-0 z-10 flex items-center h-14 pl-3 pr-0 bg-header border-b border-border shadow-sm"> <!-- 减少左侧内边距 -->
       <!-- Nav with Tailwind classes -->
-      <nav ref="navRef" class="flex items-center justify-between w-full relative"> <!-- Added relative positioning for underline -->
+      <nav ref="navRef" class="flex items-center justify-between flex-1 min-w-0 relative pr-2"> <!-- Added relative positioning for underline -->
         <!-- Left navigation links with Tailwind classes using theme variables -->
         <div class="flex items-center space-x-1">
           <!-- 项目 Logo -->
@@ -310,6 +335,17 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
         <!-- Sliding underline element with Tailwind classes using theme variables (JS still controls positioning) -->
         <div ref="underlineRef" class="absolute bottom-0 h-0.5 bg-link-active rounded transition-all duration-300 ease-in-out pointer-events-none opacity-0 transform translate-y-1.5"></div> <!-- Changed translate-y-1 to translate-y-1.5 -->
       </nav>
+      <div class="window-control-group">
+        <button class="window-control-button" type="button" title="最小化" @click="minimizeWindow">
+          <span class="window-control-icon minimize-icon"></span>
+        </button>
+        <button class="window-control-button" type="button" title="最大化/还原" @click="toggleMaximizeWindow">
+          <span class="window-control-icon maximize-icon"></span>
+        </button>
+        <button class="window-control-button close-window-button" type="button" title="关闭" @click="closeWindow">
+          <span class="window-control-icon close-icon"></span>
+        </button>
+      </div>
     </header>
 
     <main>
@@ -395,11 +431,96 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
   position: fixed;
   top: 0;
   left: 0;
-  right: 0;
+  right: 138px;
   height: 8px;
   z-index: 2147483647;
   -webkit-app-region: drag;
   user-select: none;
+}
+
+.window-control-group {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.floating-window-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 36px;
+  z-index: 2147483647;
+  background: var(--header-bg-color, var(--bg-header, var(--header-bg, var(--color-header, #1f2430))));
+  border-left: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.window-control-button {
+  width: 46px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-color, var(--foreground, #f3f4f6));
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+
+.window-control-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.close-window-button:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.window-control-icon {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+}
+
+.minimize-icon::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 3px;
+  height: 1.5px;
+  background: currentColor;
+}
+
+.maximize-icon::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+.close-icon::before,
+.close-icon::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 0;
+  width: 14px;
+  height: 1.5px;
+  background: currentColor;
+}
+
+.close-icon::before {
+  transform: rotate(45deg);
+}
+
+.close-icon::after {
+  transform: rotate(-45deg);
 }
 
 
