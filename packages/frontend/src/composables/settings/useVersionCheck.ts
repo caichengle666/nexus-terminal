@@ -20,7 +20,7 @@ export function useVersionCheck() {
     versionCheckError.value = null;
     latestVersion.value = null;
     try {
-      const response = await axios.get('https://api.github.com/repos/Heavrnl/nexus-terminal/releases/latest');
+      const response = await axios.get('https://api.github.com/repos/caichengle666/nexus-terminal/releases/latest');
       if (response.data && response.data.tag_name) {
         latestVersion.value = response.data.tag_name;
       } else {

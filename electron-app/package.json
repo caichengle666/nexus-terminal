@@ -4,13 +4,12 @@
   "description": "Electron application for Nexus Terminal",
   "main": "main.js",
   "author": {
-    "name": "Heavrnl",
-    "email": "heavrnl@example.com"
+    "name": "caichengle666"
   },
-  "homepage": "https://github.com/Heavrnl/nexus-terminal",
+  "homepage": "https://github.com/caichengle666/nexus-terminal",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Heavrnl/nexus-terminal.git"
+    "url": "git+https://github.com/caichengle666/nexus-terminal.git"
   },
   "license": "ISC",
   "optionalDependencies": {
@@ -35,7 +34,7 @@
     "electron-builder": "^25.0.0"
   },
   "build": {
-    "appId": "com.heavrnl.nexus-terminal",
+    "appId": "com.caichengle666.nexus-terminal",
     "productName": "Nexus Terminal",
     "directories": {
       "output": "dist",

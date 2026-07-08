@@ -37,7 +37,7 @@ export function useAboutSection() {
     versionCheckError.value = null;
     latestVersion.value = null; // Reset before check
     try {
-      const response = await axios.get('https://api.github.com/repos/Heavrnl/nexus-terminal/releases/latest', {
+      const response = await axios.get('https://api.github.com/repos/caichengle666/nexus-terminal/releases/latest', {
         // 移除 headers 以尝试解决潜在的CORS或请求问题，GitHub API 通常不需要特定 headers 进行公共读取
       });
       if (response.data && response.data.tag_name) {
