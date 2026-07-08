@@ -63,7 +63,7 @@ jobs:
         working-directory: electron-app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder build --win --config
+        run: npx electron-builder build --win --config --publish never
 
       - name: Create portable unpacked zip
         shell: pwsh
