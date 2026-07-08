@@ -1,6 +1,9 @@
 ![banner.png](https://lsky.tuyu.me/i/2025/04/30/681209e053db7.png)
 ---
 
+> 本仓库基于 [Heavrnl/nexus-terminal](https://github.com/Heavrnl/nexus-terminal) 分叉维护，衷心感谢原作者 [Heavrnl](https://github.com/Heavrnl) 的出色工作与开源贡献。
+
+
 <div align="center">
 
 [![Docker](https://img.shields.io/badge/-Docker-2496ED?style=flat-square&logo=docker&logoColor=white)][docker-url] [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-4CAF50?style=flat-square)](https://github.com/Heavrnl/nexus-terminal/blob/main/LICENSE)
@@ -30,7 +33,10 @@
 *   审计日志，全面记录用户行为与系统变更
 *   基于 Node.js 的轻量级后端，资源占用低
 *   内置心跳保活机制，确保连接稳定
-
+*   内置 **AI Agent 助手**：侧边抽屉式对话面板、回车发送、自动工具调用、随时停止生成、上下\-智能压缩
+*   **UI 主题预设**：默认白、冷白、暖白、专业黑、午夜蓝、极简黑多款主题可选
+*   **全新品牌设计**：原创 Logo，桌面安装版与便携版（Windows）自动构建发布
+*   **智能上下文压缩**：接近 token 上限时自动生成会话摘要，避免请求过大（默认 256 KB）
 ## 📸 截图
 
 
@@ -60,7 +66,7 @@
 
 > 移除了web端的特有功能，如各种登录验证，会话挂起等功能
 
-https://github.com/Heavrnl/nexus-terminal/releases/latest
+https://github.com/caichengle666/nexus-terminal/releases/latest
 
 ## 🚀 快速开始
 
@@ -188,7 +194,7 @@ docker compose up -d
 
 
 ## 💐 致谢
-
+Heavrnl 的 [nexus-terminal](https://github.com/Heavrnl/nexus-terminal) 是本项目的基石，感谢原作者的出色架构与开源精神。
 *   预设主题方案来源于优秀的 [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes) 项目。
 
 ## ☕ 捐赠
