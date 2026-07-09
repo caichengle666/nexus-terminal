@@ -137,6 +137,22 @@ export class AuditLogRepository {
             throw new Error(`获取审计日志时出错: ${err.message}`);
         }
     }
+
+    async deleteByIds(ids: number[]): Promise<number> {
+        if (ids.length === 0) return 0;
+
+        const placeholders = ids.map(() => '?').join(',');
+        const sql = `DELETE FROM audit_logs WHERE id IN (${placeholders})`;
+
+        try {
+            const db = await getDbInstance();
+            const result = await runDb(db, sql, ids);
+            return result.changes || 0;
+        } catch (err: any) {
+            console.error(`删除审计日志时出错:`, err.message);
+            throw new Error(`删除审计日志时出错: ${err.message}`);
+        }
+    }
 }
 
 

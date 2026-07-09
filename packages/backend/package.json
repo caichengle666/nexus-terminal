@@ -5,6 +5,8 @@
    "main": "dist/index.js",
    "scripts": {
       "build": "tsc && copyfiles -u 1 \"src/locales/**/*.json\" dist/src",
+      "prepare:dist": "node build-tools/prepare-dist.js",
+      "build:prod": "npm run build && npm run prepare:dist && cd dist && npm install --omit=dev",
       "start": "node dist/index.js",
       "dev": "cross-env NODE_ENV=development npx ts-node-dev --respawn --transpile-only src/index.ts"
    },

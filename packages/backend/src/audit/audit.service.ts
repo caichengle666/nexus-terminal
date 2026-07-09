@@ -47,4 +47,8 @@ export class AuditLogService {
         // 将 searchTerm 传递给 repository
         return this.repository.getLogs(limit, offset, actionType, startDate, endDate, searchTerm);
     }
+
+    async deleteLogs(ids: number[]): Promise<number> {
+        return this.repository.deleteByIds(ids);
+    }
 }

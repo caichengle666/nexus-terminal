@@ -86,6 +86,9 @@ const MAX_MODEL_MESSAGE_CONTENT_LENGTH = 8000;
 const MAX_MODEL_SUMMARY_LENGTH = 8000;
 const MAX_TERMINAL_OUTPUT_CHARS = 12000;
 const MAX_TOOL_RESULT_CONTENT_LENGTH = 8000;
+const MAX_TOOL_RESULT_SUMMARY_LENGTH = 2400;
+const TAIL_CONTEXT_BUDGET_CHARS = 26000;
+const MIN_TAIL_MESSAGES = 3;
 
 type AiSessionMemory = {
   messages: AiChatMessage[];
@@ -93,6 +96,12 @@ type AiSessionMemory = {
   summary: string;
   summaryUpdatedAt?: number;
   lastCompactedAt?: number;
+};
+
+type CompactContextOptions = {
+  force?: boolean;
+  title: string;
+  awaitAiSummary: boolean;
 };
 
 const aiTools = [
@@ -134,6 +143,65 @@ const sleep = (ms: number) => new Promise(resolve => window.setTimeout(resolve, 
 
 const estimateJsonBytes = (value: unknown) => new Blob([JSON.stringify(value)]).size;
 
+const SUMMARY_SECTION_TITLES = ['本次压缩摘要', '手动压缩摘要', 'AI 智能摘要'];
+
+const cleanSummaryText = (summary: string) => {
+  const lines = summary.split('\n');
+  const sections: string[] = [];
+  let currentTitle = '';
+  let currentBody: string[] = [];
+
+  const flush = () => {
+    const body = currentBody.join('\n').trim();
+    if (currentTitle && body) {
+      sections.push(`${currentTitle}:\n${body}`);
+    } else if (!currentTitle && body) {
+      sections.push(body);
+    }
+    currentTitle = '';
+    currentBody = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === '此前摘要:') continue;
+    const title = SUMMARY_SECTION_TITLES.find(item => trimmed === `${item}:`);
+    if (title) {
+      flush();
+      currentTitle = title;
+      continue;
+    }
+    currentBody.push(line);
+  }
+  flush();
+  return sections.join('\n\n').trim();
+};
+
+const appendSummarySection = (current: string, title: string, body: string) => {
+  const sectionBody = body.trim();
+  if (!sectionBody) return current;
+  const section = `${title}:\n${sectionBody}`;
+  const cleanedCurrent = cleanSummaryText(current);
+  return cleanedCurrent ? `${cleanedCurrent}\n\n${section}` : section;
+};
+
+const trimSummaryForStorage = (summary: string) => {
+  const cleaned = cleanSummaryText(summary);
+  if (cleaned.length <= MAX_SAVED_CONTENT_LENGTH) return cleaned;
+
+  const sections = cleaned.split(/\n{2,}/).filter(Boolean);
+  const kept: string[] = [];
+  let length = 0;
+  for (let index = sections.length - 1; index >= 0; index -= 1) {
+    const section = sections[index];
+    const nextLength = length + section.length + (kept.length > 0 ? 2 : 0);
+    if (nextLength > MAX_SAVED_CONTENT_LENGTH) break;
+    kept.unshift(section);
+    length = nextLength;
+  }
+  return kept.length > 0 ? kept.join('\n\n') : cleaned.slice(-MAX_SAVED_CONTENT_LENGTH);
+};
+
 const normalizeMessagesForStorage = (items: AiChatMessage[]) => items
   .slice(-MAX_SAVED_MESSAGES)
   .map(message => ({
@@ -145,10 +213,62 @@ const normalizeMessagesForStorage = (items: AiChatMessage[]) => items
 
 const normalizeToolRunsForStorage = (items: AiToolRun[]) => items.slice(-MAX_SAVED_TOOL_RUNS);
 
+const extractImportantLines = (content: string, maxLines = 18) => {
+  const lines = content.split('\n').map(line => line.trimEnd()).filter(Boolean);
+  const important = lines.filter(line => (
+    /error|failed|failure|exception|traceback|denied|refused|timeout|warning|fatal|cannot|not found|permission/i.test(line)
+    || /^\s*(root|admin|ubuntu|debian|centos|almalinux|rocky)?@?[\w.-]+[:~/$#]/i.test(line)
+  ));
+  return important.slice(-maxLines);
+};
+
+const summarizeLongText = (content: string, maxLength = MAX_TOOL_RESULT_SUMMARY_LENGTH) => {
+  if (content.length <= maxLength) return content;
+  const lines = content.split('\n');
+  const head = lines.slice(0, 12).join('\n');
+  const important = extractImportantLines(content).join('\n');
+  const tail = lines.slice(-24).join('\n');
+  return [
+    `<terminal output summarized: ${lines.length} lines, ${content.length} chars>`,
+    '[head]',
+    head,
+    important ? '[important]' : '',
+    important,
+    '[tail]',
+    tail,
+  ].filter(Boolean).join('\n').slice(0, maxLength);
+};
+
+const summarizeToolResultContent = (content: string) => {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object') {
+      const result = parsed as Record<string, unknown>;
+      const output = typeof result.outputAfter === 'string'
+        ? result.outputAfter
+        : typeof result.output === 'string'
+          ? result.output
+          : '';
+      if (output) {
+        return JSON.stringify({
+          ...result,
+          outputAfter: undefined,
+          output: summarizeLongText(output),
+          outputSummary: `${output.split('\n').length} lines, ${output.length} chars`,
+        });
+      }
+    }
+  } catch {
+    // Plain terminal text is summarized below.
+  }
+  return summarizeLongText(content);
+};
+
 const stringifyToolResultForModel = (result: unknown) => {
   const content = JSON.stringify(result);
-  if (content.length <= MAX_TOOL_RESULT_CONTENT_LENGTH) return content;
-  return `${content.slice(0, MAX_TOOL_RESULT_CONTENT_LENGTH)}\n...<tool result truncated, ask get_terminal_output with narrower maxLines if needed>`;
+  const summarized = summarizeToolResultContent(content);
+  if (summarized.length <= MAX_TOOL_RESULT_CONTENT_LENGTH) return summarized;
+  return `${summarized.slice(0, MAX_TOOL_RESULT_CONTENT_LENGTH)}\n...<tool result summarized, ask get_terminal_output with narrower maxLines if needed>`;
 };
 
 const truncateForModel = (content: string, maxLength = MAX_MODEL_MESSAGE_CONTENT_LENGTH) => {
@@ -165,7 +285,7 @@ const createEmptyMemory = (): AiSessionMemory => ({
 const normalizeMemoryForStorage = (memory: AiSessionMemory): AiSessionMemory => ({
   messages: normalizeMessagesForStorage(memory.messages || []),
   toolRuns: normalizeToolRunsForStorage(memory.toolRuns || []),
-  summary: typeof memory.summary === 'string' ? memory.summary.slice(0, MAX_SAVED_CONTENT_LENGTH) : '',
+  summary: typeof memory.summary === 'string' ? trimSummaryForStorage(memory.summary) : '',
   summaryUpdatedAt: memory.summaryUpdatedAt,
   lastCompactedAt: memory.lastCompactedAt,
 });
@@ -333,7 +453,10 @@ export const useAiStore = defineStore('ai', () => {
   };
 
   const readTerminalOutput = (sessionId?: string, maxLines = 120) => {
-    const session = getTargetSession(sessionId);
+    let session = getTargetSession(sessionId);
+    if (!session?.terminalManager?.terminalInstance?.value) {
+      session = activeSession.value;
+    }
     const term = session?.terminalManager?.terminalInstance?.value;
 
     if (!session || !term) {
@@ -341,7 +464,7 @@ export const useAiStore = defineStore('ai', () => {
         ok: false,
         sessionId: sessionId || activeSessionId.value,
         output: '',
-        error: 'No active terminal is available.',
+        error: 'No active terminal is available. Open or switch to a terminal session and retry.',
       };
     }
 
@@ -379,7 +502,10 @@ export const useAiStore = defineStore('ai', () => {
     }
 
     const risk = detectRiskyCommand(args);
-    const session = getTargetSession(args.sessionId);
+    let session = getTargetSession(args.sessionId);
+    if (!session?.terminalManager?.terminalInstance?.value) {
+      session = activeSession.value;
+    }
     const command = normalizeCommand(String(args.text || ''));
     const needsConfirmation = runMode.value === 'confirm' || !!risk;
     if (needsConfirmation && options?.confirmCommand) {
@@ -507,6 +633,91 @@ export const useAiStore = defineStore('ai', () => {
     return total + contentLength + toolLength;
   }, 0);
 
+  const pruneToolMessages = (items: AiChatMessage[]) => {
+    const seenToolResults = new Set<string>();
+    let changed = false;
+    const pruned = [...items].reverse().map(message => {
+      if (message.role === 'assistant' && message.tool_calls?.length) {
+        const toolCalls = message.tool_calls.map(call => {
+          const args = call.function.arguments || '';
+          if (args.length <= 1200) return call;
+          changed = true;
+          return {
+            ...call,
+            function: {
+              ...call.function,
+              arguments: `${args.slice(0, 1200)}...<tool arguments truncated>`,
+            },
+          };
+        });
+        return { ...message, tool_calls: toolCalls };
+      }
+
+      if (message.role !== 'tool' || typeof message.content !== 'string') {
+        return message;
+      }
+
+      const summarized = summarizeToolResultContent(message.content);
+      const duplicateKey = summarized.replace(/\s+/g, ' ').slice(0, 2000);
+      if (seenToolResults.has(duplicateKey)) {
+        changed = true;
+        return {
+          ...message,
+          content: '<duplicate tool result omitted; same as a newer tool result>',
+        };
+      }
+      seenToolResults.add(duplicateKey);
+      if (summarized !== message.content) {
+        changed = true;
+        return { ...message, content: summarized };
+      }
+      return message;
+    }).reverse();
+
+    return {
+      changed,
+      messages: pruned,
+    };
+  };
+
+  const selectTailMessages = (items: AiChatMessage[], budgetChars: number) => {
+    const protectedIndexes = new Set<number>();
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      if (items[index].role === 'user') {
+        protectedIndexes.add(index);
+        break;
+      }
+    }
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      if (items[index].role === 'assistant') {
+        protectedIndexes.add(index);
+        break;
+      }
+    }
+
+    const selectedIndexes = new Set<number>();
+    let usedChars = 0;
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const messageChars = estimateMessageChars([items[index]]);
+      const mustKeep = protectedIndexes.has(index) || selectedIndexes.size < MIN_TAIL_MESSAGES;
+      if (!mustKeep && usedChars + messageChars > budgetChars) break;
+      selectedIndexes.add(index);
+      usedChars += messageChars;
+    }
+
+    for (const index of protectedIndexes) {
+      selectedIndexes.add(index);
+    }
+
+    const tailMessages = items.filter((_, index) => selectedIndexes.has(index));
+    const olderMessages = items.filter((_, index) => !selectedIndexes.has(index));
+
+    return {
+      olderMessages,
+      tailMessages: sanitizeToolMessages(tailMessages),
+    };
+  };
+
   const removeOldestModelContextMessage = (items: AiChatMessage[], startIndex: number) => {
     const [removed] = items.splice(startIndex, 1);
     const removedToolCallIds = new Set((removed?.tool_calls || []).map(call => call.id));
@@ -523,35 +734,203 @@ export const useAiStore = defineStore('ai', () => {
   };
 
   const summarizeMessages = (items: AiChatMessage[]) => {
+    const goals: string[] = [];
+    const assistantNotes: string[] = [];
+    const toolCalls: string[] = [];
+    const toolResults: string[] = [];
+    const commands: string[] = [];
+    for (const message of items) {
+      if (message.role === 'user' && message.content) {
+        goals.push(`- ${String(message.content).slice(0, 500)}`);
+      } else if (message.role === 'assistant' && message.content) {
+        assistantNotes.push(`- ${String(message.content).slice(0, 700)}`);
+      } else if (message.role === 'assistant' && message.tool_calls?.length) {
+        const names = message.tool_calls.map(call => call.function.name).join(', ');
+        toolCalls.push(`- ${names}`);
+        for (const call of message.tool_calls) {
+          const args = parseToolArgs(call);
+          if (call.function.name === 'terminal_input' && typeof args.text === 'string') {
+            commands.push(`- ${args.text.slice(0, 500)}`);
+          }
+        }
+      } else if (message.role === 'tool' && message.content) {
+        toolResults.push(`- ${summarizeToolResultContent(String(message.content)).slice(0, 900)}`);
+      }
+    }
+
+    return [
+      '## Historical Task Snapshot',
+      '## Goal',
+      goals.slice(-12).join('\n') || '- 未记录明确用户目标',
+      '## Completed Actions',
+      commands.slice(-20).join('\n') || toolCalls.slice(-20).join('\n') || '- 暂无已执行命令',
+      '## Active State',
+      assistantNotes.slice(-10).join('\n') || '- 暂无明确结论',
+      '## Key Tool Results',
+      toolResults.slice(-16).join('\n') || '- 暂无工具结果',
+      '## Remaining Work',
+      '- 根据最近未压缩上下文继续处理用户最新请求',
+    ].join('\n');
+  };
+
+  const formatMessagesForSummary = (items: AiChatMessage[]) => {
     const lines: string[] = [];
     for (const message of items) {
       if (message.role === 'user' && message.content) {
-        lines.push(`用户目标: ${String(message.content).slice(0, 500)}`);
+        lines.push(`[用户] ${String(message.content).slice(0, 800)}`);
       } else if (message.role === 'assistant' && message.content) {
-        lines.push(`AI 结论: ${String(message.content).slice(0, 700)}`);
+        lines.push(`[AI] ${String(message.content).slice(0, 800)}`);
       } else if (message.role === 'assistant' && message.tool_calls?.length) {
         const names = message.tool_calls.map(call => call.function.name).join(', ');
-        lines.push(`AI 调用工具: ${names}`);
+        lines.push(`[AI 调用工具] ${names}`);
       } else if (message.role === 'tool' && message.content) {
-        lines.push(`工具结果: ${String(message.content).slice(0, 700)}`);
+        lines.push(`[工具结果] ${String(message.content).slice(0, 800)}`);
       }
     }
-    return lines.slice(-80).join('\n');
+    return lines.join('\n');
   };
 
-  const compactContextIfNeeded = () => {
+  const summarizeWithAi = async (olderMessages: AiChatMessage[]) => {
+    if (olderMessages.length === 0) return false;
     const memory = currentMemory.value;
+    const compactedAt = memory.lastCompactedAt;
+    try {
+      const promptMessages: AiChatMessage[] = [
+        { role: 'system', content: '你是对话压缩助手。请用简体中文对以下 SSH 终端会话历史生成结构化摘要。必须使用这些标题: ## Historical Task Snapshot, ## Goal, ## Constraints & Preferences, ## Completed Actions, ## Active State, ## Blocked, ## Key Decisions, ## Relevant Files, ## Remaining Work。保留用户目标、已执行命令、关键结果、报错、剩余工作。摘要不超过 800 字,只输出摘要正文。' },
+        {
+          role: 'user',
+          content: [
+            memory.summary ? `已有摘要:\n${memory.summary}` : '',
+            `新增历史消息:\n${formatMessagesForSummary(olderMessages)}`,
+          ].filter(Boolean).join('\n\n').slice(0, 18000),
+        },
+      ];
+      const payload = {
+        ...config.value,
+        messages: promptMessages,
+        temperature: 0.1,
+      };
+      const response = await apiClient.post('/ai/chat', payload, { timeout: 130000 });
+      const summary = response.data?.choices?.[0]?.message?.content;
+      if (summary && typeof summary === 'string' && memory.lastCompactedAt === compactedAt) {
+        memory.summary = trimSummaryForStorage(appendSummarySection(memory.summary || '', 'AI 智能摘要', summary));
+        memory.summaryUpdatedAt = Date.now();
+        return true;
+      }
+      return false;
+    } catch (error) {
+      const message = (error as any)?.response?.data?.message || (error as any)?.message || 'AI 摘要生成失败。';
+      errorMessage.value = `AI 智能摘要失败：${message}`;
+      console.warn('[ai.store] AI 摘要生成失败,保留本地摘要。', error);
+      return false;
+    }
+  };
+
+  const estimateMemoryRequestBytes = (memory: AiSessionMemory) => estimateJsonBytes({
+    messages: memory.messages,
+    summary: memory.summary,
+    tools: aiTools,
+  });
+
+  const compactContext = async ({
+    force = false,
+    title,
+    awaitAiSummary,
+  }: CompactContextOptions): Promise<AiCompactResult> => {
+    const memory = currentMemory.value;
+    memory.summary = trimSummaryForStorage(memory.summary || '');
+    const pruned = pruneToolMessages(memory.messages);
+    if (pruned.changed) {
+      memory.messages = pruned.messages;
+    }
+    const requestBytes = estimateMemoryRequestBytes(memory);
     const totalChars = estimateMessageChars(memory.messages);
-    if (memory.messages.length <= COMPACT_MESSAGE_TRIGGER && totalChars <= COMPACT_CHAR_TRIGGER) return;
+    const isOverBudget = requestBytes > AI_REQUEST_COMPACT_BYTES;
+    const isOverAutoTrigger = memory.messages.length > COMPACT_MESSAGE_TRIGGER || totalChars > COMPACT_CHAR_TRIGGER;
+
+    if (!force && !isOverBudget && !isOverAutoTrigger) {
+      return {
+        compacted: pruned.changed,
+        reason: 'underBudget',
+        requestBytes,
+        thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+      };
+    }
+
+    const tailBudget = force || isOverBudget
+      ? Math.floor(TAIL_CONTEXT_BUDGET_CHARS * 0.7)
+      : TAIL_CONTEXT_BUDGET_CHARS;
+    const { olderMessages, tailMessages } = selectTailMessages(memory.messages, tailBudget);
+
+    if (olderMessages.length === 0) {
+      return {
+        compacted: pruned.changed,
+        reason: 'empty',
+        requestBytes,
+        thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+      };
+    }
+
+    const localSummary = summarizeMessages(olderMessages);
+    if (!localSummary.trim()) {
+      return {
+        compacted: pruned.changed,
+        reason: 'empty',
+        requestBytes,
+        thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+      };
+    }
 
     taskStatus.value = 'compressing';
-    const recentMessages = memory.messages.slice(-MAX_MODEL_RECENT_MESSAGES);
-    const olderMessages = memory.messages.slice(0, -MAX_MODEL_RECENT_MESSAGES);
-    const previousSummary = memory.summary ? `此前摘要:\n${memory.summary}\n\n` : '';
-    memory.summary = `${previousSummary}本次压缩摘要:\n${summarizeMessages(olderMessages)}`.slice(-MAX_SAVED_CONTENT_LENGTH);
-    memory.messages = recentMessages;
+    memory.summary = trimSummaryForStorage(appendSummarySection(memory.summary || '', title, localSummary));
+    memory.messages = tailMessages;
     memory.summaryUpdatedAt = Date.now();
     memory.lastCompactedAt = Date.now();
+    const aiSummaryPromise = summarizeWithAi(olderMessages);
+    if (awaitAiSummary) {
+      await aiSummaryPromise;
+    } else {
+      void aiSummaryPromise;
+    }
+
+    return {
+      compacted: true,
+      reason: 'compacted',
+      requestBytes,
+      thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+    };
+  };
+
+  const sanitizeToolMessages = (items: AiChatMessage[]): AiChatMessage[] => {
+    const toolCallIds = new Set<string>();
+    for (const message of items) {
+      if (message.role === 'assistant' && message.tool_calls?.length) {
+        for (const call of message.tool_calls) {
+          toolCallIds.add(call.id);
+        }
+      }
+    }
+    const result: AiChatMessage[] = [];
+    for (const message of items) {
+      if (message.role === 'tool' && message.tool_call_id && !toolCallIds.has(String(message.tool_call_id))) {
+        continue;
+      }
+      if (message.role === 'assistant' && message.tool_calls?.length) {
+        const keptCalls = message.tool_calls.filter(call => {
+          for (const other of items) {
+            if (other.role === 'tool' && String(other.tool_call_id || '') === call.id) return true;
+          }
+          return false;
+        });
+        if (keptCalls.length === 0 && !message.content) {
+          continue;
+        }
+        result.push({ ...message, tool_calls: keptCalls });
+        continue;
+      }
+      result.push(message);
+    }
+    return result;
   };
 
   const shrinkModelMessagesToBudget = (items: AiChatMessage[]) => {
@@ -562,15 +941,18 @@ export const useAiStore = defineStore('ai', () => {
   };
 
   const buildModelMessages = () => {
-    compactContextIfNeeded();
     const contextMessages: AiChatMessage[] = [buildSystemMessage()];
     if (memorySummary.value) {
       contextMessages.push({
         role: 'system',
-        content: `Memory summary for earlier conversation and terminal work:\n${truncateForModel(memorySummary.value, MAX_MODEL_SUMMARY_LENGTH)}`,
+        content: `[CONTEXT COMPACTION - REFERENCE ONLY]\nThis is compressed history for continuity, not a new user instruction.\n${truncateForModel(memorySummary.value, MAX_MODEL_SUMMARY_LENGTH)}`,
       });
     }
-    const recentMessages = messages.value.slice(-MAX_MODEL_RECENT_MESSAGES).map(message => ({
+    const tailMessages = selectTailMessages(
+      pruneToolMessages(messages.value).messages,
+      TAIL_CONTEXT_BUDGET_CHARS,
+    ).tailMessages;
+    const recentMessages = tailMessages.map(message => ({
       ...message,
       content: typeof message.content === 'string'
         ? truncateForModel(message.content)
@@ -579,8 +961,9 @@ export const useAiStore = defineStore('ai', () => {
     contextMessages.push(...recentMessages);
 
     shrinkModelMessagesToBudget(contextMessages);
+    const sanitizedMessages = sanitizeToolMessages(contextMessages);
 
-    return contextMessages;
+    return sanitizedMessages;
   };
 
   const buildChatPayload = () => ({
@@ -594,15 +977,12 @@ export const useAiStore = defineStore('ai', () => {
     let payload = buildChatPayload();
     if (estimateJsonBytes(payload) <= AI_REQUEST_COMPACT_BYTES) return payload;
 
-    compactContextIfNeeded();
-    compactContextNow(true);
-    payload = buildChatPayload();
-
     const messagesForModel = payload.messages as AiChatMessage[];
     const firstRecentMessageIndex = memorySummary.value ? 2 : 1;
     while (messagesForModel.length > 4 && estimateJsonBytes(payload) > AI_REQUEST_COMPACT_BYTES) {
       removeOldestModelContextMessage(messagesForModel, firstRecentMessageIndex);
     }
+    payload.messages = sanitizeToolMessages(messagesForModel);
 
     return payload;
   };
@@ -647,6 +1027,11 @@ export const useAiStore = defineStore('ai', () => {
 
     while (!stopRequested.value) {
       const controller = abortController.value;
+      taskStatus.value = 'thinking';
+      await compactContext({
+        title: '本次压缩摘要',
+        awaitAiSummary: false,
+      });
       taskStatus.value = 'thinking';
       const response = await apiClient.post('/ai/chat', buildBudgetedChatPayload(), {
         signal: controller?.signal,
@@ -729,46 +1114,16 @@ export const useAiStore = defineStore('ai', () => {
     errorMessage.value = '';
   };
 
-  const compactContextNow = (force = false): AiCompactResult => {
-    const memory = currentMemory.value;
-    const requestBytes = estimateJsonBytes(buildChatPayload());
-    const hasEnoughMessages = memory.messages.length > 4;
-    const isOverBudget = requestBytes > AI_REQUEST_COMPACT_BYTES;
-
-    if (!hasEnoughMessages) {
-      return {
-        compacted: false,
-        reason: 'empty',
-        requestBytes,
-        thresholdBytes: AI_REQUEST_COMPACT_BYTES,
-      };
+  const compactContextNow = async (force = false): Promise<AiCompactResult> => {
+    const result = await compactContext({
+      force,
+      title: '手动压缩摘要',
+      awaitAiSummary: true,
+    });
+    if (taskStatus.value === 'compressing') {
+      taskStatus.value = 'idle';
     }
-
-    if (!force && !isOverBudget && memory.messages.length <= MAX_MODEL_RECENT_MESSAGES) {
-      return {
-        compacted: false,
-        reason: 'underBudget',
-        requestBytes,
-        thresholdBytes: AI_REQUEST_COMPACT_BYTES,
-      };
-    }
-
-    const keepCount = isOverBudget || force
-      ? Math.min(8, MAX_MODEL_RECENT_MESSAGES)
-      : MAX_MODEL_RECENT_MESSAGES;
-    const recentMessages = memory.messages.slice(-keepCount);
-    const olderMessages = memory.messages.slice(0, -keepCount);
-    const previousSummary = memory.summary ? `此前摘要:\n${memory.summary}\n\n` : '';
-    memory.summary = `${previousSummary}手动压缩摘要:\n${summarizeMessages(olderMessages)}`.slice(-MAX_SAVED_CONTENT_LENGTH);
-    memory.messages = recentMessages;
-    memory.summaryUpdatedAt = Date.now();
-    memory.lastCompactedAt = Date.now();
-    return {
-      compacted: true,
-      reason: 'compacted',
-      requestBytes,
-      thresholdBytes: AI_REQUEST_COMPACT_BYTES,
-    };
+    return result;
   };
 
   return {

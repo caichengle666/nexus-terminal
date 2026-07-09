@@ -9,5 +9,6 @@ router.use(isAuthenticated);
 
 
 router.get('/', auditController.getAuditLogs);
+router.delete('/', auditController.deleteAuditLogs);
 
 export default router;

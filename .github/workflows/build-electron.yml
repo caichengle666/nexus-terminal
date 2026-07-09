@@ -34,20 +34,9 @@ jobs:
         working-directory: packages/backend
         run: npm install
 
-      - name: Build backend
+      - name: Build backend production bundle
         working-directory: packages/backend
-        run: npm run build
-
-      - name: Prepare backend production dependencies
-        shell: pwsh
-        run: |
-          Copy-Item -Path "packages/backend/src/locales" -Destination "packages/backend/dist/locales" -Recurse -Force -ErrorAction SilentlyContinue
-          Copy-Item -Path "packages/backend/html-presets" -Destination "packages/backend/dist/html-presets" -Recurse -Force -ErrorAction SilentlyContinue
-          Copy-Item -Path "packages/backend/package.json" -Destination "packages/backend/dist/package.json" -Force
-          Copy-Item -Path "packages/backend/package-lock.json" -Destination "packages/backend/dist/package-lock.json" -Force
-          Push-Location "packages/backend/dist"
-          npm install --omit=dev
-          Pop-Location
+        run: npm run build:prod
 
       - name: Install Electron app dependencies
         working-directory: electron-app
@@ -121,18 +110,9 @@ jobs:
         working-directory: packages/backend
         run: npm install
 
-      - name: Build backend
+      - name: Build backend production bundle
         working-directory: packages/backend
-        run: npm run build
-
-      - name: Prepare backend production dependencies
-        shell: bash
-        run: |
-          cp -r packages/backend/src/locales packages/backend/dist/locales 2>/dev/null || true
-          cp -r packages/backend/html-presets packages/backend/dist/html-presets 2>/dev/null || true
-          cp packages/backend/package.json packages/backend/dist/package.json
-          cp packages/backend/package-lock.json packages/backend/dist/package-lock.json 2>/dev/null || true
-          cd packages/backend/dist && npm install --omit=dev
+        run: npm run build:prod
 
       - name: Install Electron app dependencies
         working-directory: electron-app
@@ -148,19 +128,19 @@ jobs:
       - name: Build Electron app (macOS arm64)
         working-directory: electron-app
         env:
-          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder build --mac --arm64 --config --publish never
 
-      - name: Upload macOS universal artifact
+      - name: Upload macOS arm64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Nexus-Terminal-macOS-Universal
+          name: Nexus-Terminal-macOS-arm64
           path: electron-app/dist/*.dmg
           if-no-files-found: error
           compression-level: 0
 
   release:
-    if: startsWith(github.ref, '''refs/tags/''')
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     permissions:
@@ -178,4 +158,4 @@ jobs:
             Nexus-Terminal-Windows-Installer/*.exe
             Nexus-Terminal-Windows-Portable-Exe/*.exe
             Nexus-Terminal-Windows-Portable-Unpacked/*.zip
-            Nexus-Terminal-macOS-Universal/*.dmg
+            Nexus-Terminal-macOS-arm64/*.dmg

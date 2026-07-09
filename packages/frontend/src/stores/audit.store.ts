@@ -113,6 +113,22 @@ export const useAuditLogStore = defineStore('auditLog', () => {
         fetchLogs({ page: 1 }); // 重置到第一页，使用默认 limit
     };
 
+    const deleteLogs = async (ids: number[]) => {
+        if (ids.length === 0) return 0;
+        isLoading.value = true;
+        error.value = null;
+        try {
+            const response = await apiClient.delete<{ deleted: number }>('/audit-logs', { data: { ids } });
+            return response.data.deleted || 0;
+        } catch (err: any) {
+            console.error('[AuditLogStore] Error deleting audit logs:', err);
+            error.value = err.response?.data?.message || '删除审计日志失败';
+            throw err;
+        } finally {
+            isLoading.value = false;
+        }
+    };
+
     return {
         logs,
         totalLogs,
@@ -122,5 +138,6 @@ export const useAuditLogStore = defineStore('auditLog', () => {
         logsPerPage,
         fetchLogs,
         setLogsPerPage,
+        deleteLogs,
     };
 });

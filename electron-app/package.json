@@ -23,7 +23,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "build:backend": "cd ../packages/backend && npm run build",
+    "build:backend": "cd ../packages/backend && npm run build:prod",
     "build:frontend": "cd ../packages/frontend && npm run build",
     "prepare:node-runtime": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"New-Item -ItemType Directory -Force -Path 'nodejs-runtime/win-x64' | Out-Null; Copy-Item -Path (Get-Command node).Source -Destination 'nodejs-runtime/win-x64/node.exe' -Force\"",
     "build:electron": "npm run prepare:node-runtime && electron-builder build --win --config",
@@ -51,6 +51,10 @@
         "to": "icon.ico"
       },
       {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
+      {
         "from": "../packages/backend",
         "to": "packages/backend",
         "filter": [
@@ -74,6 +78,14 @@
       ],
       "icon": "build/icon.ico",
       "artifactName": "${productName}-${version}-${name}.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.developer-tools",
+      "artifactName": "${productName}-${version}-macOS-${arch}.${ext}"
     },
     "nsis": {
       "artifactName": "${productName} Setup ${version}.${ext}",

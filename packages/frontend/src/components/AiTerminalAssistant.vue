@@ -83,7 +83,7 @@ const closeDrawer = () => {
 };
 
 const sendMessage = () => aiStore.sendMessage({
-  confirmCommand: async ({ command, reason, riskReason, riskLevel, connectionName }) => showConfirmDialog({
+  confirmCommand: async ({ command, reason, riskReason, riskLevel, connectionName }: { command: string; reason: string; riskReason?: string; riskLevel: string; connectionName?: string }) => showConfirmDialog({
     title: riskLevel === 'risky' ? '确认 AI 执行风险命令' : '确认 AI 执行命令',
     message: [
       `目标终端：${connectionName || sessionLabel.value}`,
@@ -134,7 +134,7 @@ const interruptTerminal = async () => {
 };
 
 const compactContext = async () => {
-  const result = aiStore.compactContextNow(true);
+  const result = await aiStore.compactContextNow(true);
   if (!result.compacted) {
     const requestKb = Math.ceil(result.requestBytes / 1024);
     const thresholdKb = Math.floor(result.thresholdBytes / 1024);

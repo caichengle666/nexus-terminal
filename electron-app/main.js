@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const url = require('url');
 const express = require('express'); 
@@ -19,6 +19,11 @@ let isQuitting = false;
 const PROD_FRONTEND_PORT = 22457;
 const PROD_BACKEND_PORT = 22458;
 
+// Some Windows graphics drivers render Electron as a blank white window with GPU compositing enabled.
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-gpu-compositing');
+
 // 用于在 download-file-request 和 will-download 之间传递期望的文件名
 const pendingDownloadsInfo = new Map();
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
@@ -36,10 +41,15 @@ function showMainWindow() {
 function createTray() {
   if (tray) return;
 
+  const trayIconName = process.platform === 'darwin' ? 'icon.png' : 'icon.ico';
   const iconPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'icon.ico')
-    : path.join(__dirname, 'build', 'icon.ico');
-  tray = new Tray(iconPath);
+    ? path.join(process.resourcesPath, trayIconName)
+    : path.join(__dirname, 'build', trayIconName);
+  const trayImage = fs.existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
+  if (trayImage.isEmpty()) {
+    console.warn(`[Main Process] Tray icon not found or invalid: ${iconPath}`);
+  }
+  tray = new Tray(trayImage);
   tray.setToolTip('Nexus Terminal');
   tray.setContextMenu(Menu.buildFromTemplate([
     {
@@ -247,15 +257,28 @@ async function createWindow() {
         } else {
           console.warn(`[Main Process] Unsupported Linux architecture: ${process.arch}. Backend might not start.`);
         }
+      } else if (process.platform === 'darwin') {
+        if (process.arch === 'arm64') {
+          nodeExecutable = path.join(basePath, 'darwin-arm64', 'node');
+        } else if (process.arch === 'x64') {
+          nodeExecutable = path.join(basePath, 'darwin-x64', 'node');
+        } else {
+          console.warn(`[Main Process] Unsupported macOS architecture: ${process.arch}. Backend might not start.`);
+        }
       } else {
-        // 其他平台 (如 macOS) 不再支持
          console.warn(`[Main Process] Unsupported platform: ${process.platform}. Backend might not start.`);
       }
       
       // 检查可执行文件是否存在，如果不存在则记录错误并可能回退或抛出
       if (!fs.existsSync(nodeExecutable)) {
-        console.warn(`[Main Process] Bundled Node.js executable not found at: ${nodeExecutable}. Falling back to system Node.js.`);
-        return 'node'; // 回退到系统node
+        throw new Error(`Bundled Node.js executable not found: ${nodeExecutable}`);
+      }
+      if (process.platform === 'darwin') {
+        try {
+          fs.chmodSync(nodeExecutable, 0o755);
+        } catch (error) {
+          console.warn(`[Main Process] Failed to ensure bundled Node.js executable bit: ${error.message}`);
+        }
       }
       console.log(`[Main Process] Using bundled Node.js executable: ${nodeExecutable}`);
       return nodeExecutable;
@@ -267,7 +290,7 @@ async function createWindow() {
       nodeExecutablePath = getNodeJsExecutablePath();
     } catch (error) {
       console.error('[Main Process] Critical error determining Node.js executable path:', error);
-      // 在这里决定如何处理，例如通知用户并退出
+      dialog.showErrorBox("Node.js 运行时缺失", `无法找到应用内置 Node.js 运行时，后端服务不能启动。\n\n${error.message}`);
       app.quit();
       return; // 停止执行 createWindow
     }
@@ -279,7 +302,11 @@ async function createWindow() {
     ];
     const backendEntryPath = backendEntryCandidates.find(candidate => fs.existsSync(candidate));
     if (!backendEntryPath) {
-      throw new Error(`Backend entry not found. Checked: ${backendEntryCandidates.join(', ')}`);
+      const checkedPaths = backendEntryCandidates.join('\n');
+      console.error(`[Main Process] Backend entry not found. Checked:\n${checkedPaths}`);
+      dialog.showErrorBox("后端入口缺失", `找不到后端入口文件，应用无法启动。\n\n已检查:\n${checkedPaths}`);
+      app.quit();
+      return;
     }
 
     console.log(`[Prod Mode] Starting backend service from ${backendEntryPath} using Node.js at ${nodeExecutablePath}...`);

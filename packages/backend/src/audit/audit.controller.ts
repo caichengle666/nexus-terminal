@@ -69,4 +69,24 @@ export class AuditController {
             res.status(500).json({ message: '获取审计日志失败', error: error.message });
         }
     }
+
+    async deleteAuditLogs(req: Request, res: Response): Promise<void> {
+        try {
+            const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+            const normalizedIds: number[] = Array.from(new Set(ids
+                .map((id: unknown) => Number(id))
+                .filter((id: number) => Number.isInteger(id) && id > 0)));
+
+            if (normalizedIds.length === 0) {
+                res.status(400).json({ message: '请选择要删除的审计日志' });
+                return;
+            }
+
+            const deleted = await auditLogService.deleteLogs(normalizedIds);
+            res.status(200).json({ deleted });
+        } catch (error: any) {
+            console.error('删除审计日志时出错:', error);
+            res.status(500).json({ message: '删除审计日志失败', error: error.message });
+        }
+    }
 }

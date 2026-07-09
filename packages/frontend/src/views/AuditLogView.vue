@@ -73,11 +73,43 @@
            <div class="text-right text-text-secondary text-sm mb-4"> <!-- Changed text-center to text-right, removed mt-3, added mb-4 -->
               {{ $t('auditLog.paginationInfo', { currentPage, totalPages, totalLogs }) }}
           </div>
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded border border-border bg-header/40 px-3 py-2 text-sm">
+            <div class="text-text-secondary">
+              已选择 {{ selectedLogIds.length }} 条
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="rounded border border-border px-3 py-1.5 text-text-secondary hover:bg-header disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled="logs.length === 0"
+                @click="toggleSelectAll"
+              >
+                {{ isAllSelected ? '取消全选' : '全选当前页' }}
+              </button>
+              <button
+                type="button"
+                class="rounded bg-error px-3 py-1.5 text-white hover:bg-error/90 disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled="selectedLogIds.length === 0 || store.isLoading"
+                @click="deleteSelectedLogs"
+              >
+                删除选中
+              </button>
+            </div>
+          </div>
           <div class="border border-border rounded-lg overflow-hidden shadow-sm bg-background"> <!-- Removed mt-4 -->
             <div class="overflow-x-auto"> <!-- Allow horizontal scroll -->
               <table class="min-w-full divide-y divide-border text-sm"> <!-- Table styling -->
                 <thead class="bg-header">
                   <tr>
+                    <th scope="col" class="px-4 py-3 text-left font-medium text-text-secondary tracking-wider whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        class="h-4 w-4 rounded border-border bg-background text-primary focus:ring-primary"
+                        :checked="isAllSelected"
+                        :indeterminate="isPartiallySelected"
+                        @change="toggleSelectAll"
+                      >
+                    </th>
                     <th scope="col" class="px-6 py-3 text-left font-medium text-text-secondary tracking-wider whitespace-nowrap">{{ $t('auditLog.table.timestamp') }}</th>
                     <th scope="col" class="px-6 py-3 text-left font-medium text-text-secondary tracking-wider whitespace-nowrap">{{ $t('auditLog.table.actionType') }}</th>
                     <th scope="col" class="px-6 py-3 text-left font-medium text-text-secondary tracking-wider">{{ $t('auditLog.table.details') }}</th>
@@ -85,6 +117,14 @@
                 </thead>
                 <tbody class="divide-y divide-border">
                   <tr v-for="log in logs" :key="log.id" class="hover:bg-header/50"> <!-- Table rows with hover -->
+                    <td class="px-4 py-4 whitespace-nowrap">
+                      <input
+                        v-model="selectedLogIds"
+                        type="checkbox"
+                        class="h-4 w-4 rounded border-border bg-background text-primary focus:ring-primary"
+                        :value="log.id"
+                      >
+                    </td>
                     <td class="px-6 py-4 whitespace-nowrap">{{ formatTimestamp(log.timestamp) }}</td>
                     <td class="px-6 py-4 whitespace-nowrap">{{ translateActionType(log.action_type) }}</td>
                     <td class="px-6 py-4">
@@ -114,6 +154,7 @@ const { t } = useI18n();
 // --- Filtering State ---
 const searchTerm = ref('');
 const selectedActionType = ref<AuditLogActionType | ''>(''); // Allow empty string for 'All'
+const selectedLogIds = ref<number[]>([]);
 
 // Define all possible action types for the dropdown
 const allActionTypes: AuditLogActionType[] = [
@@ -134,11 +175,15 @@ const logs = computed(() => store.logs);
 const totalLogs = computed(() => store.totalLogs);
 const currentPage = computed(() => store.currentPage);
 const logsPerPage = computed(() => store.logsPerPage);
+const pageLogIds = computed(() => logs.value.map(log => log.id));
+const isAllSelected = computed(() => pageLogIds.value.length > 0 && pageLogIds.value.every(id => selectedLogIds.value.includes(id)));
+const isPartiallySelected = computed(() => selectedLogIds.value.length > 0 && !isAllSelected.value);
 
 const totalPages = computed(() => Math.ceil(totalLogs.value / logsPerPage.value));
 
 // Function to apply filters and fetch logs
 const applyFilters = () => {
+    selectedLogIds.value = [];
     // Pass undefined if filter is empty, otherwise pass the value
     store.fetchLogs({
         page: 1, // Reset to page 1 when applying filters
@@ -180,6 +225,7 @@ const formatDetails = (details: AuditLogEntry['details']): string => {
 
 const changePage = (page: number) => {
   if (page >= 1 && page <= totalPages.value && page !== currentPage.value) {
+    selectedLogIds.value = [];
     // Retain current filters when changing page
     store.fetchLogs({
         page: page,
@@ -187,6 +233,24 @@ const changePage = (page: number) => {
         actionType: selectedActionType.value || undefined
     });
   }
+};
+
+const toggleSelectAll = () => {
+  selectedLogIds.value = isAllSelected.value ? [] : [...pageLogIds.value];
+};
+
+const deleteSelectedLogs = async () => {
+  if (selectedLogIds.value.length === 0) return;
+  const confirmed = window.confirm(`确定删除选中的 ${selectedLogIds.value.length} 条审计日志吗？此操作不可恢复。`);
+  if (!confirmed) return;
+
+  await store.deleteLogs(selectedLogIds.value);
+  selectedLogIds.value = [];
+  await store.fetchLogs({
+    page: currentPage.value,
+    searchTerm: searchTerm.value || undefined,
+    actionType: selectedActionType.value || undefined,
+  });
 };
 
 // Simple pagination range logic (can be improved for many pages)
