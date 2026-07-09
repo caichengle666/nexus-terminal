@@ -23,9 +23,11 @@
 
 AI Agent 是内置在 SSH 终端里的智能运维助手，可以读取当前终端会话上下文，根据自然语言目标自动分析环境、调用终端工具、继续判断下一步，并支持随时停止 AI 工作。
 
-<video src="https://github.com/caichengle666/nexus-terminal/releases/download/0.9.9/Nexus-Terminal-0.9.9-AI-Agent-Demo.mp4" controls width="100%"></video>
+| 发起自然语言任务 | 自动调用终端工具 | 持续分析并可随时停止 |
+|:---:|:---:|:---:|
+| ![AI Agent 发起任务](./doc/images/ai-agent-demo-10s.webp) | ![AI Agent 调用工具](./doc/images/ai-agent-demo-30s.webp) | ![AI Agent 持续分析](./doc/images/ai-agent-demo-final.webp) |
 
-如果视频没有在 GitHub 首页直接播放，可以点击这里观看或下载：
+完整流程可以观看或下载：
 [Nexus Terminal 0.9.9 AI Agent 演示视频](https://github.com/caichengle666/nexus-terminal/releases/download/0.9.9/Nexus-Terminal-0.9.9-AI-Agent-Demo.mp4)
 
 ## ✨ 功能特性
