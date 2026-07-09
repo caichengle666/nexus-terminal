@@ -19,6 +19,15 @@
 
 **星枢终端（Nexus Terminal）** 是一款现代化、功能丰富的 Web SSH / RDP / VNC 客户端，致力于提供高度可定制的远程连接体验。提供独立的本地桌面端。
 
+## 🎬 AI Agent 演示
+
+AI Agent 是内置在 SSH 终端里的智能运维助手，可以读取当前终端会话上下文，根据自然语言目标自动分析环境、调用终端工具、继续判断下一步，并支持随时停止 AI 工作。
+
+<video src="https://github.com/caichengle666/nexus-terminal/releases/download/0.9.9/Nexus-Terminal-0.9.9-AI-Agent-Demo.mp4" controls width="100%"></video>
+
+如果视频没有在 GitHub 首页直接播放，可以点击这里观看或下载：
+[Nexus Terminal 0.9.9 AI Agent 演示视频](https://github.com/caichengle666/nexus-terminal/releases/download/0.9.9/Nexus-Terminal-0.9.9-AI-Agent-Demo.mp4)
+
 ## ✨ 功能特性
 
 *   多标签页管理 SSH 与 SFTP 连接  
@@ -33,7 +42,7 @@
 *   审计日志，全面记录用户行为与系统变更
 *   基于 Node.js 的轻量级后端，资源占用低
 *   内置心跳保活机制，确保连接稳定
-*   内置 **AI Agent 助手**：侧边抽屉式对话面板、回车发送、自动工具调用、随时停止生成、上下\-智能压缩
+*   内置 **AI Agent 助手**：侧边抽屉式对话面板、回车发送、自动工具调用、随时停止生成、上下文智能压缩
 *   **UI 主题预设**：默认白、冷白、暖白、专业黑、午夜蓝、极简黑多款主题可选
 *   **全新品牌设计**：原创 Logo，桌面安装版与便携版（Windows）自动构建发布
 *   **智能上下文压缩**：接近 token 上限时自动生成会话摘要，避免请求过大（默认 256 KB）
