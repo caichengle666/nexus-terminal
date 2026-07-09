@@ -1,0 +1,22 @@
+export const CONFIG_KEY = 'nexus_ai_terminal_config';
+export const MEMORIES_KEY = 'nexus_ai_terminal_session_memories';
+export const LEGACY_MESSAGES_KEY = 'nexus_ai_terminal_messages';
+export const LEGACY_TOOL_RUNS_KEY = 'nexus_ai_terminal_tool_runs';
+export const MAX_SAVED_MESSAGES = 120;
+export const MAX_SAVED_TOOL_RUNS = 80;
+export const MAX_SAVED_CONTENT_LENGTH = 24000;
+export const MAX_MODEL_RECENT_MESSAGES = 16;
+export const COMPACT_MESSAGE_TRIGGER = 30;
+export const COMPACT_CHAR_TRIGGER = 32000;
+export const MAX_AI_REQUEST_BYTES = 256 * 1024;
+export const AI_REQUEST_COMPACT_BYTES = Math.floor(MAX_AI_REQUEST_BYTES * 0.8);
+export const MAX_MODEL_CONTEXT_CHARS = 90000;
+export const MAX_MODEL_MESSAGE_CONTENT_LENGTH = 8000;
+export const MAX_MODEL_SUMMARY_LENGTH = 8000;
+export const MAX_TERMINAL_OUTPUT_CHARS = 12000;
+export const MAX_TOOL_RESULT_CONTENT_LENGTH = 8000;
+export const MAX_TOOL_RESULT_SUMMARY_LENGTH = 2400;
+export const TAIL_CONTEXT_BUDGET_CHARS = 26000;
+export const MIN_TAIL_MESSAGES = 3;
+
+export const SUMMARY_SECTION_TITLES = ['本次压缩摘要', '手动压缩摘要', 'AI 智能摘要'];

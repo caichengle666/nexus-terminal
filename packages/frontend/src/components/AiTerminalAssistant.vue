@@ -22,6 +22,7 @@ const {
   runMode,
   config,
   activeSession,
+  activeSessionId,
   canSend,
   hasActiveTerminal,
 } = storeToRefs(aiStore);
@@ -109,7 +110,8 @@ const handleInputKeydown = (event: KeyboardEvent) => {
 };
 
 const stopAi = async () => {
-  aiStore.stopRun();
+  const runSessionId = activeSessionId.value;
+  aiStore.stopRun(runSessionId);
   const confirmed = await showConfirmDialog({
     title: '是否同时中断终端命令',
     message: 'AI 请求会立即停止。如果远程终端里已经有命令在运行，可以同时发送 Ctrl+C 尝试中断它。',
@@ -117,7 +119,7 @@ const stopAi = async () => {
     cancelText: '只停止 AI',
   });
   if (confirmed) {
-    aiStore.sendInterruptToTerminal();
+    aiStore.sendInterruptToTerminal(runSessionId);
   }
 };
 
