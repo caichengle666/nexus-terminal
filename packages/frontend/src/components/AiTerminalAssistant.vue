@@ -31,6 +31,25 @@ const sessionLabel = computed(() => activeSession.value?.connectionName || '没�
 const hasMemorySummary = computed(() => !!memorySummary.value.trim());
 const drawerPanel = ref<DrawerPanel>(null);
 const isDrawerOpen = computed(() => drawerPanel.value !== null);
+const lastUserPrompt = computed(() => {
+  const lastUser = [...visibleMessages.value].reverse().find(message => message.role === 'user');
+  return typeof lastUser?.content === 'string' ? lastUser.content : '';
+});
+
+const timelineItems = computed(() => latestToolRuns.value
+  .slice()
+  .reverse()
+  .slice(-8)
+  .map(run => ({
+    id: run.id,
+    title: formatToolName(run.name),
+    status: formatToolStatus(run.status),
+    summary: formatToolSummary(run),
+    duration: formatToolDuration(run),
+    failed: run.status === 'error',
+  })));
+
+const inlineToolEvents = computed(() => latestToolRuns.value.slice(0, 6));
 
 const quickTasks = [
   '查看当前终端报错并给出修复方案',
@@ -73,6 +92,129 @@ const formatToolSummary = (run: AiToolRun) => {
     return `读取最近 ${run.args.maxLines || 120} 行`;
   }
   return JSON.stringify(run.args);
+};
+
+const formatToolDuration = (run: AiToolRun) => {
+  if (!run.finishedAt) return '运行中';
+  const durationMs = Math.max(0, run.finishedAt - run.startedAt);
+  if (durationMs < 1000) return `${durationMs}ms`;
+  return `${(durationMs / 1000).toFixed(1)}s`;
+};
+
+const detectCommandRisk = (command: string) => {
+  const text = command.toLowerCase();
+  const dangerousPatterns = [
+    'rm -rf',
+    'mkfs',
+    'dd if=',
+    'shutdown',
+    'reboot',
+    'poweroff',
+    ':(){',
+    'chmod -r 777',
+  ];
+  const confirmPatterns = [
+    'apt install',
+    'apt-get install',
+    'yum install',
+    'dnf install',
+    'systemctl restart',
+    'systemctl stop',
+    'docker rm',
+    'docker compose down',
+    'iptables',
+    'ufw ',
+    'firewall-cmd',
+  ];
+  if (dangerousPatterns.some(pattern => text.includes(pattern))) return 'danger';
+  if (confirmPatterns.some(pattern => text.includes(pattern))) return 'confirm';
+  return 'normal';
+};
+
+const formatRiskLabel = (risk: string) => {
+  if (risk === 'danger') return '危险';
+  if (risk === 'confirm') return '需确认';
+  return '普通';
+};
+
+const formatRiskClass = (risk: string) => {
+  if (risk === 'danger') return 'border-error/60 bg-error/15 text-error';
+  if (risk === 'confirm') return 'border-warning/60 bg-warning/15 text-warning';
+  return 'border-success/50 bg-success/10 text-success';
+};
+
+const messageLabel = (role: string) => {
+  if (role === 'user') return '你';
+  if (role === 'assistant') return 'AI';
+  if (role === 'tool') return '工具';
+  if (role === 'system') return '系统';
+  return role;
+};
+
+const messageShellClass = (role: string) => {
+  if (role === 'user') return 'ml-auto border-primary/40 bg-primary/15 text-foreground shadow-primary/5';
+  if (role === 'assistant') return 'mr-auto border-border/80 bg-background text-foreground shadow-black/5';
+  if (role === 'tool') return 'mx-auto max-w-[92%] border-warning/40 bg-warning/10 text-warning';
+  if (role === 'system') return 'mx-auto max-w-[92%] border-border/60 bg-header/40 text-text-secondary';
+  return 'mr-auto border-border/70 bg-header/30 text-foreground';
+};
+
+const messageLabelClass = (role: string) => {
+  if (role === 'user') return 'text-primary';
+  if (role === 'assistant') return 'text-text-secondary';
+  if (role === 'tool') return 'text-warning';
+  if (role === 'system') return 'text-text-secondary';
+  return 'text-text-secondary';
+};
+
+const stringifyCompact = (value: unknown) => {
+  try {
+    const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    return text.length > 2400 ? `${text.slice(0, 2400)}\n...<已截断>` : text;
+  } catch {
+    return String(value);
+  }
+};
+
+const escapeHtml = (value: string) => value
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const renderMarkdown = (content?: string | null) => {
+  const text = content || '';
+  const escaped = escapeHtml(text);
+  return escaped
+    .replace(/```([\s\S]*?)```/g, '<pre class="my-2 overflow-auto rounded border border-border bg-black/20 p-2 font-mono text-xs leading-relaxed">$1</pre>')
+    .replace(/`([^`]+)`/g, '<code class="rounded bg-black/20 px-1 py-0.5 font-mono text-xs">$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+};
+
+const extractCommandBlocks = (content?: string | null) => {
+  if (!content) return [];
+  const blocks: string[] = [];
+  const fencePattern = /```(?:bash|sh|shell|zsh|powershell|ps1|cmd)?\s*([\s\S]*?)```/gi;
+  let match: RegExpExecArray | null;
+  while ((match = fencePattern.exec(content)) !== null) {
+    const block = match[1]
+      .split('\n')
+      .map(line => line.replace(/^\$\s?/, ''))
+      .join('\n')
+      .trim();
+    if (block) blocks.push(block);
+  }
+  return blocks.slice(0, 4);
+};
+
+const copyText = async (text: string) => {
+  await navigator.clipboard?.writeText(text);
+};
+
+const fillCommandInput = (command: string) => {
+  userInput.value = command;
 };
 
 const openDrawer = (panel: Exclude<DrawerPanel, null>) => {
@@ -137,14 +279,19 @@ const interruptTerminal = async () => {
 
 const compactContext = async () => {
   const result = await aiStore.compactContextNow(true);
-  if (!result.compacted) {
-    const requestKb = Math.ceil(result.requestBytes / 1024);
-    const thresholdKb = Math.floor(result.thresholdBytes / 1024);
+  if (result.compacted) {
+    await showConfirmDialog({
+      title: '上下文压缩完成',
+      message: `已压缩 ${result.compactedCount || 0} 条历史消息为摘要，保留最近 ${result.retainedCount || 0} 条对话继续工作。`,
+      confirmText: '知道了',
+      cancelText: '关闭',
+    });
+  } else if (result.reason !== 'underBudget') {
     await showConfirmDialog({
       title: result.reason === 'empty' ? '暂无可压缩上下文' : '上下文未超过压缩阈值',
       message: result.reason === 'empty'
         ? '当前会话内容太少，还没有可以压缩成摘要的历史。'
-        : `当前 AI 请求约 ${requestKb}KB，压缩阈值是 ${thresholdKb}KB。未超过阈值时不会强行压缩。`,
+        : `当前 AI 请求约 ${Math.ceil(result.requestBytes / 1024)}KB，压缩阈值是 ${Math.floor(result.thresholdBytes / 1024)}KB。未超过阈值时不会强行压缩。`,
       confirmText: '知道了',
       cancelText: '关闭',
     });
@@ -154,6 +301,26 @@ const compactContext = async () => {
 
 const useQuickTask = (task: string) => {
   userInput.value = task;
+};
+
+const rereadTerminal = () => {
+  userInput.value = '读取当前终端最近输出，判断上一轮失败原因并继续处理';
+  sendMessage();
+};
+
+const retryLastPrompt = () => {
+  if (!lastUserPrompt.value) return;
+  userInput.value = lastUserPrompt.value;
+  sendMessage();
+};
+
+const compactAndRetry = async () => {
+  await aiStore.compactContextNow(true);
+  retryLastPrompt();
+};
+
+const switchReadOnly = () => {
+  runMode.value = 'readOnly';
 };
 
 const saveConfig = async () => {
@@ -229,29 +396,31 @@ const deleteHistory = async () => {
           <button class="rounded px-2 py-1 hover:bg-hover" @click="compactContext">压缩</button>
         </div>
       </div>
-      <div class="grid grid-cols-3 overflow-hidden rounded border border-border">
-        <button
-          class="px-2 py-1"
-          :class="runMode === 'readOnly' ? 'bg-primary text-white' : 'hover:bg-hover'"
-          @click="runMode = 'readOnly'"
-        >
-          只读
-        </button>
-        <button
-          class="border-x border-border px-2 py-1"
-          :class="runMode === 'confirm' ? 'bg-primary text-white' : 'hover:bg-hover'"
-          @click="runMode = 'confirm'"
-        >
-          确认
-        </button>
-        <button
-          class="px-2 py-1"
-          :class="runMode === 'auto' ? 'bg-primary text-white' : 'hover:bg-hover'"
-          @click="runMode = 'auto'"
-        >
-          自动
-        </button>
-      </div>
+      <details v-if="timelineItems.length > 0 || isRunning" class="mb-1 rounded border border-border/60 bg-header/20 px-2 py-1.5">
+        <summary class="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px]">
+          <span class="flex min-w-0 items-center gap-2">
+            <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="isRunning ? 'animate-pulse bg-primary' : taskStatus === 'error' ? 'bg-error' : 'bg-success'" />
+            <span class="truncate text-text-secondary">任务状态：{{ formatTaskStatus(taskStatus) }}</span>
+          </span>
+          <span class="flex-shrink-0 text-text-secondary">展开时间线</span>
+        </summary>
+        <div class="mt-2 space-y-1 border-t border-border/50 pt-2">
+          <div v-for="item in timelineItems" :key="item.id" class="flex items-start gap-2 text-[11px]">
+            <span class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="item.failed ? 'bg-error' : 'bg-primary'" />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-2">
+                <span class="truncate text-foreground">{{ item.title }} · {{ item.status }}</span>
+                <span class="flex-shrink-0 text-text-secondary">{{ item.duration }}</span>
+              </div>
+              <div class="truncate text-text-secondary">{{ item.summary }}</div>
+            </div>
+          </div>
+          <div v-if="isRunning" class="flex items-center gap-2 text-[11px] text-primary">
+            <span class="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+            <span>{{ formatTaskStatus(taskStatus) }}</span>
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="relative flex-1 min-h-0 overflow-hidden">
@@ -274,26 +443,89 @@ const deleteHistory = async () => {
         v-for="(message, index) in visibleMessages"
         :key="index"
         class="flex"
-        :class="message.role === 'user' ? 'justify-end' : 'justify-start'"
+        :class="message.role === 'user' ? 'justify-end' : message.role === 'assistant' ? 'justify-start' : 'justify-center'"
       >
         <div
           class="max-w-[88%] rounded border px-3 py-2 shadow-sm"
-          :class="message.role === 'user'
-            ? 'border-primary/30 bg-primary/10'
-            : 'border-border/70 bg-header/30'"
+          :class="messageShellClass(message.role)"
         >
           <div
             class="mb-1 text-xs font-medium"
-            :class="message.role === 'user' ? 'text-primary' : 'text-text-secondary'"
+            :class="messageLabelClass(message.role)"
           >
-            {{ message.role === 'user' ? '你' : 'AI' }}
+            {{ messageLabel(message.role) }}
           </div>
-          <pre class="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{{ message.content || (message.tool_calls ? '正在调用终端工具...' : '') }}</pre>
+          <div
+            class="ai-message-content break-words text-sm leading-relaxed"
+            v-html="renderMarkdown(message.content || (message.tool_calls ? '正在调用终端工具...' : ''))"
+          />
+          <div v-if="message.role === 'assistant' && extractCommandBlocks(message.content).length > 0" class="mt-3 space-y-2">
+            <div
+              v-for="command in extractCommandBlocks(message.content)"
+              :key="command"
+              class="rounded border border-border/70 bg-header/30 p-2"
+            >
+              <div class="mb-2 flex items-center justify-between gap-2">
+                <span
+                  class="rounded border px-1.5 py-0.5 text-[11px]"
+                  :class="formatRiskClass(detectCommandRisk(command))"
+                >
+                  {{ formatRiskLabel(detectCommandRisk(command)) }}
+                </span>
+                <div class="flex flex-shrink-0 gap-1">
+                  <button class="rounded border border-border px-2 py-1 text-[11px] hover:bg-hover" @click="copyText(command)">复制</button>
+                  <button class="rounded border border-border px-2 py-1 text-[11px] hover:bg-hover" @click="fillCommandInput(command)">填入</button>
+                </div>
+              </div>
+              <pre class="overflow-auto whitespace-pre-wrap break-words rounded bg-black/20 p-2 font-mono text-xs leading-relaxed">{{ command }}</pre>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div v-if="errorMessage" class="rounded border border-error/40 bg-error/10 p-2 text-error">
-        {{ errorMessage }}
+      <details v-if="inlineToolEvents.length > 0" class="mx-auto max-w-[92%] rounded border border-border/50 bg-header/20 px-2 py-1.5 text-xs">
+        <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+          <span class="min-w-0 truncate text-text-secondary">
+            工具事件：{{ formatToolName(inlineToolEvents[0].name) }} · {{ formatToolStatus(inlineToolEvents[0].status) }}
+          </span>
+          <span class="flex-shrink-0 text-[11px] text-text-secondary">{{ inlineToolEvents.length }} 条</span>
+        </summary>
+        <div class="mt-2 space-y-1 border-t border-border/50 pt-2">
+          <div
+            v-for="run in inlineToolEvents"
+            :key="run.id"
+            class="rounded border border-border/50 bg-background/70 px-2 py-1.5"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="min-w-0 truncate font-medium">{{ formatToolName(run.name) }}：{{ formatToolSummary(run) }}</span>
+              <span
+                class="flex-shrink-0 rounded px-1.5 py-0.5"
+                :class="{
+                  'bg-primary/10 text-primary': run.status === 'running',
+                  'bg-success/10 text-success': run.status === 'done',
+                  'bg-warning/10 text-warning': run.status === 'cancelled',
+                  'bg-error/10 text-error': run.status === 'error',
+                }"
+              >{{ formatToolStatus(run.status) }}</span>
+            </div>
+            <div class="mt-1 flex items-center justify-between text-[11px] text-text-secondary">
+              <span>{{ formatToolDuration(run) }}</span>
+              <button class="rounded px-1.5 py-0.5 hover:bg-hover" @click="openDrawer('tools')">查看详情</button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <div v-if="errorMessage" class="rounded border border-error/40 bg-error/10 p-3 text-error">
+        <div class="mb-1 text-sm font-semibold">AI 执行出错</div>
+        <div class="mb-2 text-xs leading-relaxed">{{ errorMessage }}</div>
+        <div class="mb-2 rounded border border-error/20 bg-background/50 px-2 py-1.5 text-[11px] text-text-secondary">建议先重新读取终端确认状态；如果是上下文过大或历史污染，再清理上下文后重试。</div>
+        <div class="flex flex-wrap gap-2 text-xs">
+          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10" @click="rereadTerminal">重新读取终端</button>
+          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10 disabled:opacity-50" :disabled="!lastUserPrompt" @click="retryLastPrompt">重试上一轮</button>
+          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10 disabled:opacity-50" :disabled="!lastUserPrompt" @click="compactAndRetry">清理上下文后重试</button>
+          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10" @click="switchReadOnly">切换只读模式</button>
+        </div>
       </div>
       </div>
 
@@ -331,13 +563,13 @@ const deleteHistory = async () => {
           <div v-if="latestToolRuns.length === 0" class="rounded border border-dashed border-border p-3 text-sm text-text-secondary">
             当前会话还没有工具调用。
           </div>
-          <div
+          <details
             v-for="run in latestToolRuns"
             v-else
             :key="run.id"
             class="mb-2 rounded border border-border/60 px-2 py-2 last:mb-0"
           >
-            <div class="flex items-center justify-between gap-2 text-xs">
+            <summary class="flex cursor-pointer items-center justify-between gap-2 text-xs">
               <span class="font-medium">{{ formatToolName(run.name) }}</span>
               <span
                 class="rounded px-1.5 py-0.5"
@@ -348,9 +580,23 @@ const deleteHistory = async () => {
                   'bg-error/10 text-error': run.status === 'error',
                 }"
               >{{ formatToolStatus(run.status) }}</span>
-            </div>
+            </summary>
             <div class="mt-1 truncate font-mono text-xs text-text-secondary">{{ formatToolSummary(run) }}</div>
-          </div>
+            <div class="mt-2 space-y-2 text-xs">
+              <div class="flex items-center justify-between gap-2 text-text-secondary">
+                <span>用时：{{ formatToolDuration(run) }}</span>
+                <span v-if="run.error" class="truncate text-error">失败：{{ run.error }}</span>
+              </div>
+              <div>
+                <div class="mb-1 font-medium text-text-secondary">参数</div>
+                <pre class="max-h-32 overflow-auto rounded bg-black/20 p-2 font-mono text-[11px]">{{ stringifyCompact(run.args) }}</pre>
+              </div>
+              <div v-if="run.result !== undefined">
+                <div class="mb-1 font-medium text-text-secondary">结果摘要</div>
+                <pre class="max-h-44 overflow-auto rounded bg-black/20 p-2 font-mono text-[11px]">{{ stringifyCompact(run.result) }}</pre>
+              </div>
+            </div>
+          </details>
         </div>
       </aside>
     </div>
@@ -362,6 +608,31 @@ const deleteHistory = async () => {
         placeholder="例如：查看当前报错，直接输入排查命令并修复"
         @keydown="handleInputKeydown"
       />
+      <div class="mb-2 flex items-center justify-between gap-2 text-xs">
+        <div class="min-w-0 truncate text-text-secondary">终端：{{ sessionLabel }}</div>
+        <label class="flex flex-shrink-0 items-center gap-1 text-text-secondary">
+          <span>模式</span>
+          <select v-model="runMode" class="rounded border border-border bg-input px-2 py-1 text-foreground">
+            <option value="readOnly">只读</option>
+            <option value="confirm">确认</option>
+            <option value="auto">自动</option>
+          </select>
+        </label>
+      </div>
+      <div class="mb-2 grid grid-cols-3 gap-2 text-[11px] text-text-secondary">
+        <div class="truncate rounded border border-border/60 bg-header/20 px-2 py-1">
+          Enter：发送
+        </div>
+        <div class="truncate rounded border border-border/60 bg-header/20 px-2 py-1">
+          Shift+Enter：换行
+        </div>
+        <div
+          class="truncate rounded border px-2 py-1"
+          :class="isRunning ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border/60 bg-header/20'"
+        >
+          AI：{{ isRunning ? '运行中' : '空闲' }}
+        </div>
+      </div>
       <div class="grid grid-cols-2 gap-2">
         <button
           v-if="!isRunning"

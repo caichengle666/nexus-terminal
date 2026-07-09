@@ -357,11 +357,48 @@ export const useAiStore = defineStore('ai', () => {
     }
   };
 
+  const formatDataSize = (value?: number, unit: 'MB' | 'KB' = 'MB') => {
+    if (value === undefined || value === null || Number.isNaN(value)) return 'unknown';
+    if (unit === 'KB') {
+      if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} GB`;
+      if (value >= 1024) return `${(value / 1024).toFixed(0)} MB`;
+      return `${value.toFixed(0)} KB`;
+    }
+    if (value >= 1024) return `${(value / 1024).toFixed(1)} GB`;
+    return `${value.toFixed(0)} MB`;
+  };
+
+  const formatRate = (value?: number) => {
+    if (value === undefined || value === null || Number.isNaN(value)) return 'unknown';
+    if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB/s`;
+    if (value >= 1024) return `${(value / 1024).toFixed(1)} KB/s`;
+    return `${value.toFixed(0)} B/s`;
+  };
+
+  const formatServerProfileForPrompt = (sessionId?: string) => {
+    const status = getTargetSession(sessionId)?.statusMonitorManager?.serverStatus?.value;
+    if (!status) {
+      return 'Known terminal environment: no status monitor snapshot is available yet.';
+    }
+    return [
+      'Known terminal environment from Nexus status monitor:',
+      `- OS: ${status.osName || 'unknown'}`,
+      `- CPU model: ${status.cpuModel || 'unknown'}`,
+      `- CPU usage: ${status.cpuPercent ?? 'unknown'}%`,
+      `- Memory: ${status.memPercent ?? 'unknown'}% (${formatDataSize(status.memUsed)} / ${formatDataSize(status.memTotal)})`,
+      `- Swap: ${status.swapPercent ?? 'unknown'}% (${formatDataSize(status.swapUsed)} / ${formatDataSize(status.swapTotal)})`,
+      `- Disk: ${status.diskPercent ?? 'unknown'}% (${formatDataSize(status.diskUsed, 'KB')} / ${formatDataSize(status.diskTotal, 'KB')})`,
+      `- Network: ${status.netInterface || 'unknown'} down ${formatRate(status.netRxRate)}, up ${formatRate(status.netTxRate)}`,
+      'Use this environment snapshot to choose OS-appropriate commands. If required facts are missing, inspect the terminal before acting.',
+    ].join('\n');
+  };
+
   const buildSystemMessage = (sessionId = activeSessionId.value): AiChatMessage => ({
     role: 'system',
     content: [
       'You are an AI terminal operator inside Nexus Terminal.',
       `This AI run is locked to terminal session ID: ${sessionId || 'none'}.`,
+      formatServerProfileForPrompt(sessionId),
       'You can inspect and operate only the locked SSH terminal for this run.',
       `Run mode: ${runMode.value}. In readOnly mode, inspect only and explain what you would do.`,
       'Use get_terminal_output before deciding what to do when context is unclear.',
@@ -649,5 +686,6 @@ export const useAiStore = defineStore('ai', () => {
     clearChat,
     compactContextNow,
     sendInterruptToTerminal,
+    sessionRuntimes,
   };
 });

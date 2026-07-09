@@ -18,6 +18,7 @@ import type {
 import { appendSummarySection, trimSummaryForStorage } from './ai.memory';
 
 export const estimateJsonBytes = (value: unknown) => new Blob([JSON.stringify(value)]).size;
+const aiSummaryInFlight = new WeakSet<AiSessionMemory>();
 
 export const estimateMessageChars = (items: AiChatMessage[]) => items.reduce((total, message) => {
   const contentLength = typeof message.content === 'string' ? message.content.length : 0;
@@ -211,7 +212,10 @@ export const formatMessagesForSummary = (items: AiChatMessage[]) => {
       lines.push(`[工具结果] ${String(message.content).slice(0, 800)}`);
     }
   }
-  return lines.join('\n');
+  // Prefer tail: keep the most recent 18000 chars when content is too long
+  const joined = lines.join('\n');
+  if (joined.length <= 18000) return joined;
+  return joined.slice(-18000);
 };
 
 export const estimateMemoryRequestBytes = (memory: AiSessionMemory) => estimateJsonBytes({
@@ -283,16 +287,24 @@ export const compactSessionContext = async ({
     };
   }
 
+  const compactedCount = olderMessages.length;
+  const retainedCount = tailMessages.length;
   runtimeState.taskStatus = 'compressing';
   memory.summary = trimSummaryForStorage(appendSummarySection(memory.summary || '', title, localSummary));
   memory.messages = tailMessages;
   memory.summaryUpdatedAt = Date.now();
   memory.lastCompactedAt = Date.now();
-  const aiSummaryPromise = summarizeWithAi(olderMessages, memory, runtimeState);
-  if (awaitAiSummary) {
-    await aiSummaryPromise;
-  } else {
-    void aiSummaryPromise;
+
+  const shouldSkipAiSummary = !awaitAiSummary && aiSummaryInFlight.has(memory);
+  if (!shouldSkipAiSummary) {
+    aiSummaryInFlight.add(memory);
+    const aiSummaryPromise = summarizeWithAi(olderMessages, memory, runtimeState)
+      .finally(() => aiSummaryInFlight.delete(memory));
+    if (awaitAiSummary) {
+      await aiSummaryPromise;
+    } else {
+      void aiSummaryPromise;
+    }
   }
 
   return {
@@ -300,6 +312,8 @@ export const compactSessionContext = async ({
     reason: 'compacted',
     requestBytes,
     thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+    compactedCount,
+    retainedCount,
   };
 };
 

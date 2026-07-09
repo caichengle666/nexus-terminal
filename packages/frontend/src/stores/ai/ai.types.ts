@@ -58,6 +58,8 @@ export type AiCompactResult = {
   reason: 'empty' | 'underBudget' | 'compacted';
   requestBytes: number;
   thresholdBytes: number;
+  compactedCount?: number;
+  retainedCount?: number;
 };
 
 export type SendMessageOptions = {

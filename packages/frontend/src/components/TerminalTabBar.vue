@@ -8,6 +8,8 @@ import WorkspaceConnectionListComponent from './WorkspaceConnectionList.vue';
 import TabBarContextMenu from './TabBarContextMenu.vue';
 import TransferProgressModal from './TransferProgressModal.vue';
 import { useSessionStore } from '../stores/session.store';
+import { useAiStore } from '../stores/ai.store';
+import { useConfirmDialog } from '../composables/useConfirmDialog';
 import { useConnectionsStore, type ConnectionInfo } from '../stores/connections.store';
 import { useLayoutStore, type PaneName } from '../stores/layout.store';
 import { useWorkspaceEventEmitter, useWorkspaceEventSubscriber, useWorkspaceEventOff } from '../composables/workspaceEvents'; // +++ 导入 useWorkspaceEventOff +++
@@ -54,12 +56,28 @@ const activateSession = (sessionId: string) => {
 };
 
 const closeSession = (event: MouseEvent, sessionId: string) => {
-  event.stopPropagation(); // 阻止事件冒泡到标签点击事件
+  event.stopPropagation();
+  confirmCloseSession(sessionId);
+};
+
+const confirmCloseSession = async (sessionId: string) => {
+  if (aiStore.sessionRuntimes[sessionId]?.isRunning) {
+    const confirmed = await showConfirmDialog({
+      title: 'AI 正在操作该终端',
+      message: '该终端有 AI 任务正在运行。关闭终端会同时停止 AI 任务。是否继续？',
+      confirmText: '停止 AI 并关闭',
+      cancelText: '取消',
+    });
+    if (!confirmed) return;
+    aiStore.stopRun(sessionId);
+  }
   emitWorkspaceEvent('session:close', { sessionId });
 };
 
 // --- 本地状态 ---
-const sessionStore = useSessionStore(); // Session store 保持不变
+const sessionStore = useSessionStore();
+const aiStore = useAiStore();
+const { showConfirmDialog } = useConfirmDialog(); // Session store 保持不变
 const showConnectionListPopup = ref(false); // 连接列表弹出状态
 const draggableSessions = ref<SessionTabInfoWithStatus[]>([]); // + Local state for draggable
 const showTransferProgressModal = ref(false); // 控制传输进度模态框的显示状态
@@ -162,7 +180,7 @@ const handleContextMenuAction = (payload: { action: string; targetId: string | n
 
   switch (action) {
     case 'close':
-      emitWorkspaceEvent('session:close', { sessionId: targetId });
+      confirmCloseSession(targetId);
       break;
     case 'close-others':
       emitWorkspaceEvent('session:closeOthers', { targetSessionId: targetId });
@@ -446,6 +464,10 @@ onBeforeUnmount(() => {
                          session.status === 'connecting' ? 'bg-yellow-500 animate-pulse' :
                          session.status === 'disconnected' ? 'bg-red-500' : 'bg-gray-400']"></span>
           <span class="truncate text-sm" style="transform: translateY(-1px);">{{ session.connectionName }}</span>
+          <span v-if="aiStore.sessionRuntimes[session.sessionId]?.isRunning" class="ml-1 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-medium bg-purple-500/20 text-purple-400">
+            <span class="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse"></span>
+            AI
+          </span>
           <button class="ml-2 p-0.5 rounded-full text-text-secondary hover:bg-border hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-150"
                   :class="{'text-foreground hover:bg-header': session.sessionId === activeSessionId}"
                   @click="closeSession($event, session.sessionId)" :title="$t('tabs.closeTabTooltip')">
