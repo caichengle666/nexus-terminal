@@ -49,6 +49,18 @@ export async function handleSftpOperation(
                     let dataToSend = (typeof fileContent === 'string') ? fileContent : '';
                     // Convert only true line endings (CRLF and standalone CR not followed by LF) to LF to ensure Unix-compatible line endings
                     dataToSend = dataToSend.replace(/\r\n/g, '\n').replace(/\r(?!\n)/g, '\n');
+                    const maxInlineWriteBytes = 2 * 1024 * 1024;
+                    if (Buffer.byteLength(dataToSend, 'utf8') > maxInlineWriteBytes) {
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'sftp:writefile:error',
+                                path: payload.path,
+                                payload: '文件内容超过 2MB，请使用分片上传功能。',
+                                requestId,
+                            }));
+                        }
+                        return;
+                    }
                     sftpService.writefile(sessionId, payload.path, dataToSend, requestId, encoding);
                 } else throw new Error("Missing 'path' in payload for writefile");
                 break;

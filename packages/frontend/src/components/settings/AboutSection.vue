@@ -15,8 +15,9 @@
             {{ $t('settings.about.latestVersion') }}
           </span>
           <a v-else-if="isUpdateAvailable && latestVersion"
-             :href="`https://github.com/caichengle666/nexus-terminal/releases/tag/${latestVersion}`"
+             :href="updateDownloadUrl || latestReleaseUrl || `https://github.com/caichengle666/nexus-terminal/releases/tag/${latestVersion}`"
              target="_blank" rel="noopener noreferrer"
+             :title="updateDownloadUrl ? '下载当前系统对应版本' : '查看 Release 页面'"
              class="inline-flex items-center text-xs ml-2 px-2 py-0.5 rounded-full bg-warning text-white hover:bg-warning/80">
             <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-1 h-3 w-3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
             {{ $t('settings.about.updateAvailable', { version: latestVersion }) }}
@@ -46,6 +47,8 @@ const { t } = useI18n(); // $t is available in template, but t can be used in sc
 const {
   appVersion,
   latestVersion,
+  latestReleaseUrl,
+  updateDownloadUrl,
   isCheckingVersion,
   versionCheckError,
   isUpdateAvailable,

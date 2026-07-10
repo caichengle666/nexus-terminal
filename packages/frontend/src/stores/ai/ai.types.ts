@@ -60,6 +60,19 @@ export type AiCompactResult = {
   thresholdBytes: number;
   compactedCount?: number;
   retainedCount?: number;
+  finalRequestBytes?: number;
+  hardLimitBytes?: number;
+  summaryMode?: 'local' | 'ai' | 'pending';
+};
+
+export type AiCompressionStats = {
+  at: number;
+  beforeBytes: number;
+  afterBytes: number;
+  hardLimitBytes: number;
+  compactedCount: number;
+  retainedCount: number;
+  summaryMode: 'local' | 'ai' | 'pending';
 };
 
 export type SendMessageOptions = {
@@ -72,6 +85,7 @@ export type AiSessionMemory = {
   summary: string;
   summaryUpdatedAt?: number;
   lastCompactedAt?: number;
+  compression?: AiCompressionStats;
 };
 
 export type CompactContextOptions = {
@@ -80,6 +94,8 @@ export type CompactContextOptions = {
   awaitAiSummary: boolean;
   sessionId?: string;
   runtime?: AiRuntimeState;
+  compactTriggerBytes?: number;
+  maxRequestBytes?: number;
 };
 
 export type AiRunContext = {

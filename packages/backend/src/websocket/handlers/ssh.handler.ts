@@ -14,7 +14,14 @@ export async function handleSshConnect(
     payload: any
 ): Promise<void> {
     const sessionId = ws.sessionId;
-    const existingState = sessionId ? clientStates.get(sessionId) : undefined;
+    const requestedSessionId = typeof payload?.sessionId === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(payload.sessionId)
+        ? payload.sessionId
+        : undefined;
+    const existingState = sessionId
+        ? clientStates.get(sessionId)
+        : requestedSessionId
+            ? clientStates.get(requestedSessionId)
+            : undefined;
 
     if (sessionId && existingState) {
         console.warn(`WebSocket: 用户 ${ws.username} (会话: ${sessionId}) 已有活动连接，忽略新的连接请求。`);
@@ -41,7 +48,7 @@ export async function handleSshConnect(
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ssh:status', payload: `正在连接到 ${connInfo.host}...` }));
         const sshClient = await SshService.establishSshConnection(connInfo);
 
-        const newSessionId = uuidv4();
+        const newSessionId = requestedSessionId || uuidv4();
         ws.sessionId = newSessionId; // Assign new sessionId to the WebSocket
 
         const dbConnectionIdAsNumber = parseInt(dbConnectionId, 10);
@@ -211,6 +218,9 @@ export async function handleSshConnect(
 }
 
 export function handleSshInput(ws: AuthenticatedWebSocket, payload: any): void {
+    const maxInputPacketBytes = 16 * 1024;
+    const maxInputWindowBytes = 64 * 1024;
+    const inputWindowMs = 1000;
     const sessionId = ws.sessionId;
     const state = sessionId ? clientStates.get(sessionId) : undefined;
 
@@ -220,6 +230,20 @@ export function handleSshInput(ws: AuthenticatedWebSocket, payload: any): void {
     }
     const data = payload?.data;
     if (typeof data === 'string' && state.isShellReady) { // Check isShellReady
+        const dataBytes = Buffer.byteLength(data, 'utf8');
+        const now = Date.now();
+        if (!state.inputWindowStartedAt || now - state.inputWindowStartedAt >= inputWindowMs) {
+            state.inputWindowStartedAt = now;
+            state.inputBytesInWindow = 0;
+        }
+        if (dataBytes > maxInputPacketBytes || (state.inputBytesInWindow || 0) + dataBytes > maxInputWindowBytes) {
+            console.warn(`WebSocket: 会话 ${sessionId} 的 SSH 输入超过速率限制，已丢弃 ${dataBytes} bytes。`);
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ssh:error', payload: '终端输入过快，请稍后重试。' }));
+            }
+            return;
+        }
+        state.inputBytesInWindow = (state.inputBytesInWindow || 0) + dataBytes;
         state.sshShellStream.write(data);
     } else if (!state.isShellReady) {
         console.warn(`WebSocket: 会话 ${sessionId} 收到 SSH 输入，但 Shell 尚未就绪。`);

@@ -3,11 +3,14 @@ import { defineStore } from 'pinia';
 import apiClient from '../utils/apiClient';
 import { useSessionStore } from './session.store';
 import {
-  AI_REQUEST_COMPACT_BYTES,
   CONFIG_KEY,
+  MAX_CONFIGURABLE_AI_REQUEST_BYTES,
+  MAX_COMPACT_TRIGGER_PERCENT,
   MAX_MODEL_RECENT_MESSAGES,
   MAX_MODEL_SUMMARY_LENGTH,
   MAX_TERMINAL_OUTPUT_CHARS,
+  MIN_COMPACT_TRIGGER_PERCENT,
+  MIN_AI_REQUEST_BYTES,
   TAIL_CONTEXT_BUDGET_CHARS,
 } from './ai/ai.constants';
 import {
@@ -21,7 +24,6 @@ import {
   shrinkModelMessagesToBudget,
 } from './ai/ai.compression';
 import {
-  appendSummarySection,
   createEmptyMemory,
   loadStoredMemories,
   persistMemories,
@@ -70,6 +72,8 @@ export const useAiStore = defineStore('ai', () => {
     apiKey: '',
     model: '',
     runMode: 'confirm' as AiRunMode,
+    compactTriggerPercent: 80,
+    maxRequestKb: 256,
   });
 
   const storeActiveSessionId = computed(() => sessionStore.activeSessionId || '');
@@ -135,7 +139,27 @@ export const useAiStore = defineStore('ai', () => {
     apiBaseUrl: config.value.apiBaseUrl,
     model: config.value.model,
     runMode: config.value.runMode,
+    compactTriggerPercent: Math.min(
+      MAX_COMPACT_TRIGGER_PERCENT,
+      Math.max(MIN_COMPACT_TRIGGER_PERCENT, Number(config.value.compactTriggerPercent) || 80),
+    ),
+    maxRequestKb: Math.round(Math.min(
+      MAX_CONFIGURABLE_AI_REQUEST_BYTES / 1024,
+      Math.max(MIN_AI_REQUEST_BYTES / 1024, Number(config.value.maxRequestKb) || 256),
+    )),
   });
+
+  const maxRequestBytes = computed(() => Math.round(Math.min(
+    MAX_CONFIGURABLE_AI_REQUEST_BYTES,
+    Math.max(MIN_AI_REQUEST_BYTES, (Number(config.value.maxRequestKb) || 256) * 1024),
+  )));
+
+  const compactTriggerBytes = computed(() => Math.floor(
+    maxRequestBytes.value * Math.min(
+      MAX_COMPACT_TRIGGER_PERCENT,
+      Math.max(MIN_COMPACT_TRIGGER_PERCENT, Number(config.value.compactTriggerPercent) || 80),
+    ) / 100,
+  ));
 
   const loadConfig = async () => {
     try {
@@ -437,8 +461,17 @@ export const useAiStore = defineStore('ai', () => {
       const response = await apiClient.post('/ai/chat', payload, { timeout: 130000 });
       const summary = response.data?.choices?.[0]?.message?.content;
       if (summary && typeof summary === 'string' && memory.lastCompactedAt === compactedAt) {
-        memory.summary = trimSummaryForStorage(appendSummarySection(memory.summary || '', 'AI 智能摘要', summary));
+        memory.summary = trimSummaryForStorage(summary);
         memory.summaryUpdatedAt = Date.now();
+        if (memory.compression) {
+          memory.compression.summaryMode = 'ai';
+          memory.compression.afterBytes = estimateJsonBytes({
+            messages: memory.messages,
+            summary: memory.summary,
+            tools: aiTools,
+          });
+          memory.compression.at = Date.now();
+        }
         return true;
       }
       return false;
@@ -456,6 +489,8 @@ export const useAiStore = defineStore('ai', () => {
     getRuntime: getRuntimeBySessionId,
     summarizeWithAi,
     activeMemoryKey: activeMemoryKey.value,
+    compactTriggerBytes: compactTriggerBytes.value,
+    maxRequestBytes: maxRequestBytes.value,
   });
 
   const buildModelMessages = (context?: AiRunContext) => {
@@ -495,14 +530,44 @@ export const useAiStore = defineStore('ai', () => {
 
   const buildBudgetedChatPayload = (context?: AiRunContext) => {
     let payload = buildChatPayload(context);
-    if (estimateJsonBytes(payload) <= AI_REQUEST_COMPACT_BYTES) return payload;
+    const initialBytes = estimateJsonBytes(payload);
+    if (initialBytes <= maxRequestBytes.value) {
+      if (context?.memory.compression) context.memory.compression.afterBytes = initialBytes;
+      return payload;
+    }
 
     const messagesForModel = payload.messages as AiChatMessage[];
     const firstRecentMessageIndex = context?.memory.summary ? 2 : 1;
-    while (messagesForModel.length > 4 && estimateJsonBytes(payload) > AI_REQUEST_COMPACT_BYTES) {
+    while (messagesForModel.length > 4 && estimateJsonBytes(payload) > maxRequestBytes.value) {
       removeOldestModelContextMessage(messagesForModel, firstRecentMessageIndex);
     }
     payload.messages = sanitizeToolMessages(messagesForModel);
+
+    if (estimateJsonBytes(payload) > maxRequestBytes.value) {
+      for (const message of payload.messages as AiChatMessage[]) {
+        if (typeof message.content === 'string' && message.content.length > 1200) {
+          message.content = `${message.content.slice(-1200)}\n...<message truncated>`;
+        }
+        if (message.tool_calls) {
+          message.tool_calls = message.tool_calls.map(call => ({
+            ...call,
+            function: {
+              ...call.function,
+              arguments: call.function.arguments.length > 500
+                ? `${call.function.arguments.slice(0, 500)}...<arguments truncated>`
+                : call.function.arguments,
+            },
+          }));
+        }
+      }
+    }
+
+    const finalBytes = estimateJsonBytes(payload);
+    if (finalBytes > maxRequestBytes.value) {
+      throw new Error(`AI 请求仍超过 ${Math.ceil(maxRequestBytes.value / 1024)}KB 上限（当前约 ${Math.ceil(finalBytes / 1024)}KB），已阻止发送。请先压缩上下文或删除历史会话。`);
+    }
+
+    if (context?.memory.compression) context.memory.compression.afterBytes = finalBytes;
 
     return payload;
   };
@@ -636,12 +701,24 @@ export const useAiStore = defineStore('ai', () => {
     runtime.abortController?.abort();
   };
 
+  watch(() => sessionStore.sessionTabsWithStatus, (tabs) => {
+    tabs.forEach(tab => {
+      if (tab.status !== 'disconnected' && tab.status !== 'error') return;
+      const runtime = sessionRuntimes.value[tab.sessionId];
+      if (!runtime?.isRunning) return;
+      stopRun(tab.sessionId);
+      runtime.errorMessage = '终端连接已断开，AI 任务已停止。';
+      runtime.taskStatus = 'error';
+    });
+  }, { deep: true });
+
   const clearChat = () => {
     currentMemory.value.messages = [];
     currentMemory.value.toolRuns = [];
     currentMemory.value.summary = '';
     currentMemory.value.summaryUpdatedAt = undefined;
     currentMemory.value.lastCompactedAt = undefined;
+    currentMemory.value.compression = undefined;
     errorMessage.value = '';
   };
 
@@ -673,6 +750,12 @@ export const useAiStore = defineStore('ai', () => {
     toolRuns,
     latestToolRuns,
     memorySummary,
+    compression: computed(() => currentMemory.value.compression),
+    compactTriggerPercent: computed(() => Math.min(
+      MAX_COMPACT_TRIGGER_PERCENT,
+      Math.max(MIN_COMPACT_TRIGGER_PERCENT, Number(config.value.compactTriggerPercent) || 80),
+    )),
+    maxRequestKb: computed(() => Math.round(maxRequestBytes.value / 1024)),
     runMode,
     config,
     activeSession,

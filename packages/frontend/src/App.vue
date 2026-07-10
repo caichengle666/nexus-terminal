@@ -48,6 +48,8 @@ const getElectronApi = () => (window as any).electronAPI;
 const lastFocusedIdBySwitcher = ref<string | null>(null);
 const isAltPressed = ref(false); // 跟踪 Alt 键是否按下
 const altShortcutKey = ref<string | null>(null);
+const isAlwaysOnTop = ref(false);
+let removeAlwaysOnTopListener: (() => void) | undefined;
 // --- 移除 shortcutTriggeredInKeyDown 标志 ---
 
 const updateUnderline = async () => {
@@ -87,6 +89,10 @@ onMounted(() => {
   // +++ 加载 Header 可见性状态 +++
   layoutStore.loadHeaderVisibility();
 
+  removeAlwaysOnTopListener = getElectronApi()?.receiveMessage?.('always-on-top-changed', (value: boolean) => {
+    isAlwaysOnTop.value = Boolean(value);
+  });
+
 });
 
 // +++ 监听用户认证状态，登录后初始化收藏路径 +++
@@ -100,6 +106,7 @@ watch(isAuthenticated, (loggedIn) => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleAltKeyDown); // +++ 移除 keydown 监听 +++
   window.removeEventListener('keyup', handleGlobalKeyUp);   // +++ 移除 keyup 监听 +++
+  removeAlwaysOnTopListener?.();
 });
 
 
@@ -121,6 +128,10 @@ const minimizeWindow = () => {
 
 const toggleMaximizeWindow = () => {
   getElectronApi()?.toggleMaximizeWindow?.();
+};
+
+const toggleAlwaysOnTop = () => {
+  getElectronApi()?.toggleAlwaysOnTop?.();
 };
 
 const closeWindow = () => {
@@ -298,6 +309,15 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
       <button class="window-control-button" type="button" title="最大化/还原" @click="toggleMaximizeWindow">
         <span class="window-control-icon maximize-icon"></span>
       </button>
+      <button
+        class="window-control-button"
+        type="button"
+        :class="{ 'always-on-top-active': isAlwaysOnTop }"
+        :title="isAlwaysOnTop ? '取消置顶' : '窗口置顶'"
+        @click="toggleAlwaysOnTop"
+      >
+        <i class="fas fa-thumbtack text-xs" aria-hidden="true"></i>
+      </button>
       <button class="window-control-button close-window-button" type="button" title="关闭" @click="closeWindow">
         <span class="window-control-icon close-icon"></span>
       </button>
@@ -341,6 +361,15 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
         </button>
         <button class="window-control-button" type="button" title="最大化/还原" @click="toggleMaximizeWindow">
           <span class="window-control-icon maximize-icon"></span>
+        </button>
+        <button
+          class="window-control-button"
+          type="button"
+          :class="{ 'always-on-top-active': isAlwaysOnTop }"
+          :title="isAlwaysOnTop ? '取消置顶' : '窗口置顶'"
+          @click="toggleAlwaysOnTop"
+        >
+          <i class="fas fa-thumbtack text-xs" aria-hidden="true"></i>
         </button>
         <button class="window-control-button close-window-button" type="button" title="关闭" @click="closeWindow">
           <span class="window-control-icon close-icon"></span>
@@ -472,6 +501,11 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
 
 .window-control-button:hover {
   background: rgba(255, 255, 255, 0.12);
+}
+
+.window-control-button.always-on-top-active {
+  background: var(--link-active-bg-color, rgba(59, 130, 246, 0.2));
+  color: var(--link-active-color, #60a5fa);
 }
 
 .close-window-button:hover {

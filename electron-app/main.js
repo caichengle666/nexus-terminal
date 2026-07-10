@@ -16,8 +16,25 @@ let frontendUrlForDownloads; // 用于IPC处理器访问前端URL
 let actualBackendUrlForFileDownloads; // 新增：用于文件下载的后端URL
 let tray = null;
 let isQuitting = false;
+let isAlwaysOnTop = false;
 const PROD_FRONTEND_PORT = 22457;
 const PROD_BACKEND_PORT = 22458;
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    showMainWindow();
+    void dialog.showMessageBox({
+      type: 'info',
+      title: 'Nexus Terminal',
+      message: '程序已启动',
+      detail: 'Nexus Terminal 已经在运行，已为你显示主窗口。',
+      buttons: ['确定'],
+    });
+  });
+}
 
 // Some Windows graphics drivers render Electron as a blank white window with GPU compositing enabled.
 app.disableHardwareAcceleration();
@@ -135,6 +152,7 @@ async function createWindow() {
       contextIsolation: true, // 启用上下文隔离
     },
   });
+  mainWindow.setAlwaysOnTop(isAlwaysOnTop);
   createTray();
 
   let frontendUrl;
@@ -437,8 +455,8 @@ async function createWindow() {
       }
       console.log(`[Prod Mode] Attempting to load URL: ${frontendUrl}`);
       mainWindow.loadURL(frontendUrl);
-      // 生产模式下，所有服务就绪并加载URL后显示窗口
-      mainWindow.show();
+      // 生产启动后直接进入系统托盘，不占用任务栏；点击托盘图标再显示主窗口。
+      hideMainWindowToTray();
       // 如果需要，可以在页面加载完成后再显示
       // mainWindow.once('ready-to-show', () => {
       //   mainWindow.show();
@@ -589,6 +607,7 @@ async function createWindow() {
 // 创建浏览器窗口时，调用这个函数。
 // 部分 API 在 ready 事件触发后才能使用。
 app.on('ready', () => {
+  if (!hasSingleInstanceLock) return;
   createWindow().catch(err => {
     console.error('Error during createWindow:', err);
     // 发生严重错误，可能需要退出应用
@@ -653,6 +672,8 @@ ipcMain.on('minimize-window', () => {
   }
 });
 
+ipcMain.handle('get-app-version', () => app.getVersion());
+
 ipcMain.on('close-window', () => {
   if (mainWindow) {
     mainWindow.close();
@@ -667,6 +688,13 @@ ipcMain.on('toggle-maximize-window', () => {
       mainWindow.maximize();
     }
   }
+});
+
+ipcMain.on('toggle-always-on-top', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  isAlwaysOnTop = !mainWindow.isAlwaysOnTop();
+  mainWindow.setAlwaysOnTop(isAlwaysOnTop);
+  mainWindow.webContents.send('always-on-top-changed', isAlwaysOnTop);
 });
 
 // IPC handler for opening RDP connection

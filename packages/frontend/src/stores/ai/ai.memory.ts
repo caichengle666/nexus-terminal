@@ -29,7 +29,9 @@ const cleanSummaryText = (summary: string) => {
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed === '此前摘要:') continue;
-    const title = SUMMARY_SECTION_TITLES.find(item => trimmed === `${item}:`);
+    const knownTitle = SUMMARY_SECTION_TITLES.find(item => trimmed === `${item}:`)
+      || SUMMARY_SECTION_TITLES.find(item => trimmed === `## ${item}` || trimmed === `## ${item}:`);
+    const title = knownTitle || (trimmed.startsWith('## ') ? trimmed.replace(/:$/, '') : '');
     if (title) {
       flush();
       currentTitle = title;
@@ -47,6 +49,29 @@ export const appendSummarySection = (current: string, title: string, body: strin
   const section = `${title}:\n${sectionBody}`;
   const cleanedCurrent = cleanSummaryText(current);
   return cleanedCurrent ? `${cleanedCurrent}\n\n${section}` : section;
+};
+
+const splitSummarySections = (summary: string) => cleanSummaryText(summary)
+  .split(/\n{2,}/)
+  .map(section => section.trim())
+  .filter(Boolean);
+
+const sectionKey = (section: string) => section
+  .split('\n', 1)[0]
+  .replace(/^##\s*/, '')
+  .replace(/:$/, '')
+  .trim()
+  .toLowerCase();
+
+// Keep one canonical section per topic. New information replaces the old
+// section while sections not mentioned by the local fallback are preserved.
+export const mergeSummarySections = (current: string, incoming: string) => {
+  const sections = new Map<string, string>();
+  for (const section of [...splitSummarySections(current), ...splitSummarySections(incoming)]) {
+    const key = sectionKey(section);
+    if (key) sections.set(key, section);
+  }
+  return [...sections.values()].join('\n\n').trim();
 };
 
 export const trimSummaryForStorage = (summary: string) => {
@@ -89,6 +114,7 @@ export const normalizeMemoryForStorage = (memory: AiSessionMemory): AiSessionMem
   summary: typeof memory.summary === 'string' ? trimSummaryForStorage(memory.summary) : '',
   summaryUpdatedAt: memory.summaryUpdatedAt,
   lastCompactedAt: memory.lastCompactedAt,
+  compression: memory.compression,
 });
 
 export const loadStoredMemories = () => {

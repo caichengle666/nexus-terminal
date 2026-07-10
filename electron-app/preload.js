@@ -2,10 +2,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // 将选择的 API 暴露给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   // 从渲染进程向主进程发送消息
   sendMessage: (channel, data) => {
     // 添加了 'download-file-request' 用于下载
-    const validChannels = ['toMain', 'minimize-window', 'close-window', 'toggle-maximize-window', 'open-rdp-connection', 'download-file-request'];
+    const validChannels = ['toMain', 'minimize-window', 'close-window', 'toggle-maximize-window', 'toggle-always-on-top', 'open-rdp-connection', 'download-file-request'];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, data);
     } else {
@@ -15,7 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 从主进程接收消息
   receiveMessage: (channel, func) => {
     // 添加了 'download-progress' 和 'download-reply' 用于下载状态
-    const validChannels = ['fromMain', 'download-progress', 'download-reply'];
+    const validChannels = ['fromMain', 'download-progress', 'download-reply', 'always-on-top-changed'];
     if (validChannels.includes(channel)) {
       // 确保 func 是一个函数
       if (typeof func === 'function') {
@@ -49,6 +50,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   toggleMaximizeWindow: () => {
     ipcRenderer.send('toggle-maximize-window');
+  },
+  toggleAlwaysOnTop: () => {
+    ipcRenderer.send('toggle-always-on-top');
   },
   // Function to trigger RDP connection
   openRdp: (connectionDetails) => { // e.g., { host, username, password }

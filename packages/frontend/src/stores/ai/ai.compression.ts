@@ -2,6 +2,7 @@ import {
   AI_REQUEST_COMPACT_BYTES,
   COMPACT_CHAR_TRIGGER,
   COMPACT_MESSAGE_TRIGGER,
+  MAX_AI_REQUEST_BYTES,
   MAX_MODEL_CONTEXT_CHARS,
   MIN_TAIL_MESSAGES,
   TAIL_CONTEXT_BUDGET_CHARS,
@@ -15,10 +16,10 @@ import type {
   AiSessionMemory,
   CompactContextOptions,
 } from './ai.types';
-import { appendSummarySection, trimSummaryForStorage } from './ai.memory';
+import { mergeSummarySections, trimSummaryForStorage } from './ai.memory';
 
 export const estimateJsonBytes = (value: unknown) => new Blob([JSON.stringify(value)]).size;
-const aiSummaryInFlight = new WeakSet<AiSessionMemory>();
+const aiSummaryInFlight = new WeakMap<AiSessionMemory, Promise<boolean>>();
 
 export const estimateMessageChars = (items: AiChatMessage[]) => items.reduce((total, message) => {
   const contentLength = typeof message.content === 'string' ? message.content.length : 0;
@@ -160,13 +161,20 @@ export const removeOldestModelContextMessage = (items: AiChatMessage[], startInd
 
 export const summarizeMessages = (items: AiChatMessage[]) => {
   const goals: string[] = [];
+  const constraints: string[] = [];
   const assistantNotes: string[] = [];
   const toolCalls: string[] = [];
   const toolResults: string[] = [];
   const commands: string[] = [];
+  const blocked: string[] = [];
+  const files: string[] = [];
   for (const message of items) {
     if (message.role === 'user' && message.content) {
-      goals.push(`- ${String(message.content).slice(0, 500)}`);
+      const content = String(message.content).replace(/\s+/g, ' ').trim();
+      goals.push(`- ${content.slice(0, 500)}`);
+      if (/必须|不要|不能|需要|要求|只要|最好|支持|保留/i.test(content)) {
+        constraints.push(`- ${content.slice(0, 500)}`);
+      }
     } else if (message.role === 'assistant' && message.content) {
       assistantNotes.push(`- ${String(message.content).slice(0, 700)}`);
     } else if (message.role === 'assistant' && message.tool_calls?.length) {
@@ -179,7 +187,11 @@ export const summarizeMessages = (items: AiChatMessage[]) => {
         }
       }
     } else if (message.role === 'tool' && message.content) {
-      toolResults.push(`- ${summarizeToolResultContent(String(message.content)).slice(0, 900)}`);
+      const result = summarizeToolResultContent(String(message.content)).slice(0, 900);
+      toolResults.push(`- ${result}`);
+      if (/error|failed|失败|错误|exception|拒绝|不存在/i.test(result)) blocked.push(`- ${result.slice(0, 700)}`);
+      const pathMatches = result.match(/(?:[A-Za-z]:\\|\/)[^\s,;，；)]+/g) || [];
+      files.push(...pathMatches.slice(0, 4).map(path => `- ${path}`));
     }
   }
 
@@ -187,12 +199,20 @@ export const summarizeMessages = (items: AiChatMessage[]) => {
     '## Historical Task Snapshot',
     '## Goal',
     goals.slice(-12).join('\n') || '- 未记录明确用户目标',
+    '## Constraints & Preferences',
+    constraints.slice(-8).join('\n') || '- 未记录特殊约束',
     '## Completed Actions',
     commands.slice(-20).join('\n') || toolCalls.slice(-20).join('\n') || '- 暂无已执行命令',
     '## Active State',
     assistantNotes.slice(-10).join('\n') || '- 暂无明确结论',
+    '## Blocked',
+    blocked.slice(-8).join('\n') || '- 当前没有明确阻塞',
+    '## Key Decisions',
+    assistantNotes.slice(-6).join('\n') || '- 暂无关键决定',
     '## Key Tool Results',
     toolResults.slice(-16).join('\n') || '- 暂无工具结果',
+    '## Relevant Files',
+    [...new Set(files)].slice(-12).join('\n') || '- 未发现相关文件路径',
     '## Remaining Work',
     '- 根据最近未压缩上下文继续处理用户最新请求',
   ].join('\n');
@@ -241,9 +261,30 @@ export const compactSessionContext = async ({
   getRuntime,
   summarizeWithAi,
   activeMemoryKey,
+  compactTriggerBytes,
+  maxRequestBytes,
 }: CompactSessionContextOptions): Promise<AiCompactResult> => {
   const memory = getMemory(sessionId);
   const runtimeState = runtime || getRuntime(sessionId || activeMemoryKey);
+  const effectiveCompactTriggerBytes = Math.min(
+    maxRequestBytes ?? MAX_AI_REQUEST_BYTES,
+    Math.max(1, compactTriggerBytes ?? AI_REQUEST_COMPACT_BYTES),
+  );
+  const effectiveMaxRequestBytes = maxRequestBytes ?? MAX_AI_REQUEST_BYTES;
+  const existingSummary = aiSummaryInFlight.get(memory);
+  if (existingSummary) {
+    await existingSummary;
+    const currentBytes = estimateMemoryRequestBytes(memory);
+    return {
+      compacted: false,
+      reason: 'underBudget',
+      requestBytes: currentBytes,
+      thresholdBytes: effectiveCompactTriggerBytes,
+      finalRequestBytes: currentBytes,
+      hardLimitBytes: effectiveMaxRequestBytes,
+      summaryMode: 'ai',
+    };
+  }
   memory.summary = trimSummaryForStorage(memory.summary || '');
   const pruned = pruneToolMessages(memory.messages);
   if (pruned.changed) {
@@ -251,7 +292,7 @@ export const compactSessionContext = async ({
   }
   const requestBytes = estimateMemoryRequestBytes(memory);
   const totalChars = estimateMessageChars(memory.messages);
-  const isOverBudget = requestBytes > AI_REQUEST_COMPACT_BYTES;
+  const isOverBudget = requestBytes > effectiveCompactTriggerBytes;
   const isOverAutoTrigger = memory.messages.length > COMPACT_MESSAGE_TRIGGER || totalChars > COMPACT_CHAR_TRIGGER;
 
   if (!force && !isOverBudget && !isOverAutoTrigger) {
@@ -259,7 +300,9 @@ export const compactSessionContext = async ({
       compacted: pruned.changed,
       reason: 'underBudget',
       requestBytes,
-      thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+      thresholdBytes: effectiveCompactTriggerBytes,
+      finalRequestBytes: requestBytes,
+      hardLimitBytes: effectiveMaxRequestBytes,
     };
   }
 
@@ -273,7 +316,9 @@ export const compactSessionContext = async ({
       compacted: pruned.changed,
       reason: 'empty',
       requestBytes,
-      thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+      thresholdBytes: effectiveCompactTriggerBytes,
+      finalRequestBytes: requestBytes,
+      hardLimitBytes: effectiveMaxRequestBytes,
     };
   }
 
@@ -283,37 +328,55 @@ export const compactSessionContext = async ({
       compacted: pruned.changed,
       reason: 'empty',
       requestBytes,
-      thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+      thresholdBytes: effectiveCompactTriggerBytes,
+      finalRequestBytes: requestBytes,
+      hardLimitBytes: effectiveMaxRequestBytes,
     };
   }
 
   const compactedCount = olderMessages.length;
   const retainedCount = tailMessages.length;
   runtimeState.taskStatus = 'compressing';
-  memory.summary = trimSummaryForStorage(appendSummarySection(memory.summary || '', title, localSummary));
+  memory.summary = trimSummaryForStorage(mergeSummarySections(memory.summary || '', `${title}:\n${localSummary}`));
   memory.messages = tailMessages;
   memory.summaryUpdatedAt = Date.now();
   memory.lastCompactedAt = Date.now();
 
-  const shouldSkipAiSummary = !awaitAiSummary && aiSummaryInFlight.has(memory);
-  if (!shouldSkipAiSummary) {
-    aiSummaryInFlight.add(memory);
-    const aiSummaryPromise = summarizeWithAi(olderMessages, memory, runtimeState)
-      .finally(() => aiSummaryInFlight.delete(memory));
-    if (awaitAiSummary) {
-      await aiSummaryPromise;
-    } else {
-      void aiSummaryPromise;
-    }
+  const beforeBytes = requestBytes;
+  const afterBytes = estimateMemoryRequestBytes(memory);
+  memory.compression = {
+    at: Date.now(),
+    beforeBytes,
+    afterBytes,
+    hardLimitBytes: effectiveMaxRequestBytes,
+    compactedCount,
+    retainedCount,
+    summaryMode: awaitAiSummary ? 'pending' : 'pending',
+  };
+
+  const aiSummaryPromise = summarizeWithAi(olderMessages, memory, runtimeState)
+    .then(usedAiSummary => {
+      if (!usedAiSummary && memory.compression) memory.compression.summaryMode = 'local';
+      return usedAiSummary;
+    })
+    .finally(() => aiSummaryInFlight.delete(memory));
+  aiSummaryInFlight.set(memory, aiSummaryPromise);
+  if (awaitAiSummary) {
+    await aiSummaryPromise;
+  } else {
+    void aiSummaryPromise;
   }
 
   return {
     compacted: true,
     reason: 'compacted',
     requestBytes,
-    thresholdBytes: AI_REQUEST_COMPACT_BYTES,
+    thresholdBytes: effectiveCompactTriggerBytes,
     compactedCount,
     retainedCount,
+    finalRequestBytes: afterBytes,
+    hardLimitBytes: effectiveMaxRequestBytes,
+    summaryMode: awaitAiSummary ? (memory.compression?.summaryMode || 'local') : 'pending',
   };
 };
 

@@ -60,6 +60,8 @@ import favoritePathsRouter from './favorite-paths/favorite-paths.routes';
 import webdavBackupRoutes from './webdav-backup/webdav-backup.routes';
 import aiRoutes from './ai/ai.routes';
 import { initializeWebSocket } from './websocket';
+import { clientStates } from './websocket/state';
+import { cleanupClientConnection } from './websocket/utils';
 import { ipWhitelistMiddleware } from './auth/ipWhitelist.middleware';
 
 
@@ -77,9 +79,14 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
   });
   
   // 捕获未捕获的同步异常
+  let shuttingDownAfterFatalError = false;
   process.on('uncaughtException', (error: Error) => {
+    if (shuttingDownAfterFatalError) return;
+    shuttingDownAfterFatalError = true;
     console.error('---未捕获的异常---');
     console.error('错误:', error);
+    Promise.allSettled(Array.from(clientStates.keys()).map(sessionId => cleanupClientConnection(sessionId)))
+        .finally(() => process.exit(1));
   });
 
   
@@ -89,6 +96,10 @@ const initializeEnvironment = async () => {
     const dataEnvPath = dataEnvPathGlobal; 
     let keysGenerated = false;
     let keysToAppend = '';
+
+    if (process.env.NODE_ENV === 'production' && (!process.env.ENCRYPTION_KEY || !process.env.SESSION_SECRET)) {
+        throw new Error('生产环境必须通过环境变量提供 ENCRYPTION_KEY 和 SESSION_SECRET，禁止自动生成。');
+    }
 
     // 检查 ENCRYPTION_KEY (process.env should be populated by early loading)
     if (!process.env.ENCRYPTION_KEY) {

@@ -12,9 +12,31 @@ const appearanceStore = useAppearanceStore();
 const notificationsStore = useUiNotificationsStore();
 const { appearanceSettings } = storeToRefs(appearanceStore);
 
+const CUSTOM_UI_THEMES_KEY = 'nexus_custom_ui_themes';
+type CustomUiTheme = UiThemePreset;
+
 const editableUiTheme = ref<Record<string, string>>({});
 const editableUiThemeString = ref('');
 const themeParseError = ref<string | null>(null);
+const customUiThemes = ref<CustomUiTheme[]>([]);
+const isCreatingCustomTheme = ref(false);
+const customThemeName = ref('');
+
+const loadCustomUiThemes = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CUSTOM_UI_THEMES_KEY) || '[]');
+    customUiThemes.value = Array.isArray(parsed) ? parsed.filter(theme => (
+      theme && typeof theme.key === 'string' && typeof theme.name === 'string'
+      && theme.theme && typeof theme.theme === 'object'
+    )) : [];
+  } catch {
+    customUiThemes.value = [];
+  }
+};
+
+const persistCustomUiThemes = () => {
+  localStorage.setItem(CUSTOM_UI_THEMES_KEY, JSON.stringify(customUiThemes.value));
+};
 
 const initializeEditableState = () => {
   const userThemeJson = appearanceSettings.value.customUiTheme;
@@ -36,7 +58,10 @@ const initializeEditableState = () => {
   }
 };
 
-onMounted(initializeEditableState);
+onMounted(() => {
+  initializeEditableState();
+  loadCustomUiThemes();
+});
 
 watch(() => appearanceSettings.value.customUiTheme, () => {
     console.log('[StyleCustomizerUiTab Watch] customUiTheme changed, re-initializing.');
@@ -73,6 +98,44 @@ const applyThemePreset = async (preset: UiThemePreset) => {
     console.error("应用主题预设失败:", error);
     notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.themePresetApplyFailed', { message: error.message || '未知错误' }) });
   }
+};
+
+const openCreateCustomTheme = () => {
+  customThemeName.value = t('styleCustomizer.newThemeDefaultName', '新主题');
+  isCreatingCustomTheme.value = true;
+};
+
+const cancelCreateCustomTheme = () => {
+  isCreatingCustomTheme.value = false;
+  customThemeName.value = '';
+};
+
+const createCustomUiTheme = async () => {
+  const name = customThemeName.value.trim();
+  if (!name) {
+    notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.errorThemeNameRequired') });
+    return;
+  }
+
+  const theme: CustomUiTheme = {
+    key: `custom-${Date.now()}`,
+    name,
+    description: t('styleCustomizer.customThemeDescription', '由用户创建的自定义界面主题'),
+    mode: /#(?:0{2,}|[0-3][0-9a-f]{5})/i.test(editableUiTheme.value['--app-bg-color'] || '') ? 'dark' : 'light',
+    theme: JSON.parse(JSON.stringify(editableUiTheme.value)),
+  };
+  customUiThemes.value.push(theme);
+  persistCustomUiThemes();
+  cancelCreateCustomTheme();
+  await applyThemePreset(theme);
+};
+
+const deleteCustomUiTheme = async (theme: CustomUiTheme) => {
+  const confirmed = window.confirm(`确定删除自定义主题“${theme.name}”吗？`);
+  if (!confirmed) return;
+  customUiThemes.value = customUiThemes.value.filter(item => item.key !== theme.key);
+  persistCustomUiThemes();
+  notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.themeDeletedSuccess') });
 };
 
 const isPresetActive = (preset: UiThemePreset) => {
@@ -221,7 +284,65 @@ defineExpose({
                 ></span>
               </div>
             </button>
+            <button
+              type="button"
+              class="flex min-h-[128px] items-center justify-center rounded-md border border-dashed border-primary/60 p-3 text-sm font-semibold text-primary hover:bg-primary/10"
+              @click="openCreateCustomTheme"
+            >
+              + {{ t('styleCustomizer.addCustomTheme', '新建自定义主题') }}
+            </button>
+            <div
+              v-for="theme in customUiThemes"
+              :key="theme.key"
+              @click="applyThemePreset(theme)"
+              @keydown.enter="applyThemePreset(theme)"
+              role="button"
+              tabindex="0"
+              class="text-left border rounded-md p-3 bg-header hover:bg-border transition duration-200 ease-in-out"
+              :class="isPresetActive(theme) ? 'border-primary ring-1 ring-primary' : 'border-border'"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <span class="min-w-0 truncate text-sm font-semibold text-foreground">{{ theme.name }}</span>
+                <button
+                  type="button"
+                  class="flex-shrink-0 rounded px-1.5 py-0.5 text-[11px] text-error hover:bg-error/10"
+                  @click.stop="deleteCustomUiTheme(theme)"
+                >
+                  {{ t('styleCustomizer.deleteCustomTheme', '删除') }}
+                </button>
+              </div>
+              <p class="mt-1 mb-3 text-xs text-text-secondary leading-relaxed">{{ theme.description }}</p>
+              <div class="flex items-center gap-1.5">
+                <span
+                  v-for="color in getPresetSwatches(theme)"
+                  :key="`${theme.key}-${color}`"
+                  class="h-5 flex-1 rounded border border-border"
+                  :style="{ backgroundColor: color }"
+                ></span>
+              </div>
+            </div>
         </div>
+    </div>
+    <div v-if="isCreatingCustomTheme" class="mb-4 rounded-md border border-primary/40 bg-primary/5 p-3">
+      <label class="block text-sm font-medium text-foreground" for="custom-ui-theme-name">
+        {{ t('styleCustomizer.themeName') }}
+      </label>
+      <div class="mt-2 flex flex-wrap gap-2">
+        <input
+          id="custom-ui-theme-name"
+          v-model="customThemeName"
+          class="min-w-[220px] flex-1 rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+          :placeholder="t('styleCustomizer.newThemeDefaultName')"
+          @keyup.enter="createCustomUiTheme"
+        />
+        <button type="button" class="rounded bg-primary px-3 py-1.5 text-sm text-white" @click="createCustomUiTheme">
+          {{ t('styleCustomizer.saveUiTheme') }}
+        </button>
+        <button type="button" class="rounded border border-border px-3 py-1.5 text-sm hover:bg-hover" @click="cancelCreateCustomTheme">
+          {{ t('common.cancel', '取消') }}
+        </button>
+      </div>
+      <p class="mt-2 text-xs text-text-secondary">{{ t('styleCustomizer.customThemeHint', '将保存当前编辑器中的颜色配置，并作为独立主题保留。') }}</p>
     </div>
     <p class="text-text-secondary text-sm leading-relaxed mb-3">{{ t('styleCustomizer.uiDescription') }}</p>
     <div v-for="(value, key) in editableUiTheme" :key="key" class="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start md:items-center gap-x-3 gap-y-1 mb-3">

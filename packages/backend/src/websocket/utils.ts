@@ -71,7 +71,9 @@ export const cleanupClientConnection = async (sessionId: string | undefined) => 
     if (!sessionId) return;
 
     const state = clientStates.get(sessionId);
+    if (state?.isCleaningUp) return;
     if (state) {
+        state.isCleaningUp = true;
         console.log(`WebSocket: 清理会话 ${sessionId} (用户: ${state.ws.username}, DB 连接 ID: ${state.dbConnectionId})...`);
 
         // 1. 停止状态轮询 (如果存在)
