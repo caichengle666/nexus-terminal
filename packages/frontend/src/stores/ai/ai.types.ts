@@ -39,6 +39,16 @@ export type AiToolRun = {
   error?: string;
 };
 
+// UI-only progress events. They are deliberately kept out of AiSessionMemory
+// so they never become part of the model context or the compressed summary.
+export type AiActivityEvent = {
+  id: string;
+  title: string;
+  detail?: string;
+  state: 'active' | 'done' | 'error';
+  createdAt: number;
+};
+
 export type RiskConfirmation = {
   command: string;
   reason: string;
@@ -110,4 +120,5 @@ export type AiRuntimeState = {
   taskStatus: AiTaskStatus;
   errorMessage: string;
   abortController: AbortController | null;
+  activityEvents: AiActivityEvent[];
 };

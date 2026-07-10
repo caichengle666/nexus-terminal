@@ -39,6 +39,7 @@ import {
 } from './ai/ai.tools';
 import type {
   AiChatMessage,
+  AiActivityEvent,
   AiCompactResult,
   AiRunContext,
   AiRunMode,
@@ -89,6 +90,7 @@ export const useAiStore = defineStore('ai', () => {
         taskStatus: 'idle',
         errorMessage: '',
         abortController: null,
+        activityEvents: [],
       };
     }
     return sessionRuntimes.value[key];
@@ -111,6 +113,7 @@ export const useAiStore = defineStore('ai', () => {
   const toolRuns = computed(() => currentMemory.value.toolRuns);
   const visibleMessages = computed(() => messages.value.filter(message => message.role !== 'tool'));
   const latestToolRuns = computed(() => toolRuns.value.slice(-20).reverse());
+  const activeActivities = computed(() => currentRuntime.value.activityEvents);
   const memorySummary = computed(() => currentMemory.value.summary);
   const isRunning = computed(() => currentRuntime.value.isRunning);
   const stopRequested = computed(() => currentRuntime.value.stopRequested);
@@ -134,6 +137,17 @@ export const useAiStore = defineStore('ai', () => {
   });
   const canSend = computed(() => !!userInput.value.trim() && !isRunning.value);
   const hasActiveTerminal = computed(() => !!activeSession.value?.terminalManager?.terminalInstance?.value);
+
+  const addActivity = (runtime: AiRuntimeState, title: string, detail?: string, state: AiActivityEvent['state'] = 'active') => {
+    runtime.activityEvents.push({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title,
+      detail,
+      state,
+      createdAt: Date.now(),
+    });
+    if (runtime.activityEvents.length > 6) runtime.activityEvents.shift();
+  };
 
   const persistableConfig = () => ({
     apiBaseUrl: config.value.apiBaseUrl,
@@ -278,6 +292,7 @@ export const useAiStore = defineStore('ai', () => {
     const needsConfirmation = runMode.value === 'confirm' || !!risk;
     if (needsConfirmation && options?.confirmCommand) {
       context.runtime.taskStatus = 'awaitingConfirmation';
+      addActivity(context.runtime, '等待你确认终端命令');
       const confirmed = await options.confirmCommand({
         command,
         reason: String(args.reason || 'AI 需要执行这一步来继续处理当前任务。'),
@@ -314,6 +329,7 @@ export const useAiStore = defineStore('ai', () => {
     const waitMs = Math.max(0, Math.min(Number(args.waitMs) || 900, 10000));
     if (waitMs > 0) {
       context.runtime.taskStatus = 'waitingOutput';
+      addActivity(context.runtime, '命令已发送，正在等待终端输出');
       await sleep(waitMs);
     }
 
@@ -360,6 +376,11 @@ export const useAiStore = defineStore('ai', () => {
       }
 
       context.runtime.taskStatus = 'runningTool';
+      addActivity(
+        context.runtime,
+        toolCall.function.name === 'get_terminal_output' ? '正在读取当前终端输出' : '正在准备发送终端命令',
+        toolCall.function.name === 'get_terminal_output' ? `读取最近 ${args.maxLines || 120} 行` : undefined,
+      );
       let result: unknown;
       if (toolCall.function.name === 'get_terminal_output') {
         result = readTerminalOutput(args.sessionId, args.maxLines);
@@ -370,11 +391,27 @@ export const useAiStore = defineStore('ai', () => {
       }
 
       toolRun.result = result;
-      toolRun.status = (result as any)?.cancelled ? 'cancelled' : 'done';
+      toolRun.status = (result as any)?.cancelled
+        ? 'cancelled'
+        : (result as any)?.ok === false
+          ? 'error'
+          : 'done';
+      if (toolRun.status === 'error') toolRun.error = String((result as any)?.error || '工具调用失败。');
+      if (toolRun.status === 'done') {
+        addActivity(
+          context.runtime,
+          toolCall.function.name === 'get_terminal_output' ? '终端输出已读取，正在分析' : '命令已发送，正在读取结果',
+          undefined,
+          'done',
+        );
+      } else if (toolRun.status === 'error') {
+        addActivity(context.runtime, '工具调用失败', toolRun.error, 'error');
+      }
       return result;
     } catch (error: any) {
       toolRun.status = 'error';
       toolRun.error = error.message || String(error);
+      addActivity(context.runtime, '工具调用失败', toolRun.error, 'error');
       return { ok: false, error: toolRun.error };
     } finally {
       toolRun.finishedAt = Date.now();
@@ -613,6 +650,7 @@ export const useAiStore = defineStore('ai', () => {
     while (!context.runtime.stopRequested) {
       const controller = context.runtime.abortController;
       context.runtime.taskStatus = 'thinking';
+      addActivity(context.runtime, '正在检查上下文并分析请求');
       await compactContext({
         title: '本次压缩摘要',
         awaitAiSummary: false,
@@ -620,6 +658,7 @@ export const useAiStore = defineStore('ai', () => {
         runtime: context.runtime,
       });
       context.runtime.taskStatus = 'thinking';
+      addActivity(context.runtime, '正在请求 AI 决定下一步操作');
       const response = await apiClient.post('/ai/chat', buildBudgetedChatPayload(context), {
         signal: controller?.signal,
         timeout: 130000,
@@ -669,6 +708,8 @@ export const useAiStore = defineStore('ai', () => {
     runtime.isRunning = true;
     runtime.stopRequested = false;
     runtime.abortController = new AbortController();
+    runtime.activityEvents = [];
+    addActivity(runtime, '正在理解你的请求');
 
     try {
       await runAgentLoop(context, options);
@@ -688,6 +729,7 @@ export const useAiStore = defineStore('ai', () => {
       runtime.isRunning = false;
       runtime.abortController = null;
       runtime.stopRequested = false;
+      runtime.activityEvents = [];
       if (runtime.taskStatus === 'thinking' || runtime.taskStatus === 'runningTool' || runtime.taskStatus === 'waitingOutput') {
         runtime.taskStatus = 'idle';
       }
@@ -749,6 +791,7 @@ export const useAiStore = defineStore('ai', () => {
     visibleMessages,
     toolRuns,
     latestToolRuns,
+    activeActivities,
     memorySummary,
     compression: computed(() => currentMemory.value.compression),
     compactTriggerPercent: computed(() => Math.min(

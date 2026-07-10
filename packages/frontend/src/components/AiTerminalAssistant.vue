@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAiStore, type AiTaskStatus, type AiToolRun } from '../stores/ai.store';
 import { useConfirmDialog } from '../composables/useConfirmDialog';
@@ -19,6 +19,7 @@ const {
   showConfig,
   visibleMessages,
   latestToolRuns,
+  activeActivities,
   memorySummary,
   compression,
   compactTriggerPercent,
@@ -30,6 +31,30 @@ const {
   canSend,
   hasActiveTerminal,
 } = storeToRefs(aiStore);
+
+const modeMenuOpen = ref(false);
+const modeMenuRef = ref<HTMLElement | null>(null);
+const modeOptions = [
+  { value: 'readOnly', label: '只读', description: '仅查看，不执行命令' },
+  { value: 'confirm', label: '确认', description: '每次执行前确认' },
+  { value: 'auto', label: '自动', description: '由 AI 自主执行' },
+] as const;
+const activeModeOption = computed(() => modeOptions.find(option => option.value === runMode.value) || modeOptions[1]);
+const conversationMessages = computed(() => visibleMessages.value.filter(message => (
+  message.role !== 'assistant' || !!message.content?.trim() || !message.tool_calls?.length
+)));
+
+const selectRunMode = (mode: typeof runMode.value) => {
+  runMode.value = mode;
+  modeMenuOpen.value = false;
+};
+
+const handleDocumentPointerDown = (event: PointerEvent) => {
+  if (!modeMenuRef.value?.contains(event.target as Node)) modeMenuOpen.value = false;
+};
+
+onMounted(() => document.addEventListener('pointerdown', handleDocumentPointerDown));
+onBeforeUnmount(() => document.removeEventListener('pointerdown', handleDocumentPointerDown));
 
 const sessionLabel = computed(() => activeSession.value?.connectionName || '没有活动终端');
 const hasMemorySummary = computed(() => !!memorySummary.value.trim());
@@ -417,12 +442,12 @@ const deleteHistory = async () => {
           <button class="rounded border border-border/60 bg-header/30 px-2 py-1 text-text-secondary hover:bg-hover hover:text-foreground" @click="compactContext">压缩</button>
         </div>
       </div>
-      <details v-if="latestToolRuns.length > 0" class="mt-1 rounded border border-border/50 bg-header/20 px-2 py-1">
+      <details v-if="latestToolRuns.length > 0" class="ai-tool-details group mt-1 rounded border border-border/50 bg-header/20 px-2 py-1">
         <summary class="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px]">
           <span class="min-w-0 truncate text-text-secondary">工具调用 · 最近 {{ latestToolRuns.length }} 条</span>
           <span class="flex-shrink-0 text-text-secondary">展开详情</span>
         </summary>
-        <div class="mt-1 max-h-48 space-y-1 overflow-auto border-t border-border/50 pt-1">
+        <div class="ai-tool-details-body mt-1 max-h-0 space-y-1 overflow-hidden border-t border-border/50 pt-0 opacity-0 transition-all duration-200 group-hover:max-h-48 group-hover:pt-1 group-hover:opacity-100 group-focus-within:max-h-48 group-focus-within:pt-1 group-focus-within:opacity-100">
           <div v-for="run in latestToolRuns.slice(0, 8)" :key="run.id" class="rounded border border-border/40 bg-background/60 px-2 py-1.5 text-[11px]">
             <div class="flex items-center justify-between gap-2">
               <span class="min-w-0 truncate font-medium text-foreground">{{ formatToolName(run.name) }} · {{ formatToolStatus(run.status) }}</span>
@@ -433,7 +458,7 @@ const deleteHistory = async () => {
           </div>
         </div>
       </details>
-      <div class="mt-2 rounded border border-border/50 bg-header/20 px-2 py-1.5 text-[11px] text-text-secondary">
+      <div class="ai-compression-details group mt-2 rounded border border-border/50 bg-header/20 px-2 py-1.5 text-[11px] text-text-secondary">
         <div class="flex items-center justify-between gap-2">
           <label class="group flex min-w-0 items-center gap-2" title="越低越早压缩上下文">
             <span class="flex-shrink-0">自动压缩阈值</span>
@@ -463,7 +488,7 @@ const deleteHistory = async () => {
           </label>
           <span class="flex-shrink-0 font-medium text-foreground">{{ maxRequestKb }}KB</span>
         </div>
-        <div v-if="compression" class="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
+        <div v-if="compression" class="ai-compression-stats mt-1 grid max-h-0 grid-cols-2 gap-x-3 gap-y-0.5 overflow-hidden opacity-0 transition-all duration-200 group-hover:max-h-24 group-hover:opacity-100 group-focus-within:max-h-24 group-focus-within:opacity-100">
           <span>上次压缩前：{{ formatBytes(compression.beforeBytes) }}</span>
           <span>压缩后：{{ formatBytes(compression.afterBytes) }}</span>
           <span>处理：{{ compression.compactedCount }} 条</span>
@@ -490,7 +515,7 @@ const deleteHistory = async () => {
       </div>
 
       <div
-        v-for="(message, index) in visibleMessages"
+        v-for="(message, index) in conversationMessages"
         :key="index"
         class="flex"
         :class="message.role === 'user' ? 'justify-end' : message.role === 'assistant' ? 'justify-start' : 'justify-center'"
@@ -539,6 +564,25 @@ const deleteHistory = async () => {
                 </div>
               </div>
               <pre class="overflow-auto whitespace-pre-wrap break-words rounded bg-black/20 p-2 font-mono text-xs leading-relaxed">{{ command }}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="isRunning && activeActivities.length > 0" class="mr-auto max-w-[88%] rounded border border-border/70 bg-header/35 px-3 py-2 text-xs text-text-secondary shadow-sm">
+        <div class="mb-1 flex items-center gap-1.5 font-medium text-foreground">
+          <img :src="nexusAiAvatar" alt="Nexus AI" class="h-5 w-5 rounded-full border border-primary/40 object-cover" />
+          <span>Nexus AI · 运行动态</span>
+        </div>
+        <div class="space-y-1.5">
+          <div v-for="activity in activeActivities" :key="activity.id" class="flex items-start gap-2">
+            <span
+              class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full"
+              :class="activity.state === 'error' ? 'bg-error' : activity.state === 'done' ? 'bg-success' : 'animate-pulse bg-primary'"
+            />
+            <div class="min-w-0">
+              <div class="text-foreground">{{ activity.title }}</div>
+              <div v-if="activity.detail" class="mt-0.5 truncate text-[11px] text-text-secondary">{{ activity.detail }}</div>
             </div>
           </div>
         </div>
@@ -607,14 +651,41 @@ const deleteHistory = async () => {
           <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="hasActiveTerminal ? 'bg-success' : 'bg-error'" />
           <span class="truncate font-medium text-foreground">{{ sessionLabel }}</span>
         </div>
-        <label class="flex flex-shrink-0 items-center gap-1 text-text-secondary">
-          <span>模式</span>
-          <select v-model="runMode" class="rounded border border-border bg-input px-2 py-1 text-foreground">
-            <option value="readOnly">只读</option>
-            <option value="confirm">确认</option>
-            <option value="auto">自动</option>
-          </select>
-        </label>
+        <div ref="modeMenuRef" class="relative flex-shrink-0">
+          <button
+            type="button"
+            class="flex items-center gap-1.5 rounded border border-border bg-input px-2 py-1 text-foreground transition-colors hover:bg-hover"
+            :aria-expanded="modeMenuOpen"
+            aria-haspopup="menu"
+            @click="modeMenuOpen = !modeMenuOpen"
+          >
+            <span class="text-text-secondary">模式</span>
+            <span class="font-medium">{{ activeModeOption.label }}</span>
+            <i class="fas text-[10px] text-text-secondary" :class="modeMenuOpen ? 'fa-chevron-down' : 'fa-chevron-up'" aria-hidden="true" />
+          </button>
+          <div
+            v-if="modeMenuOpen"
+            role="menu"
+            class="absolute bottom-full right-0 z-30 mb-1 w-44 overflow-hidden rounded border border-border bg-background py-1 shadow-xl"
+          >
+            <button
+              v-for="option in modeOptions"
+              :key="option.value"
+              type="button"
+              role="menuitemradio"
+              :aria-checked="runMode === option.value"
+              class="flex w-full items-start gap-2 px-2.5 py-2 text-left text-xs transition-colors hover:bg-hover"
+              :class="runMode === option.value ? 'bg-primary/15 text-primary' : 'text-foreground'"
+              @click="selectRunMode(option.value)"
+            >
+              <span class="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="runMode === option.value ? 'bg-primary' : 'bg-border'" />
+              <span>
+                <span class="block font-medium">{{ option.label }}</span>
+                <span class="mt-0.5 block text-[11px] text-text-secondary">{{ option.description }}</span>
+              </span>
+            </button>
+          </div>
+        </div>
       </div>
       <div class="mb-1.5 flex items-center justify-between gap-2 text-[11px] text-text-secondary">
         <span>Enter 发送 · Shift+Enter 换行</span>
@@ -647,3 +718,12 @@ const deleteHistory = async () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.ai-tool-details[open] .ai-tool-details-body,
+.ai-compression-details:focus-within .ai-compression-stats {
+  max-height: 12rem;
+  padding-top: 0.25rem;
+  opacity: 1;
+}
+</style>
