@@ -284,13 +284,6 @@ defineExpose({
                 ></span>
               </div>
             </button>
-            <button
-              type="button"
-              class="flex min-h-[128px] items-center justify-center rounded-md border border-dashed border-primary/60 p-3 text-sm font-semibold text-primary hover:bg-primary/10"
-              @click="openCreateCustomTheme"
-            >
-              + {{ t('styleCustomizer.addCustomTheme', '新建自定义主题') }}
-            </button>
             <div
               v-for="theme in customUiThemes"
               :key="theme.key"
@@ -321,6 +314,13 @@ defineExpose({
                 ></span>
               </div>
             </div>
+            <button
+              type="button"
+              class="flex min-h-[128px] items-center justify-center rounded-md border border-dashed border-primary/60 p-3 text-sm font-semibold text-primary hover:bg-primary/10"
+              @click="openCreateCustomTheme"
+            >
+              + {{ t('styleCustomizer.addCustomTheme', '新建自定义主题') }}
+            </button>
         </div>
     </div>
     <div v-if="isCreatingCustomTheme" class="mb-4 rounded-md border border-primary/40 bg-primary/5 p-3">
