@@ -435,21 +435,21 @@ const deleteHistory = async () => {
       </details>
       <div class="mt-2 rounded border border-border/50 bg-header/20 px-2 py-1.5 text-[11px] text-text-secondary">
         <div class="flex items-center justify-between gap-2">
-          <label class="flex min-w-0 items-center gap-2" title="越低越早压缩上下文">
+          <label class="group flex min-w-0 items-center gap-2" title="越低越早压缩上下文">
             <span class="flex-shrink-0">自动压缩阈值</span>
             <input
               v-model.number="config.compactTriggerPercent"
               type="range"
               min="1"
               max="80"
-              class="min-w-0 flex-1 accent-primary"
+              class="w-0 min-w-0 flex-none accent-primary opacity-0 transition-all group-hover:w-24 group-hover:opacity-100 group-focus-within:w-24 group-focus-within:opacity-100"
               aria-label="自动压缩阈值"
             />
           </label>
           <span class="flex-shrink-0 font-medium text-foreground">{{ compactTriggerPercent }}%</span>
         </div>
         <div class="mt-1 flex items-center justify-between gap-2 text-[10px] text-text-secondary/80">
-          <label class="flex min-w-0 flex-1 items-center gap-2" title="允许的最大 AI 请求大小">
+          <label class="group flex min-w-0 flex-1 items-center gap-2" title="允许的最大 AI 请求大小">
             <span class="flex-shrink-0">请求上限</span>
             <input
               v-model.number="config.maxRequestKb"
@@ -457,7 +457,7 @@ const deleteHistory = async () => {
               min="64"
               max="1024"
               step="16"
-              class="min-w-0 flex-1 accent-primary"
+              class="w-0 min-w-0 flex-none accent-primary opacity-0 transition-all group-hover:w-24 group-hover:opacity-100 group-focus-within:w-24 group-focus-within:opacity-100"
               aria-label="AI 请求大小上限"
             />
           </label>
