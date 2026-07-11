@@ -1,0 +1,17 @@
+**/node_modules
+**/dist
+**/.vite
+.git
+.github
+.env
+.env.*
+data
+logs
+*.log
+electron-app/dist
+electron-app/nodejs-runtime
+packages/backend/data
+packages/backend/sessions
+packages/backend/uploads
+packages/frontend/.env*
+packages/frontend/src/stores/ai.store.ts.bak-*

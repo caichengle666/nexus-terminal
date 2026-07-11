@@ -30,6 +30,19 @@ export const testConfig = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
+export const listModels = async (req: Request, res: Response): Promise<void> => {
+  try {
+    res.status(200).json(await AiService.listModels(req.body || {}));
+  } catch (error: any) {
+    const status = error.status || error.response?.status || 500;
+    const message = error.response?.data?.error?.message
+      || error.response?.data?.message
+      || error.message
+      || 'Failed to load AI models.';
+    res.status(status).json({ message });
+  }
+};
+
 export const chat = async (req: Request, res: Response): Promise<void> => {
   try {
     const response = await AiService.forwardChatCompletion(req.body || {});

@@ -21,8 +21,10 @@ COPY packages/frontend/tsconfig.json ./packages/frontend/
 COPY packages/frontend/vite.config.ts ./packages/frontend/
 COPY packages/frontend/public ./packages/frontend/public/
 
-# Copy the root .env file into the builder stage so Vite can read it during build
-COPY .env ./.env
+# Keep the browser bundle independent from deployment secrets. The default is
+# an empty value, which makes the frontend use its own origin for API requests.
+ARG VITE_API_BASE_URL=
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
 RUN npm run build --workspace=@nexus-terminal/frontend
 

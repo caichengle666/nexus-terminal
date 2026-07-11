@@ -67,6 +67,9 @@ export const useAiStore = defineStore('ai', () => {
   const showConfig = ref(false);
   const sessionMemories = ref<Record<string, AiSessionMemory>>({});
   const sessionRuntimes = ref<Record<string, AiRuntimeState>>({});
+  const availableModels = ref<string[]>([]);
+  const isFetchingModels = ref(false);
+  const modelFetchMessage = ref('');
 
   const config = ref({
     apiBaseUrl: '',
@@ -644,6 +647,26 @@ export const useAiStore = defineStore('ai', () => {
     configMessage.value = 'AI 配置测试通过。';
   };
 
+  const fetchModels = async () => {
+    isFetchingModels.value = true;
+    modelFetchMessage.value = '';
+    try {
+      const response = await apiClient.post('/ai/config/models', {
+        apiBaseUrl: config.value.apiBaseUrl,
+        apiKey: config.value.apiKey,
+      });
+      availableModels.value = Array.isArray(response.data?.models) ? response.data.models : [];
+      modelFetchMessage.value = availableModels.value.length > 0
+        ? `已获取 ${availableModels.value.length} 个模型。`
+        : '服务商没有返回可用模型。';
+    } catch (error: any) {
+      availableModels.value = [];
+      modelFetchMessage.value = error.response?.data?.message || error.message || '获取模型列表失败。';
+    } finally {
+      isFetchingModels.value = false;
+    }
+  };
+
   const runAgentLoop = async (context: AiRunContext, options?: SendMessageOptions) => {
     ensureConfigured();
 
@@ -807,6 +830,10 @@ export const useAiStore = defineStore('ai', () => {
     hasActiveTerminal,
     saveConfig,
     testConfig,
+    fetchModels,
+    availableModels,
+    isFetchingModels,
+    modelFetchMessage,
     sendMessage,
     stopRun,
     clearChat,

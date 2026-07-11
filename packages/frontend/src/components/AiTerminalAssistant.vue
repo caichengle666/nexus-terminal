@@ -20,6 +20,9 @@ const {
   visibleMessages,
   latestToolRuns,
   activeActivities,
+  availableModels,
+  isFetchingModels,
+  modelFetchMessage,
   memorySummary,
   compression,
   compactTriggerPercent,
@@ -34,6 +37,8 @@ const {
 
 const modeMenuOpen = ref(false);
 const modeMenuRef = ref<HTMLElement | null>(null);
+const modelMenuOpen = ref(false);
+const modelMenuRef = ref<HTMLElement | null>(null);
 const modeOptions = [
   { value: 'readOnly', label: '只读', description: '仅查看，不执行命令' },
   { value: 'confirm', label: '确认', description: '每次执行前确认' },
@@ -51,6 +56,7 @@ const selectRunMode = (mode: typeof runMode.value) => {
 
 const handleDocumentPointerDown = (event: PointerEvent) => {
   if (!modeMenuRef.value?.contains(event.target as Node)) modeMenuOpen.value = false;
+  if (!modelMenuRef.value?.contains(event.target as Node)) modelMenuOpen.value = false;
 };
 
 onMounted(() => document.addEventListener('pointerdown', handleDocumentPointerDown));
@@ -382,6 +388,10 @@ const testConfig = async () => {
   }
 };
 
+const fetchModels = async () => {
+  await aiStore.fetchModels();
+};
+
 const deleteHistory = async () => {
   const confirmed = await showConfirmDialog({
     title: '删除当前 AI 历史会话',
@@ -421,7 +431,44 @@ const deleteHistory = async () => {
       </label>
       <label class="block">
         <span class="mb-1 block text-text-secondary">Model</span>
-        <input v-model="config.model" class="w-full rounded border border-border bg-input px-2 py-1" placeholder="例如 gpt-4.1-mini" />
+        <div class="flex gap-1.5">
+          <input v-model="config.model" class="min-w-0 flex-1 rounded border border-primary/40 bg-input px-2 py-1 text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25" placeholder="例如 gpt-4.1-mini" />
+          <button
+            type="button"
+            class="flex-shrink-0 rounded border border-primary/50 px-2 py-1 text-primary transition hover:bg-primary/10 disabled:cursor-wait disabled:opacity-60"
+            :disabled="isFetchingModels"
+            @click="fetchModels"
+          >
+            {{ isFetchingModels ? '获取中...' : '获取模型' }}
+          </button>
+        </div>
+        <div v-if="availableModels.length > 0" ref="modelMenuRef" class="relative mt-1.5">
+          <button
+            type="button"
+            class="flex w-full items-center justify-between rounded border border-border bg-header/60 px-2 py-1.5 text-left text-xs text-foreground transition hover:border-primary/60 hover:bg-hover"
+            :aria-expanded="modelMenuOpen"
+            aria-haspopup="listbox"
+            @click="modelMenuOpen = !modelMenuOpen"
+          >
+            <span class="truncate">从已获取模型中选择{{ config.model ? `：${config.model}` : '' }}</span>
+            <i class="fas ml-2 text-[10px] text-text-secondary" :class="modelMenuOpen ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
+          </button>
+          <div v-if="modelMenuOpen" role="listbox" class="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-auto rounded border border-border bg-background py-1 shadow-xl">
+            <button
+              v-for="model in availableModels"
+              :key="model"
+              type="button"
+              role="option"
+              :aria-selected="config.model === model"
+              class="block w-full truncate px-2.5 py-2 text-left text-xs text-foreground transition hover:bg-hover"
+              :class="config.model === model ? 'bg-primary/15 text-primary' : ''"
+              @click="config.model = model; modelMenuOpen = false"
+            >
+              {{ model }}
+            </button>
+          </div>
+        </div>
+        <span v-if="modelFetchMessage" class="mt-1 block" :class="availableModels.length > 0 ? 'text-success' : 'text-warning'">{{ modelFetchMessage }}</span>
       </label>
       <div class="flex gap-2">
         <button class="rounded bg-primary px-3 py-1.5 text-white" @click="saveConfig">保存配置</button>
@@ -639,10 +686,10 @@ const deleteHistory = async () => {
       </aside>
     </div>
 
-    <div class="border-t border-border p-2.5">
+    <div class="border-t border-primary/40 bg-header/20 p-2.5 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
       <textarea
         v-model="userInput"
-        class="mb-1.5 h-16 w-full resize-none rounded border border-border bg-input px-2 py-1.5 text-sm"
+        class="mb-1.5 h-16 w-full resize-none rounded border border-primary/50 bg-input px-2.5 py-2 text-sm text-foreground outline-none transition placeholder:text-text-secondary/70 focus:border-primary focus:ring-2 focus:ring-primary/30"
         placeholder="例如：查看当前报错，直接输入排查命令并修复"
         @keydown="handleInputKeydown"
       />

@@ -144,3 +144,36 @@ export const testConfig = async (payload: AiConfigRequest) => {
 
   return saved;
 };
+
+export const listModels = async (payload: AiConfigRequest) => {
+  const stored = await readStoredConfig();
+  const apiBaseUrl = payload.apiBaseUrl || stored.apiBaseUrl;
+  const apiKey = payload.apiKey || decryptStoredApiKey(stored.encryptedApiKey);
+  const endpoint = `${normalizeApiBaseUrl(apiBaseUrl)}/models`;
+
+  if (!apiKey) {
+    const error = new Error('AI API key is required.');
+    (error as any).status = 400;
+    throw error;
+  }
+
+  const response = await axios.get(endpoint, {
+    timeout: 20000,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  const rawModels = Array.isArray(response.data?.data)
+    ? response.data.data
+    : Array.isArray(response.data?.models)
+      ? response.data.models
+      : [];
+  const modelNames: string[] = rawModels
+    .map((item: unknown) => typeof item === 'string' ? item : (item as any)?.id || (item as any)?.name)
+    .filter((model: unknown): model is string => typeof model === 'string' && !!model.trim())
+    .map((model: string) => model.trim());
+  const models = Array.from(new Set<string>(modelNames)).sort((left, right) => left.localeCompare(right));
+
+  return { models };
+};

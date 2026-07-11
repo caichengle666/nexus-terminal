@@ -1,6 +1,11 @@
 services:
   frontend:
-    image: heavrnl/nexus-terminal-frontend:latest
+    image: ghcr.io/caichengle666/nexus-terminal-frontend:${NEXUS_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: packages/frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     container_name: nexus-terminal-frontend
     ports:
       - "18111:80"
@@ -9,9 +14,13 @@ services:
       - remote-gateway
     networks:
       - nexus-terminal-network
+    restart: unless-stopped
 
   backend:
-    image: heavrnl/nexus-terminal-backend:latest
+    image: ghcr.io/caichengle666/nexus-terminal-backend:${NEXUS_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
     container_name: nexus-terminal-backend
     env_file:
       - .env
@@ -22,9 +31,13 @@ services:
       - ./data:/app/data
     networks:
       - nexus-terminal-network
+    restart: unless-stopped
 
   remote-gateway:
-    image: heavrnl/nexus-terminal-remote-gateway:latest
+    image: ghcr.io/caichengle666/nexus-terminal-remote-gateway:${NEXUS_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: packages/remote-gateway/Dockerfile
     container_name: nexus-terminal-remote-gateway
     environment:
       GUACD_HOST: guacd
@@ -39,6 +52,7 @@ services:
     depends_on:
       - guacd
       - backend
+    restart: unless-stopped
 
   guacd:
     image: guacamole/guacd:latest
