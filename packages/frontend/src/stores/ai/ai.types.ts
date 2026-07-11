@@ -136,4 +136,6 @@ export type AiRuntimeState = {
   abortController: AbortController | null;
   activityEvents: AiActivityEvent[];
   continuationAvailable: boolean;
+  // Counts automatic size-based compactions within one user-message task.
+  autoCompactCount: number;
 };

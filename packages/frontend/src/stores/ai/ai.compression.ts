@@ -1,7 +1,7 @@
 import {
   AI_REQUEST_COMPACT_BYTES,
-  COMPACT_MESSAGE_TRIGGER,
   MAX_AI_REQUEST_BYTES,
+  MAX_COMPACT_TOOL_RUNS,
   MAX_MODEL_CONTEXT_CHARS,
   MIN_TAIL_MESSAGES,
   TAIL_CONTEXT_BUDGET_CHARS,
@@ -62,20 +62,10 @@ export const pruneToolMessages = (items: AiChatMessage[]) => {
   const seenToolResults = new Set<string>();
   let changed = false;
   const pruned = [...items].reverse().map(message => {
+    // Never truncate tool_call arguments. Providers require the original JSON
+    // arguments to stay intact when tool history is replayed.
     if (message.role === 'assistant' && message.tool_calls?.length) {
-      const toolCalls = message.tool_calls.map(call => {
-        const args = call.function.arguments || '';
-        if (args.length <= 1200) return call;
-        changed = true;
-        return {
-          ...call,
-          function: {
-            ...call.function,
-            arguments: `${args.slice(0, 1200)}...<tool arguments truncated>`,
-          },
-        };
-      });
-      return { ...message, tool_calls: toolCalls };
+      return message;
     }
 
     if (message.role !== 'tool' || typeof message.content !== 'string') {
@@ -291,9 +281,9 @@ export const compactSessionContext = async ({
   }
   const requestBytes = estimateMemoryRequestBytes(memory);
   const isOverBudget = requestBytes > effectiveCompactTriggerBytes;
-  const isOverAutoTrigger = memory.messages.length > COMPACT_MESSAGE_TRIGGER;
 
-  if (!force && !isOverBudget && !isOverAutoTrigger) {
+  // Auto-compaction is size-driven only. Message count is intentionally not a trigger.
+  if (!force && !isOverBudget) {
     return {
       compacted: pruned.changed,
       reason: 'underBudget',
@@ -337,6 +327,10 @@ export const compactSessionContext = async ({
   runtimeState.taskStatus = 'compressing';
   memory.summary = trimSummaryForStorage(mergeSummarySections(memory.summary || '', `${title}:\n${localSummary}`));
   memory.messages = tailMessages;
+  // Keep recent tool history for the drawer, but drop older tool runs after compaction.
+  if (Array.isArray(memory.toolRuns) && memory.toolRuns.length > MAX_COMPACT_TOOL_RUNS) {
+    memory.toolRuns = memory.toolRuns.slice(-MAX_COMPACT_TOOL_RUNS);
+  }
   memory.summaryUpdatedAt = Date.now();
   memory.lastCompactedAt = Date.now();
 

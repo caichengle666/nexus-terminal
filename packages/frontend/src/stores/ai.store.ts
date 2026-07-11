@@ -5,12 +5,15 @@ import { useSessionStore } from './session.store';
 import { useConnectionsStore } from './connections.store';
 import {
   CONFIG_KEY,
+  DEFAULT_AUTO_COMPACTS_PER_TASK,
+  MAX_AUTO_COMPACTS_PER_TASK,
   MAX_CONFIGURABLE_AI_REQUEST_BYTES,
   MAX_IMPORT_FILE_BYTES,
   MAX_COMPACT_TRIGGER_PERCENT,
   MAX_MODEL_RECENT_MESSAGES,
   MAX_MODEL_SUMMARY_LENGTH,
   MAX_TERMINAL_OUTPUT_CHARS,
+  MIN_AUTO_COMPACTS_PER_TASK,
   MIN_COMPACT_TRIGGER_PERCENT,
   MIN_AI_REQUEST_BYTES,
   TAIL_CONTEXT_BUDGET_CHARS,
@@ -18,6 +21,7 @@ import {
 import {
   compactSessionContext,
   estimateJsonBytes,
+  estimateMemoryRequestBytes,
   formatMessagesForSummary,
   pruneToolMessages,
   removeOldestModelContextMessage,
@@ -39,6 +43,7 @@ import {
   normalizeCommand,
   parseToolArgs,
   stringifyToolResultForModel,
+  summarizeToolResultContent,
   truncateForModel,
 } from './ai/ai.tools';
 import type {
@@ -86,6 +91,7 @@ export const useAiStore = defineStore('ai', () => {
     runMode: 'confirm' as AiRunMode,
     compactTriggerPercent: 80,
     maxRequestKb: 256,
+    maxAutoCompactsPerTask: DEFAULT_AUTO_COMPACTS_PER_TASK,
   });
 
   const storeActiveSessionId = computed(() => sessionStore.activeSessionId || '');
@@ -103,7 +109,10 @@ export const useAiStore = defineStore('ai', () => {
         abortController: null,
         activityEvents: [],
         continuationAvailable: false,
+        autoCompactCount: 0,
       };
+    } else if (typeof sessionRuntimes.value[key].autoCompactCount !== 'number') {
+      sessionRuntimes.value[key].autoCompactCount = 0;
     }
     return sessionRuntimes.value[key];
   };
@@ -295,6 +304,10 @@ export const useAiStore = defineStore('ai', () => {
       MAX_CONFIGURABLE_AI_REQUEST_BYTES / 1024,
       Math.max(MIN_AI_REQUEST_BYTES / 1024, Number(config.value.maxRequestKb) || 256),
     )),
+    maxAutoCompactsPerTask: Math.round(Math.min(
+      MAX_AUTO_COMPACTS_PER_TASK,
+      Math.max(MIN_AUTO_COMPACTS_PER_TASK, Number(config.value.maxAutoCompactsPerTask) || DEFAULT_AUTO_COMPACTS_PER_TASK),
+    )),
   });
 
   const maxRequestBytes = computed(() => Math.round(Math.min(
@@ -308,6 +321,11 @@ export const useAiStore = defineStore('ai', () => {
       Math.max(MIN_COMPACT_TRIGGER_PERCENT, Number(config.value.compactTriggerPercent) || 80),
     ) / 100,
   ));
+
+  const maxAutoCompactsPerTask = computed(() => Math.round(Math.min(
+    MAX_AUTO_COMPACTS_PER_TASK,
+    Math.max(MIN_AUTO_COMPACTS_PER_TASK, Number(config.value.maxAutoCompactsPerTask) || DEFAULT_AUTO_COMPACTS_PER_TASK),
+  )));
 
   const loadConfig = async () => {
     try {
@@ -731,21 +749,15 @@ export const useAiStore = defineStore('ai', () => {
 
     if (estimateJsonBytes(payload) > maxRequestBytes.value) {
       for (const message of payload.messages as AiChatMessage[]) {
-        if (typeof message.content === 'string' && message.content.length > 1200) {
+        // Only shrink free-form content. Tool arguments must stay unmodified JSON.
+        if (message.role !== 'tool' && typeof message.content === 'string' && message.content.length > 1200) {
           message.content = `${message.content.slice(-1200)}\n...<message truncated>`;
         }
-        if (message.tool_calls) {
-          message.tool_calls = message.tool_calls.map(call => ({
-            ...call,
-            function: {
-              ...call.function,
-              arguments: call.function.arguments.length > 500
-                ? `${call.function.arguments.slice(0, 500)}...<arguments truncated>`
-                : call.function.arguments,
-            },
-          }));
+        if (message.role === 'tool' && typeof message.content === 'string' && message.content.length > 2400) {
+          message.content = summarizeToolResultContent(message.content);
         }
       }
+      payload.messages = sanitizeToolMessages(payload.messages as AiChatMessage[]);
     }
 
     const finalBytes = estimateJsonBytes(payload);
@@ -823,19 +835,52 @@ export const useAiStore = defineStore('ai', () => {
     }
   };
 
+  const maybeAutoCompact = async (context: AiRunContext, reason: 'beforeRequest' | 'afterTool') => {
+    if (context.runtime.autoCompactCount >= maxAutoCompactsPerTask.value) {
+      return {
+        compacted: false,
+        reason: 'underBudget' as const,
+        requestBytes: estimateMemoryRequestBytes(context.memory),
+        thresholdBytes: compactTriggerBytes.value,
+        finalRequestBytes: estimateMemoryRequestBytes(context.memory),
+        hardLimitBytes: maxRequestBytes.value,
+      };
+    }
+
+    if (reason === 'beforeRequest') {
+      addActivity(context.runtime, '正在检查上下文体积');
+    } else {
+      addActivity(context.runtime, '工具结果后检查上下文体积');
+    }
+
+    const result = await compactContext({
+      title: reason === 'afterTool' ? '工具结果后压缩摘要' : '本次压缩摘要',
+      awaitAiSummary: false,
+      sessionId: context.sessionId,
+      runtime: context.runtime,
+    });
+
+    if (result.compacted && result.reason === 'compacted') {
+      context.runtime.autoCompactCount += 1;
+      addActivity(
+        context.runtime,
+        reason === 'afterTool' ? '工具结果后已压缩上下文' : '发送前已压缩上下文',
+        `体积 ${Math.ceil((result.requestBytes || 0) / 1024)}KB → ${Math.ceil((result.finalRequestBytes || 0) / 1024)}KB · 本轮 ${context.runtime.autoCompactCount}/${maxAutoCompactsPerTask.value}`,
+        'done',
+      );
+    }
+
+    return result;
+  };
+
   const runAgentLoop = async (context: AiRunContext, options?: SendMessageOptions, continuation = false) => {
     ensureConfigured();
 
+    // One size-based check before the first model request of this user task.
+    await maybeAutoCompact(context, 'beforeRequest');
+
     while (!context.runtime.stopRequested) {
       const controller = context.runtime.abortController;
-      context.runtime.taskStatus = 'thinking';
-      addActivity(context.runtime, '正在检查上下文并分析请求');
-      await compactContext({
-        title: '本次压缩摘要',
-        awaitAiSummary: false,
-        sessionId: context.sessionId,
-        runtime: context.runtime,
-      });
       context.runtime.taskStatus = 'thinking';
       addActivity(context.runtime, '正在请求 AI 决定下一步操作');
       const continuationMessages: AiChatMessage[] = continuation
@@ -926,6 +971,11 @@ export const useAiStore = defineStore('ai', () => {
           content: stringifyToolResultForModel(result),
         });
       }
+
+      // Allow one more compaction if tool output re-inflated the request body.
+      if (!context.runtime.stopRequested) {
+        await maybeAutoCompact(context, 'afterTool');
+      }
     }
   };
 
@@ -949,6 +999,7 @@ export const useAiStore = defineStore('ai', () => {
     runtime.stopRequested = false;
     runtime.abortController = new AbortController();
     runtime.activityEvents = [];
+    runtime.autoCompactCount = 0;
     addActivity(runtime, '正在理解你的请求');
 
     try {
@@ -991,6 +1042,7 @@ export const useAiStore = defineStore('ai', () => {
     runtime.continuationAvailable = false;
     runtime.abortController = new AbortController();
     runtime.activityEvents = [];
+    runtime.autoCompactCount = 0;
     addActivity(runtime, '正在从中断位置继续生成');
     try {
       await runAgentLoop(context, options, true);
@@ -1196,6 +1248,7 @@ export const useAiStore = defineStore('ai', () => {
       Math.max(MIN_COMPACT_TRIGGER_PERCENT, Number(config.value.compactTriggerPercent) || 80),
     )),
     maxRequestKb: computed(() => Math.round(maxRequestBytes.value / 1024)),
+    maxAutoCompactsPerTask,
     runMode,
     config,
     activeSession,

@@ -29,6 +29,7 @@ const {
   compression,
   compactTriggerPercent,
   maxRequestKb,
+  maxAutoCompactsPerTask,
   runMode,
   config,
   activeSession,
@@ -666,6 +667,21 @@ const deleteHistory = async () => {
             />
           </label>
           <span class="flex-shrink-0 font-medium text-foreground">{{ maxRequestKb }}KB</span>
+        </div>
+        <div class="mt-1 flex items-center justify-between gap-2 text-[10px] text-text-secondary/80">
+          <label class="group flex min-w-0 flex-1 items-center gap-2" title="同一条用户消息触发的整轮任务里，最多自动压缩几次">
+            <span class="flex-shrink-0">本轮最多压缩</span>
+            <input
+              v-model.number="config.maxAutoCompactsPerTask"
+              type="range"
+              min="1"
+              max="5"
+              step="1"
+              class="w-0 min-w-0 flex-none accent-primary opacity-0 transition-all group-hover:w-24 group-hover:opacity-100 group-focus-within:w-24 group-focus-within:opacity-100"
+              aria-label="每轮任务最多自动压缩次数"
+            />
+          </label>
+          <span class="flex-shrink-0 font-medium text-foreground">{{ maxAutoCompactsPerTask }} 次</span>
         </div>
         <div v-if="compression" class="ai-compression-stats mt-1 grid max-h-0 grid-cols-2 gap-x-3 gap-y-0.5 overflow-hidden opacity-0 transition-all duration-200 group-hover:max-h-24 group-hover:opacity-100 group-focus-within:max-h-24 group-focus-within:opacity-100">
           <span>上次压缩前：{{ formatBytes(compression.beforeBytes) }}</span>
