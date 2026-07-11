@@ -26,7 +26,7 @@ export type TerminalInputArgs = {
 
 export type AiToolRunStatus = 'running' | 'done' | 'error' | 'cancelled';
 export type AiRunMode = 'readOnly' | 'confirm' | 'auto';
-export type AiTaskStatus = 'idle' | 'thinking' | 'awaitingConfirmation' | 'runningTool' | 'waitingOutput' | 'compressing' | 'done' | 'stopped' | 'error';
+export type AiTaskStatus = 'idle' | 'thinking' | 'awaitingConfirmation' | 'runningTool' | 'waitingOutput' | 'compressing' | 'done' | 'stopped' | 'interrupted' | 'error';
 
 export type AiToolRun = {
   id: string;
@@ -98,6 +98,20 @@ export type AiSessionMemory = {
   compression?: AiCompressionStats;
 };
 
+export type AiSessionExport = {
+  format: 'nexus-terminal-ai-session';
+  version: 3;
+  exportedAt: string;
+  sessionId: string;
+  connectionName: string;
+  connection: {
+    name: string;
+    host: string;
+    port: string;
+  };
+  memory: AiSessionMemory;
+};
+
 export type CompactContextOptions = {
   force?: boolean;
   title: string;
@@ -121,4 +135,5 @@ export type AiRuntimeState = {
   errorMessage: string;
   abortController: AbortController | null;
   activityEvents: AiActivityEvent[];
+  continuationAvailable: boolean;
 };

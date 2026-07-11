@@ -189,7 +189,9 @@ app.set('trust proxy', true);
 
 // --- 中间件 ---
 app.use(ipWhitelistMiddleware as RequestHandler);
-app.use(express.json({ limit: '256kb' }));
+// The AI request limit is validated from the frontend-sent maxRequestKb value.
+// Keep a larger parser ceiling so valid user-selected limits up to 1MB reach the route.
+app.use(express.json({ limit: '2mb' }));
 
 // --- 静态文件服务 ---
 const uploadsPath = resolveBackendDataPath('uploads');

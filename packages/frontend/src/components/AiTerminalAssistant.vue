@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia';
 import { useAiStore, type AiTaskStatus, type AiToolRun } from '../stores/ai.store';
 import { useConfirmDialog } from '../composables/useConfirmDialog';
 import nexusAiAvatar from '../assets/nexus-ai-avatar.png';
+import { MAX_IMPORT_FILE_BYTES } from '../stores/ai/ai.constants';
 
 const aiStore = useAiStore();
 const { showConfirmDialog } = useConfirmDialog();
@@ -20,6 +21,7 @@ const {
   visibleMessages,
   latestToolRuns,
   activeActivities,
+  storageWarning,
   availableModels,
   isFetchingModels,
   modelFetchMessage,
@@ -33,12 +35,14 @@ const {
   activeSessionId,
   canSend,
   hasActiveTerminal,
+  continuationAvailable,
 } = storeToRefs(aiStore);
 
 const modeMenuOpen = ref(false);
 const modeMenuRef = ref<HTMLElement | null>(null);
 const modelMenuOpen = ref(false);
 const modelMenuRef = ref<HTMLElement | null>(null);
+const importFileInput = ref<HTMLInputElement | null>(null);
 const modeOptions = [
   { value: 'readOnly', label: '只读', description: '仅查看，不执行命令' },
   { value: 'confirm', label: '确认', description: '每次执行前确认' },
@@ -121,6 +125,7 @@ const formatTaskStatus = (status: AiTaskStatus) => {
   if (status === 'compressing') return '压缩上下文';
   if (status === 'done') return '已完成';
   if (status === 'stopped') return '已停止';
+  if (status === 'interrupted') return '输出已截断';
   if (status === 'error') return '出错';
   return '空闲';
 };
@@ -372,6 +377,15 @@ const switchReadOnly = () => {
   runMode.value = 'readOnly';
 };
 
+const continueLastResponse = () => aiStore.continueLastResponse({
+  confirmCommand: async ({ command, reason, riskReason, riskLevel, connectionName }: { command: string; reason: string; riskReason?: string; riskLevel: string; connectionName?: string }) => showConfirmDialog({
+    title: riskLevel === 'risky' ? '确认 AI 执行风险命令' : '确认 AI 执行命令',
+    message: [`目标终端：${connectionName || sessionLabel.value}`, '', command, '', `AI 理由：${reason}`, riskReason ? `风险提示：${riskReason}` : '', '', '确认后才会发送到当前终端。'].filter(Boolean).join('\n'),
+    confirmText: '执行',
+    cancelText: '取消',
+  }),
+});
+
 const saveConfig = async () => {
   try {
     await aiStore.saveConfig();
@@ -392,7 +406,122 @@ const fetchModels = async () => {
   await aiStore.fetchModels();
 };
 
+const downloadFile = (content: string, filename: string, type: string) => {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+const confirmExportSafety = () => showConfirmDialog({
+  title: '导出 AI 会话',
+  message: '导出文件可能包含终端输出中的 IP、Token、密码或环境变量。程序不会导出 API Key、SSH 密码和私钥，但请妥善保管导出的文件。是否继续？',
+  confirmText: '继续导出',
+  cancelText: '取消',
+});
+
+const exportJson = async () => {
+  if (!await confirmExportSafety()) return;
+  const data = aiStore.exportSessionData();
+  downloadFile(JSON.stringify(data, null, 2), `nexus-ai-session-${data.exportedAt.slice(0, 10)}.json`, 'application/json');
+};
+
+const exportMarkdown = async () => {
+  if (!await confirmExportSafety()) return;
+  const data = aiStore.exportSessionData();
+  const lines = [
+    '# Nexus Terminal AI 会话',
+    '',
+    `- 终端：${data.connectionName}`,
+    `- 导出时间：${data.exportedAt}`,
+    '',
+    '## 记忆摘要',
+    '',
+    data.memory.summary || '暂无记忆摘要。',
+    '',
+    '## 对话记录',
+    '',
+  ];
+  data.memory.messages.forEach(message => {
+    const label = message.role === 'user' ? '用户' : message.role === 'assistant' ? 'AI' : message.role === 'tool' ? '工具' : '系统';
+    lines.push(`### ${label}`, '', message.content || (message.tool_calls ? `调用工具：${message.tool_calls.map(call => call.function.name).join('、')}` : ''), '');
+  });
+  lines.push('## 工具调用记录', '');
+  data.memory.toolRuns.forEach(run => {
+    lines.push(`- ${formatToolName(run.name)}：${formatToolStatus(run.status)}，耗时 ${formatToolDuration(run)}`);
+    if (run.args) lines.push(`  - 参数：\`${JSON.stringify(run.args)}\``);
+    if (run.error) lines.push(`  - 失败：${run.error}`);
+  });
+  if (data.memory.compression) {
+    lines.push('', '## 压缩记录', '', `- 处理消息：${data.memory.compression.compactedCount}`, `- 保留消息：${data.memory.compression.retainedCount}`, `- 摘要来源：${data.memory.compression.summaryMode}`);
+  }
+  downloadFile(lines.join('\n'), `nexus-ai-session-${data.exportedAt.slice(0, 10)}.md`, 'text/markdown;charset=utf-8');
+};
+
+const openImportDialog = () => importFileInput.value?.click();
+
+const importSessionFile = async (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    if (file.size > MAX_IMPORT_FILE_BYTES) throw new Error('导入文件不能超过 5MB。');
+    const data = JSON.parse(await file.text());
+    const compatibility = aiStore.checkSessionImport(data);
+    if (compatibility.nameMismatch) {
+      const confirmedNameMismatch = await showConfirmDialog({
+        title: '终端名称不同',
+        message: `${compatibility.message} 是否确认导入？`,
+        confirmText: '确认导入',
+        cancelText: '取消',
+      });
+      if (!confirmedNameMismatch) return;
+    }
+    const confirmed = await showConfirmDialog({
+      title: '导入 AI 会话',
+      message: '导入会话将替换当前终端的 AI 对话、摘要和工具记录。导入的命令不会自动执行。是否继续？',
+      confirmText: '导入并替换',
+      cancelText: '取消',
+    });
+    if (!confirmed) return;
+    const result = aiStore.importSessionData(data, 'replace', !!compatibility.nameMismatch);
+    await showConfirmDialog({
+      title: '会话导入完成',
+      message: `已导入 ${result.messageCount} 条消息和 ${result.toolRunCount} 条工具记录。`,
+      confirmText: '知道了',
+      cancelText: '关闭',
+    });
+  } catch (error: any) {
+    await showConfirmDialog({
+      title: '会话导入失败',
+      message: error.message || '文件不是有效的 Nexus Terminal AI 会话。',
+      confirmText: '知道了',
+      cancelText: '关闭',
+    });
+  }
+};
+
+const testStreaming = async () => {
+  try {
+    await aiStore.testStreaming();
+  } catch (error: any) {
+    errorMessage.value = error.response?.data?.message || error.message || '流式输出测试失败。';
+  }
+};
+
 const deleteHistory = async () => {
+  if (isRunning.value) {
+    await showConfirmDialog({
+      title: 'AI 正在运行',
+      message: '请先停止当前 AI 任务，再删除会话历史，避免正在运行的任务写回旧消息。',
+      confirmText: '知道了',
+      cancelText: '关闭',
+    });
+    return;
+  }
   const confirmed = await showConfirmDialog({
     title: '删除当前 AI 历史会话',
     message: `将删除当前终端「${sessionLabel.value}」的 AI 对话、记忆摘要和工具调用记录。这个操作不会删除 SSH 连接本身。`,
@@ -408,6 +537,7 @@ const deleteHistory = async () => {
 
 <template>
   <div class="ai-terminal-assistant flex h-full min-h-0 flex-col bg-background text-foreground">
+    <input ref="importFileInput" type="file" accept=".json,application/json" class="hidden" @change="importSessionFile" />
     <div class="flex items-center justify-between border-b border-border px-3 py-2">
       <div class="min-w-0">
         <div class="text-sm font-semibold">AI 终端助手</div>
@@ -473,11 +603,13 @@ const deleteHistory = async () => {
       <div class="flex gap-2">
         <button class="rounded bg-primary px-3 py-1.5 text-white" @click="saveConfig">保存配置</button>
         <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="testConfig">测试连接</button>
+        <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testStreaming">测试流式</button>
       </div>
       <div v-if="configMessage" class="text-success">{{ configMessage }}</div>
     </div>
 
     <div class="border-b border-border px-3 py-1.5 text-xs">
+      <div v-if="storageWarning" class="mb-1 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning">{{ storageWarning }}</div>
       <div class="flex items-center justify-between gap-2">
         <div class="flex min-w-0 items-center gap-2">
           <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="isRunning ? 'animate-pulse bg-primary' : taskStatus === 'error' ? 'bg-error' : 'bg-success'" />
@@ -637,14 +769,17 @@ const deleteHistory = async () => {
 
       <div v-if="errorMessage" class="rounded border border-error/40 bg-error/10 p-2.5 text-error">
         <div class="flex items-center justify-between gap-2">
-          <span class="min-w-0 truncate text-sm font-semibold">AI 执行出错：{{ errorMessage }}</span>
+          <span class="min-w-0 truncate text-sm font-semibold">{{ continuationAvailable ? 'AI 输出已截断' : 'AI 执行出错' }}：{{ errorMessage }}</span>
           <span class="flex-shrink-0 text-[11px] text-error/70">需处理</span>
         </div>
         <details class="mt-1 text-[11px]">
           <summary class="cursor-pointer text-error/80">查看原因与建议</summary>
-          <div class="mt-1 rounded border border-error/20 bg-background/50 px-2 py-1.5 text-text-secondary">建议先重新读取终端确认状态；如果是上下文过大或历史污染，再清理上下文后重试。</div>
+          <div class="mt-1 rounded border border-error/20 bg-background/50 px-2 py-1.5 text-text-secondary">
+            {{ continuationAvailable ? '已保存当前已收到的内容，可以从中断位置继续生成。' : '建议先重新读取终端确认状态；如果是上下文过大或历史污染，再清理上下文后重试。' }}
+          </div>
         </details>
         <div class="mt-2 flex flex-wrap gap-2 text-xs">
+          <button v-if="continuationAvailable" class="rounded border border-primary/50 px-2 py-1 text-primary hover:bg-primary/10" @click="continueLastResponse">继续生成</button>
           <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10" @click="rereadTerminal">重新读取终端</button>
           <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10 disabled:opacity-50" :disabled="!lastUserPrompt" @click="retryLastPrompt">重试上一轮</button>
           <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10 disabled:opacity-50" :disabled="!lastUserPrompt" @click="compactAndRetry">清理上下文后重试</button>
@@ -670,9 +805,12 @@ const deleteHistory = async () => {
         </div>
 
         <div v-if="drawerPanel === 'context'" class="flex-1 overflow-auto p-3 text-xs">
-          <div class="mb-3 flex gap-2">
+          <div class="mb-3 flex flex-wrap gap-2">
             <button class="rounded bg-primary px-3 py-1.5 text-white" @click="compactContext">压缩上下文</button>
             <button class="rounded border border-error/40 px-3 py-1.5 text-error hover:bg-error/10" @click="deleteHistory">删除历史</button>
+            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportJson">导出 JSON</button>
+            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportMarkdown">导出 Markdown</button>
+            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="openImportDialog">导入 JSON</button>
           </div>
           <div v-if="hasMemorySummary" class="rounded border border-border/60 p-2">
             <div class="mb-2 font-medium text-text-secondary">记忆摘要</div>

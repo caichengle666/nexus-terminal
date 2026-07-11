@@ -1,6 +1,7 @@
 import {
   LEGACY_MESSAGES_KEY,
   LEGACY_TOOL_RUNS_KEY,
+  MAX_SAVED_MEMORY_BYTES,
   MAX_SAVED_CONTENT_LENGTH,
   MAX_SAVED_MESSAGES,
   MAX_SAVED_TOOL_RUNS,
@@ -153,9 +154,33 @@ export const loadStoredMemories = () => {
   return memories;
 };
 
-export const persistMemories = (memories: Record<string, AiSessionMemory>) => {
+export const persistMemories = (memories: Record<string, AiSessionMemory>, priorityKey?: string) => {
   const normalized = Object.fromEntries(
     Object.entries(memories).map(([key, value]) => [key, normalizeMemoryForStorage(value)]),
   );
-  localStorage.setItem(MEMORIES_KEY, JSON.stringify(normalized));
+  const entries = Object.entries(normalized).reverse().sort(([leftKey, left], [rightKey, right]) => {
+    if (leftKey === priorityKey) return -1;
+    if (rightKey === priorityKey) return 1;
+    return (
+    (right.summaryUpdatedAt || right.lastCompactedAt || 0) - (left.summaryUpdatedAt || left.lastCompactedAt || 0)
+    );
+  });
+  const retained: Record<string, AiSessionMemory> = {};
+  let droppedSessionCount = 0;
+  for (const [key, value] of entries) {
+    const candidate = { ...retained, [key]: value };
+    if (JSON.stringify(candidate).length * 2 > MAX_SAVED_MEMORY_BYTES && Object.keys(retained).length > 0) {
+      droppedSessionCount += 1;
+      continue;
+    }
+    retained[key] = value;
+  }
+
+  try {
+    localStorage.setItem(MEMORIES_KEY, JSON.stringify(retained));
+    return { ok: true, droppedSessionCount };
+  } catch (error) {
+    console.warn('[AI Terminal] Failed to persist AI memories:', error);
+    return { ok: false, droppedSessionCount };
+  }
 };

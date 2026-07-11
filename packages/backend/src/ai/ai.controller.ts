@@ -43,8 +43,32 @@ export const listModels = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
+export const testStreaming = async (req: Request, res: Response): Promise<void> => {
+  try {
+    res.status(200).json(await AiService.testStreamingConfig(req.body || {}));
+  } catch (error: any) {
+    const status = error.status || error.response?.status || 500;
+    const message = error.response?.data?.error?.message
+      || error.response?.data?.message
+      || error.message
+      || 'AI streaming test failed.';
+    res.status(status).json({ message });
+  }
+};
+
 export const chat = async (req: Request, res: Response): Promise<void> => {
   try {
+    if (req.body?.stream === true) {
+      const upstream = await AiService.forwardChatCompletionStream(req.body || {});
+      res.status(upstream.status);
+      res.setHeader('Content-Type', upstream.headers['content-type'] || 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      req.on('close', () => upstream.data.destroy?.());
+      upstream.data.pipe(res);
+      return;
+    }
     const response = await AiService.forwardChatCompletion(req.body || {});
     res.status(response.status).json(response.data);
   } catch (error: any) {

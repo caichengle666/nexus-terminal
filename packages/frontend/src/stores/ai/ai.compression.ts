@@ -1,6 +1,5 @@
 import {
   AI_REQUEST_COMPACT_BYTES,
-  COMPACT_CHAR_TRIGGER,
   COMPACT_MESSAGE_TRIGGER,
   MAX_AI_REQUEST_BYTES,
   MAX_MODEL_CONTEXT_CHARS,
@@ -291,9 +290,8 @@ export const compactSessionContext = async ({
     memory.messages = pruned.messages;
   }
   const requestBytes = estimateMemoryRequestBytes(memory);
-  const totalChars = estimateMessageChars(memory.messages);
   const isOverBudget = requestBytes > effectiveCompactTriggerBytes;
-  const isOverAutoTrigger = memory.messages.length > COMPACT_MESSAGE_TRIGGER || totalChars > COMPACT_CHAR_TRIGGER;
+  const isOverAutoTrigger = memory.messages.length > COMPACT_MESSAGE_TRIGGER;
 
   if (!force && !isOverBudget && !isOverAutoTrigger) {
     return {

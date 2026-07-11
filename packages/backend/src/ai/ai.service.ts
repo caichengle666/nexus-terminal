@@ -10,6 +10,8 @@ export interface AiChatRequest {
   tools?: unknown;
   toolChoice?: unknown;
   temperature?: unknown;
+  stream?: unknown;
+  maxRequestKb?: unknown;
 }
 
 export interface AiConfigRequest {
@@ -51,6 +53,17 @@ const decryptStoredApiKey = (encryptedApiKey: string) => {
   return decrypt(encryptedApiKey);
 };
 
+const validateRequestBudget = (payload: AiChatRequest) => {
+  const requestedKb = Number(payload.maxRequestKb) || 256;
+  const maxRequestBytes = Math.min(1024 * 1024, Math.max(64 * 1024, requestedKb * 1024));
+  const requestBytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+  if (requestBytes > maxRequestBytes) {
+    const error = new Error(`AI 请求超过当前设置的 ${Math.round(maxRequestBytes / 1024)}KB 上限。`);
+    (error as any).status = 413;
+    throw error;
+  }
+};
+
 export const getConfig = async () => {
   const stored = await readStoredConfig();
   return {
@@ -90,6 +103,7 @@ const resolveConfig = async (payload: AiChatRequest) => {
 };
 
 export const forwardChatCompletion = async (payload: AiChatRequest) => {
+  validateRequestBudget(payload);
   const {
     messages,
     tools,
@@ -129,20 +143,60 @@ export const forwardChatCompletion = async (payload: AiChatRequest) => {
   };
 };
 
+export const forwardChatCompletionStream = async (payload: AiChatRequest) => {
+  validateRequestBudget(payload);
+  const { messages, tools, toolChoice, temperature } = payload;
+  const { apiBaseUrl, apiKey, model } = await resolveConfig(payload);
+
+  if (!apiKey || !model || !Array.isArray(messages)) {
+    const error = new Error('Missing required AI chat fields.');
+    (error as any).status = 400;
+    throw error;
+  }
+
+  const endpoint = `${normalizeApiBaseUrl(apiBaseUrl)}/chat/completions`;
+  return axios.post(
+    endpoint,
+    {
+      model,
+      messages,
+      tools,
+      tool_choice: toolChoice || 'auto',
+      temperature: typeof temperature === 'number' ? temperature : 0.2,
+      stream: true,
+    },
+    {
+      timeout: 120000,
+      responseType: 'stream',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+    },
+  );
+};
+
 export const testConfig = async (payload: AiConfigRequest) => {
-  const saved = await saveConfig(payload);
   const stored = await readStoredConfig();
-  const endpoint = `${normalizeApiBaseUrl(stored.apiBaseUrl)}/models`;
+  const apiBaseUrl = payload.apiBaseUrl || stored.apiBaseUrl;
+  const apiKey = payload.apiKey || decryptStoredApiKey(stored.encryptedApiKey);
+  if (!apiKey) {
+    const error = new Error('AI API key is required.');
+    (error as any).status = 400;
+    throw error;
+  }
+  const endpoint = `${normalizeApiBaseUrl(apiBaseUrl)}/models`;
 
   await axios.get(endpoint, {
     timeout: 20000,
     headers: {
-      Authorization: `Bearer ${decryptStoredApiKey(stored.encryptedApiKey)}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
   });
 
-  return saved;
+  return saveConfig(payload);
 };
 
 export const listModels = async (payload: AiConfigRequest) => {
@@ -176,4 +230,40 @@ export const listModels = async (payload: AiConfigRequest) => {
   const models = Array.from(new Set<string>(modelNames)).sort((left, right) => left.localeCompare(right));
 
   return { models };
+};
+
+export const testStreamingConfig = async (payload: AiConfigRequest) => {
+  const stored = await readStoredConfig();
+  const apiBaseUrl = payload.apiBaseUrl || stored.apiBaseUrl;
+  const apiKey = payload.apiKey || decryptStoredApiKey(stored.encryptedApiKey);
+  const model = payload.model || stored.model;
+  if (!apiKey || !model) {
+    const error = new Error('AI API key and model are required.');
+    (error as any).status = 400;
+    throw error;
+  }
+
+  const endpoint = `${normalizeApiBaseUrl(apiBaseUrl)}/chat/completions`;
+  const response = await axios.post(endpoint, {
+    model,
+    messages: [{ role: 'user', content: 'Reply with OK.' }],
+    max_tokens: 1,
+    stream: true,
+  }, {
+    timeout: 20000,
+    responseType: 'stream',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    },
+  });
+  const contentType = String(response.headers['content-type'] || '');
+  response.data.destroy?.();
+  if (!contentType.includes('text/event-stream')) {
+    const error = new Error('服务商没有返回 SSE 流式响应。');
+    (error as any).status = 422;
+    throw error;
+  }
+  return { supported: true, message: '流式输出测试通过。' };
 };
