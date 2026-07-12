@@ -34,9 +34,22 @@
                        :disabled="saving" />
               </div>
             </div>
+            <div class="flex items-center gap-3">
+              <label class="inline-flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                <input v-model="useProxy" type="checkbox" class="rounded border-border text-primary focus:ring-primary" :disabled="saving" />
+                {{ $t('settings.webdavBackup.useProjectProxy', '使用项目代理传输 WebDAV 数据') }}
+              </label>
+              <select v-if="useProxy" v-model="form.proxyId" :disabled="saving || loadingProxies"
+                      class="min-w-0 flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm">
+                <option :value="null">{{ loadingProxies ? $t('common.loading', '加载中...') : $t('settings.webdavBackup.selectProxy', '选择项目代理') }}</option>
+                <option v-for="proxy in proxies" :key="proxy.id" :value="proxy.id">
+                  {{ proxy.name }} ({{ proxy.type }} · {{ proxy.host }}:{{ proxy.port }})
+                </option>
+              </select>
+            </div>
           </div>
           <div class="flex items-center space-x-3">
-            <button type="submit" :disabled="saving || !form.url || !form.username || !form.password"
+            <button type="submit" :disabled="saving || !form.url || !form.username || !form.password || (useProxy && !form.proxyId)"
                     class="px-4 py-2 bg-button text-button-text rounded-md shadow-sm hover:bg-button-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out text-sm font-medium inline-flex items-center">
               <svg v-if="saving" class="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -48,7 +61,7 @@
                     class="px-4 py-2 bg-error/10 text-error rounded-md hover:bg-error/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-error disabled:opacity-50 transition text-sm font-medium">
               {{ $t('settings.webdavBackup.disconnect', '断开连接') }}
             </button>
-            <button v-if="configured" type="button" @click="handleTestConnection" :disabled="testing"
+            <button v-if="configured" type="button" @click="handleTestConnection" :disabled="testing || (useProxy && !form.proxyId)"
                     class="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 transition text-sm font-medium">
               {{ testing ? $t('common.testing', '测试中...') : $t('settings.webdavBackup.testConnection', '测试连接') }}
             </button>
@@ -120,6 +133,7 @@ const { t } = useI18n();
 
 const configured = ref(false);
 const configUrl = ref('');
+const configUsername = ref('');
 const saving = ref(false);
 const testing = ref(false);
 const configMessage = ref('');
@@ -132,11 +146,15 @@ const backupSuccess = ref(false);
 const backupList = ref<Array<{ name: string; size: number; lastModified: string }>>([]);
 const restoring = ref(false);
 const deletingFile = ref('');
+const useProxy = ref(false);
+const loadingProxies = ref(false);
+const proxies = ref<Array<{ id: number; name: string; type: 'HTTP' | 'SOCKS5'; host: string; port: number }>>([]);
 
 const form = ref({
   url: '',
   username: '',
   password: '',
+  proxyId: null as number | null,
 });
 
 async function fetchConfig() {
@@ -145,9 +163,12 @@ async function fetchConfig() {
     configured.value = res.data.configured;
     if (res.data.configured) {
       configUrl.value = res.data.url;
+      configUsername.value = res.data.username;
       form.value.url = res.data.url;
       form.value.username = res.data.username;
       form.value.password = '';
+      form.value.proxyId = res.data.proxyId ?? null;
+      useProxy.value = form.value.proxyId !== null;
       await fetchBackupList();
     }
   } catch (err: any) {
@@ -164,6 +185,7 @@ async function handleSaveConfig() {
       url: form.value.url,
       username: form.value.username,
       password: form.value.password,
+      proxyId: useProxy.value ? form.value.proxyId : null,
     });
     configMessage.value = t('settings.webdavBackup.configSaved', '配置已保存，连接正常');
     configSuccess.value = true;
@@ -197,10 +219,24 @@ async function handleDeleteConfig() {
 }
 
 async function handleTestConnection() {
+  if (!form.value.password && (form.value.url !== configUrl.value || form.value.username !== configUsername.value)) {
+    configMessage.value = t('settings.webdavBackup.enterPasswordToTestChanges', '修改服务器地址或用户名后，请输入密码再测试连接。');
+    configSuccess.value = false;
+    return;
+  }
+
   testing.value = true;
   configMessage.value = '';
   try {
-    await axios.post('/api/v1/webdav-backup/test');
+    const payload = form.value.password
+      ? {
+          url: form.value.url,
+          username: form.value.username,
+          password: form.value.password,
+          proxyId: useProxy.value ? form.value.proxyId : null,
+        }
+      : { proxyId: useProxy.value ? form.value.proxyId : null };
+    await axios.post('/api/v1/webdav-backup/test', payload);
     configMessage.value = t('settings.webdavBackup.connectionOk', '连接正常');
     configSuccess.value = true;
   } catch (err: any) {
@@ -208,6 +244,18 @@ async function handleTestConnection() {
     configSuccess.value = false;
   } finally {
     testing.value = false;
+  }
+}
+
+async function fetchProxies() {
+  loadingProxies.value = true;
+  try {
+    const res = await axios.get('/api/v1/proxies');
+    proxies.value = res.data || [];
+  } catch (err: any) {
+    console.error('获取代理列表失败:', err);
+  } finally {
+    loadingProxies.value = false;
   }
 }
 
@@ -297,5 +345,6 @@ function formatSize(bytes: number): string {
 
 onMounted(() => {
   fetchConfig();
+  fetchProxies();
 });
 </script>

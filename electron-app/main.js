@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage, shell } = require('electron');
 const path = require('path');
 const url = require('url');
 const express = require('express'); 
@@ -673,6 +673,19 @@ ipcMain.on('minimize-window', () => {
 });
 
 ipcMain.handle('get-app-version', () => app.getVersion());
+
+ipcMain.handle('select-directory', async () => {
+  const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
+  return result.canceled ? { canceled: true } : { canceled: false, path: result.filePaths[0] };
+});
+
+ipcMain.handle('open-path', async (_event, targetPath) => {
+  if (typeof targetPath !== 'string' || !targetPath.trim()) {
+    return { ok: false, error: '路径无效。' };
+  }
+  const error = await shell.openPath(targetPath);
+  return error ? { ok: false, error } : { ok: true };
+});
 
 ipcMain.on('close-window', () => {
   if (mainWindow) {

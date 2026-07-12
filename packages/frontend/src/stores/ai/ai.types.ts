@@ -39,6 +39,15 @@ export type AiToolRun = {
   error?: string;
 };
 
+export type AiHistoryConfig = {
+  enabled: boolean;
+  storagePath: string;
+  effectiveStoragePath?: string;
+  maxStorageMb: number;
+  maxSessionMb: number;
+  writeMarkdown: boolean;
+};
+
 // UI-only progress events. They are deliberately kept out of AiSessionMemory
 // so they never become part of the model context or the compressed summary.
 export type AiActivityEvent = {

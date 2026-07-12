@@ -2,17 +2,44 @@ import { createClient, WebDAVClient, WebDAVClientOptions } from 'webdav';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import AdmZip from 'adm-zip';
+import HttpProxyAgent from 'http-proxy-agent';
+import HttpsProxyAgent from 'https-proxy-agent';
+import { SocksProxyAgent } from 'socks-proxy-agent';
 const archiver = require('archiver');
-import { getDbInstance } from '../database/connection';
+import { allDb, getDbInstance, runDb } from '../database/connection';
 import { settingsRepository } from '../settings/settings.repository';
+import * as ProxyRepository from '../proxies/proxy.repository';
+import { decrypt } from '../utils/crypto';
 
 const WEBDAV_CONFIG_KEY = 'webdavBackupConfig';
 const BACKUP_DIR = '/nexus-terminal-backups';
+const BACKUP_FILE_NAME_PATTERN = /^nexus-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.zip$/;
+const BACKUP_TABLES = [
+  'settings', 'connections', 'proxies', 'ssh_keys',
+  'tags', 'connection_tags', 'quick_commands', 'quick_command_tags',
+  'quick_command_tag_associations', 'command_history', 'path_history',
+  'favorite_paths', 'appearance_settings', 'terminal_themes',
+  'notification_settings', 'users',
+] as const;
+const RESTORE_DELETE_ORDER = [
+  'connection_tags', 'quick_command_tag_associations', 'connections',
+  'tags', 'quick_commands', 'quick_command_tags', 'proxies', 'ssh_keys',
+  'command_history', 'path_history', 'favorite_paths', 'appearance_settings',
+  'terminal_themes', 'notification_settings', 'settings',
+] as const;
+const RESTORE_INSERT_ORDER = [
+  'settings', 'proxies', 'ssh_keys', 'connections', 'tags', 'connection_tags',
+  'quick_commands', 'quick_command_tags', 'quick_command_tag_associations',
+  'command_history', 'path_history', 'favorite_paths', 'appearance_settings',
+  'terminal_themes', 'notification_settings',
+] as const;
 
 export interface WebDavBackupConfig {
   url: string;
   username: string;
   password: string;
+  proxyId?: number | null;
 }
 
 export interface BackupFileInfo {
@@ -48,10 +75,47 @@ export async function deleteWebDavConfig(): Promise<void> {
   await settingsRepository.deleteSetting(WEBDAV_CONFIG_KEY);
 }
 
-function createWebDavClient(config: WebDavBackupConfig): WebDAVClient {
+async function getWebDavProxyAgents(proxyId?: number | null): Promise<Pick<WebDAVClientOptions, 'httpAgent' | 'httpsAgent'>> {
+  if (!proxyId) return {};
+
+  const proxy = await ProxyRepository.findProxyById(proxyId);
+  if (!proxy) {
+    throw new Error('所选 WebDAV 代理不存在，请重新选择。');
+  }
+  if (proxy.auth_method === 'key') {
+    throw new Error('WebDAV 代理不支持密钥认证，请使用无认证或密码认证的 HTTP/SOCKS5 代理。');
+  }
+
+  const protocol = proxy.type === 'SOCKS5' ? 'socks5h:' : 'http:';
+  const host = proxy.host.includes(':') && !proxy.host.startsWith('[')
+    ? `[${proxy.host}]`
+    : proxy.host;
+  const proxyUrl = new URL(`${protocol}//${host}:${proxy.port}`);
+
+  if (proxy.auth_method === 'password') {
+    if (!proxy.username || !proxy.encrypted_password) {
+      throw new Error('所选 WebDAV 代理缺少用户名或密码。');
+    }
+    proxyUrl.username = proxy.username;
+    proxyUrl.password = decrypt(proxy.encrypted_password);
+  }
+
+  if (proxy.type === 'SOCKS5') {
+    const agent = new SocksProxyAgent(proxyUrl.toString());
+    return { httpAgent: agent, httpsAgent: agent };
+  }
+
+  return {
+    httpAgent: HttpProxyAgent(proxyUrl.toString()),
+    httpsAgent: HttpsProxyAgent(proxyUrl.toString()),
+  };
+}
+
+export async function createWebDavClient(config: WebDavBackupConfig): Promise<WebDAVClient> {
   const options: WebDAVClientOptions = {
     username: config.username,
     password: config.password,
+    ...(await getWebDavProxyAgents(config.proxyId)),
   };
   return createClient(config.url, options);
 }
@@ -64,19 +128,18 @@ async function ensureBackupDir(client: WebDAVClient): Promise<void> {
   }
 }
 
+function getBackupRemotePath(fileName: string): string {
+  if (!BACKUP_FILE_NAME_PATTERN.test(fileName)) {
+    throw new Error('无效的备份文件名。');
+  }
+  return path.posix.join(BACKUP_DIR, fileName);
+}
+
 async function collectBackupData(): Promise<Record<string, any>> {
   const db = await getDbInstance();
   const backup: Record<string, any> = {};
 
-  const tables = [
-    'settings', 'connections', 'proxies', 'ssh_keys',
-    'tags', 'connection_tags', 'quick_commands', 'quick_command_tags',
-    'quick_command_tag_associations', 'command_history', 'path_history',
-    'favorite_paths', 'appearance_settings', 'terminal_themes',
-    'notification_settings', 'users',
-  ];
-
-  for (const table of tables) {
+  for (const table of BACKUP_TABLES) {
     try {
       const rows = await new Promise<any[]>((resolve, reject) => {
         db.all(`SELECT * FROM ${table}`, (err: any, rows: any[]) => {
@@ -112,7 +175,7 @@ export async function createBackup(): Promise<{ fileName: string; size: number }
   const config = await getWebDavConfig();
   if (!config) throw new Error('WebDAV 备份未配置，请先保存 WebDAV 连接信息。');
 
-  const client = createWebDavClient(config);
+  const client = await createWebDavClient(config);
   await ensureBackupDir(client);
 
   const data = await collectBackupData();
@@ -153,12 +216,12 @@ export async function listBackups(): Promise<BackupFileInfo[]> {
   const config = await getWebDavConfig();
   if (!config) throw new Error('WebDAV 备份未配置。');
 
-  const client = createWebDavClient(config);
+  const client = await createWebDavClient(config);
   await ensureBackupDir(client);
 
   const items = await client.getDirectoryContents(BACKUP_DIR);
   const files: BackupFileInfo[] = items
-    .filter((item: any) => item.type === 'file' && item.basename.endsWith('.zip'))
+    .filter((item: any) => item.type === 'file' && BACKUP_FILE_NAME_PATTERN.test(item.basename))
     .map((item: any) => ({
       name: item.basename,
       size: item.size || 0,
@@ -173,8 +236,8 @@ export async function downloadBackup(fileName: string): Promise<Buffer> {
   const config = await getWebDavConfig();
   if (!config) throw new Error('WebDAV 备份未配置。');
 
-  const client = createWebDavClient(config);
-  const remotePath = path.posix.join(BACKUP_DIR, fileName).replace(/\\/g, '/');
+  const client = await createWebDavClient(config);
+  const remotePath = getBackupRemotePath(fileName);
   const raw = await client.getFileContents(remotePath);
   const bufData: Buffer = Buffer.isBuffer(raw) ? raw : (typeof raw === 'string' ? Buffer.from(raw) : Buffer.from((raw as any).data || raw));
   return bufData;
@@ -184,70 +247,80 @@ export async function deleteBackup(fileName: string): Promise<void> {
   const config = await getWebDavConfig();
   if (!config) throw new Error('WebDAV 备份未配置。');
 
-  const client = createWebDavClient(config);
-  const remotePath = path.posix.join(BACKUP_DIR, fileName).replace(/\\/g, '/');
+  const client = await createWebDavClient(config);
+  const remotePath = getBackupRemotePath(fileName);
   await client.deleteFile(remotePath);
 }
 
 export async function restoreFromBackup(fileName: string): Promise<{ tables: string[]; message: string }> {
   const buffer = await downloadBackup(fileName);
-  const content = buffer.toString('utf-8');
-  const data = JSON.parse(content);
+  let data: Record<string, any>;
+
+  try {
+    const archive = new AdmZip(buffer);
+    const backupEntry = archive.getEntry('nexus-backup.json');
+    if (!backupEntry) {
+      throw new Error('备份文件中缺少 nexus-backup.json。');
+    }
+    data = JSON.parse(backupEntry.getData().toString('utf-8'));
+  } catch (error: any) {
+    if (error.message === '备份文件中缺少 nexus-backup.json。') {
+      throw error;
+    }
+    throw new Error(`无法读取备份文件: ${error.message}`);
+  }
 
   if (!data._meta || !data._meta.version) {
     throw new Error('无效的备份文件格式。');
   }
 
-  const tableNames = Object.keys(data).filter(k => k !== '_meta');
+  const restoreTables = BACKUP_TABLES.filter(table => table !== 'users' && Object.prototype.hasOwnProperty.call(data, table));
+  for (const table of restoreTables) {
+    if (!Array.isArray(data[table])) {
+      throw new Error(`备份中的 ${table} 数据格式无效。`);
+    }
+  }
+
   const db = await getDbInstance();
-
-  await new Promise<void>((resolve, reject) => {
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-      try {
-        for (const table of tableNames) {
-          const rows = data[table];
-          if (!Array.isArray(rows) || rows.length === 0) continue;
-          if (table !== 'users') {
-            db.run(`DELETE FROM ${table}`);
-          }
-
-          if (table === 'settings') {
-            const stmt = db.prepare('INSERT OR REPLACE INTO settings (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)');
-            for (const row of rows) {
-              stmt.run(row.key, row.value, row.created_at || Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000));
-            }
-            stmt.finalize();
-          } else if (table === 'users') {
-            console.log('[WebDAV Restore] 跳过 users 表恢复以保护现有帐户。');
-          } else if (table === 'connections') {
-            const stmt = db.prepare('INSERT INTO connections (name, type, host, port, username, auth_method, encrypted_password, encrypted_private_key, encrypted_passphrase, proxy_id, ssh_key_id, notes, jump_chain, proxy_type, created_at, updated_at, last_connected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-            for (const row of rows) {
-              stmt.run(row.name, row.type, row.host, row.port, row.username, row.auth_method, row.encrypted_password, row.encrypted_private_key, row.encrypted_passphrase, row.proxy_id, row.ssh_key_id, row.notes, row.jump_chain, row.proxy_type, row.created_at, row.updated_at, row.last_connected_at);
-            }
-            stmt.finalize();
-          } else {
-            const columns = Object.keys(rows[0]).filter(c => c !== 'id');
-            const placeholders = columns.map(() => '?').join(', ');
-            const colNames = columns.join(', ');
-            const stmt = db.prepare(`INSERT INTO ${table} (${colNames}) VALUES (${placeholders})`);
-            for (const row of rows) {
-              const values = columns.map(c => row[c] === undefined ? null : row[c]);
-              stmt.run(...values);
-            }
-            stmt.finalize();
-          }
-        }
-        db.run('COMMIT');
-        resolve();
-      } catch (err) {
-        db.run('ROLLBACK');
-        reject(err);
+  await runDb(db, 'BEGIN IMMEDIATE TRANSACTION');
+  try {
+    for (const table of RESTORE_DELETE_ORDER) {
+      if (restoreTables.includes(table)) {
+        await runDb(db, `DELETE FROM "${table}"`);
       }
-    });
-  });
+    }
 
-  return { tables: tableNames, message: `已从 ${fileName} 恢复 ${tableNames.length} 个表的数据。` };
+    for (const table of RESTORE_INSERT_ORDER) {
+      if (!restoreTables.includes(table)) continue;
+
+      const rows = data[table] as Array<Record<string, unknown>>;
+      if (rows.length === 0) continue;
+      const columnInfo = await allDb<{ name: string }>(db, `PRAGMA table_info("${table}")`);
+      const allowedColumns = new Set(columnInfo.map(column => column.name));
+
+      for (const row of rows) {
+        const columns = Object.keys(row).filter(column => allowedColumns.has(column) && row[column] !== undefined);
+        if (columns.length === 0) {
+          throw new Error(`备份中的 ${table} 包含无法恢复的记录。`);
+        }
+        const quotedColumns = columns.map(column => `"${column}"`).join(', ');
+        const placeholders = columns.map(() => '?').join(', ');
+        const values = columns.map(column => row[column]);
+        await runDb(db, `INSERT INTO "${table}" (${quotedColumns}) VALUES (${placeholders})`, values);
+      }
+    }
+
+    await runDb(db, 'COMMIT');
+  } catch (error) {
+    try {
+      await runDb(db, 'ROLLBACK');
+    } catch (rollbackError) {
+      console.error('[WebDAV Restore] 回滚失败:', rollbackError);
+    }
+    throw error;
+  }
+
+  return { tables: restoreTables, message: `已从 ${fileName} 恢复 ${restoreTables.length} 个表的数据。` };
 }
 
 export async function testConnection(client?: WebDAVClient): Promise<boolean> {
@@ -257,7 +330,7 @@ export async function testConnection(client?: WebDAVClient): Promise<boolean> {
   } else {
     const config = await getWebDavConfig();
     if (!config) throw new Error('WebDAV 备份未配置。');
-    cl = createWebDavClient(config);
+    cl = await createWebDavClient(config);
   }
 
   try {

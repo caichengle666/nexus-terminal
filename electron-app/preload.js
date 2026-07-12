@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 // 将选择的 API 暴露给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  openPath: (targetPath) => ipcRenderer.invoke('open-path', targetPath),
   // 从渲染进程向主进程发送消息
   sendMessage: (channel, data) => {
     // 添加了 'download-file-request' 用于下载

@@ -71,6 +71,7 @@ const confirmCloseSession = async (sessionId: string) => {
     if (!confirmed) return;
     aiStore.stopRun(sessionId);
   }
+  await aiStore.flushSessionHistory(sessionId);
   emitWorkspaceEvent('session:close', { sessionId });
 };
 

@@ -25,6 +25,9 @@ const {
   availableModels,
   isFetchingModels,
   modelFetchMessage,
+  historyConfig,
+  historyConfigMessage,
+  historySyncWarning,
   memorySummary,
   compression,
   compactTriggerPercent,
@@ -147,6 +150,17 @@ const formatToolDuration = (run: AiToolRun) => {
   const durationMs = Math.max(0, run.finishedAt - run.startedAt);
   if (durationMs < 1000) return `${durationMs}ms`;
   return `${(durationMs / 1000).toFixed(1)}s`;
+};
+
+const formatToolArguments = (run: AiToolRun) => {
+  const command = typeof run.args.text === 'string' ? run.args.text : '';
+  return command || JSON.stringify(run.args, null, 2);
+};
+
+const formatToolResult = (run: AiToolRun) => {
+  const value = run.result ?? run.error ?? '';
+  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  return text.length > 2400 ? `${text.slice(0, 2400)}\n...<结果已截断>` : text || '无返回内容';
 };
 
 const detectCommandRisk = (command: string) => {
@@ -395,6 +409,32 @@ const saveConfig = async () => {
   }
 };
 
+const selectHistoryDirectory = async () => {
+  const result = await (window as any).electronAPI?.selectDirectory?.();
+  if (!result?.canceled && result?.path) historyConfig.value.storagePath = result.path;
+};
+
+const saveHistoryConfig = async () => {
+  try {
+    await aiStore.saveHistoryConfig();
+  } catch (error: any) {
+    errorMessage.value = error.response?.data?.message || error.message || '文件会话存储配置保存失败。';
+  }
+};
+
+const openCurrentHistoryDirectory = async () => {
+  try {
+    const directory = await aiStore.getCurrentHistoryDirectory();
+    const result = await (window as any).electronAPI?.openPath?.(directory);
+    if (!result?.ok && result?.error) throw new Error(result.error);
+    if (!(window as any).electronAPI?.openPath) {
+      await showConfirmDialog({ title: '当前终端会话目录', message: directory, confirmText: '知道了', cancelText: '关闭' });
+    }
+  } catch (error: any) {
+    errorMessage.value = error.message || '打开会话目录失败。';
+  }
+};
+
 const testConfig = async () => {
   try {
     await aiStore.testConfig();
@@ -601,6 +641,40 @@ const deleteHistory = async () => {
         </div>
         <span v-if="modelFetchMessage" class="mt-1 block" :class="availableModels.length > 0 ? 'text-success' : 'text-warning'">{{ modelFetchMessage }}</span>
       </label>
+      <div class="rounded border border-border/70 bg-header/20 p-2">
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <span class="font-medium text-foreground">文件会话记录</span>
+          <label class="flex items-center gap-1.5 text-text-secondary">
+            <input v-model="historyConfig.enabled" type="checkbox" class="accent-primary" />
+            启用
+          </label>
+        </div>
+        <p class="mb-2 text-[11px] leading-relaxed text-text-secondary">按连接 ID、名称、IP 和端口分目录保存 JSON；可选 Markdown 便于其他 AI 或人工查看。当前运行中的会话仍保留本地即时恢复。</p>
+        <label class="block">
+          <span class="mb-1 block text-text-secondary">存储目录（留空使用程序数据目录）</span>
+          <div class="flex gap-1.5">
+            <input v-model="historyConfig.storagePath" class="min-w-0 flex-1 rounded border border-border bg-input px-2 py-1" placeholder="自动使用程序数据目录" />
+            <button type="button" class="flex-shrink-0 rounded border border-border px-2 py-1 hover:bg-hover" @click="selectHistoryDirectory">选择目录</button>
+          </div>
+          <span v-if="historyConfig.effectiveStoragePath" class="mt-1 block break-all text-[10px] text-text-secondary">当前：{{ historyConfig.effectiveStoragePath }}</span>
+        </label>
+        <div class="mt-2 grid grid-cols-2 gap-2">
+          <label class="block">
+            <span class="mb-1 block text-text-secondary">总空间 MB</span>
+            <input v-model.number="historyConfig.maxStorageMb" type="number" min="50" max="4096" class="w-full rounded border border-border bg-input px-2 py-1" />
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-text-secondary">单会话 MB</span>
+            <input v-model.number="historyConfig.maxSessionMb" type="number" min="1" :max="Math.min(512, historyConfig.maxStorageMb || 50)" class="w-full rounded border border-border bg-input px-2 py-1" />
+          </label>
+        </div>
+        <label class="mt-2 flex items-center gap-1.5 text-text-secondary">
+          <input v-model="historyConfig.writeMarkdown" type="checkbox" class="accent-primary" />
+          同时生成 Markdown 阅读版
+        </label>
+        <button class="mt-2 rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="saveHistoryConfig">保存文件记录设置</button>
+        <div v-if="historyConfigMessage" class="mt-1 text-success">{{ historyConfigMessage }}</div>
+      </div>
       <div class="flex gap-2">
         <button class="rounded bg-primary px-3 py-1.5 text-white" @click="saveConfig">保存配置</button>
         <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="testConfig">测试连接</button>
@@ -611,6 +685,7 @@ const deleteHistory = async () => {
 
     <div class="border-b border-border px-3 py-1.5 text-xs">
       <div v-if="storageWarning" class="mb-1 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning">{{ storageWarning }}</div>
+      <div v-if="historySyncWarning" class="mb-1 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning">{{ historySyncWarning }}</div>
       <div class="flex items-center justify-between gap-2">
         <div class="flex min-w-0 items-center gap-2">
           <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="isRunning ? 'animate-pulse bg-primary' : taskStatus === 'error' ? 'bg-error' : 'bg-success'" />
@@ -627,15 +702,21 @@ const deleteHistory = async () => {
           <span class="min-w-0 truncate text-text-secondary">工具调用 · 最近 {{ latestToolRuns.length }} 条</span>
           <span class="flex-shrink-0 text-text-secondary">展开详情</span>
         </summary>
-        <div class="ai-tool-details-body mt-1 max-h-0 space-y-1 overflow-hidden border-t border-border/50 pt-0 opacity-0 transition-all duration-200 group-hover:max-h-48 group-hover:pt-1 group-hover:opacity-100 group-focus-within:max-h-48 group-focus-within:pt-1 group-focus-within:opacity-100">
-          <div v-for="run in latestToolRuns.slice(0, 8)" :key="run.id" class="rounded border border-border/40 bg-background/60 px-2 py-1.5 text-[11px]">
-            <div class="flex items-center justify-between gap-2">
+        <div class="mt-1 max-h-64 space-y-1 overflow-y-auto border-t border-border/50 pt-1">
+          <details v-for="run in latestToolRuns" :key="run.id" class="rounded border border-border/40 bg-background/60 px-2 py-1.5 text-[11px]">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
               <span class="min-w-0 truncate font-medium text-foreground">{{ formatToolName(run.name) }} · {{ formatToolStatus(run.status) }}</span>
               <span class="flex-shrink-0 text-text-secondary">{{ formatToolDuration(run) }}</span>
-            </div>
+            </summary>
             <div class="mt-0.5 truncate font-mono text-text-secondary">{{ formatToolSummary(run) }}</div>
-            <div v-if="run.error" class="mt-0.5 truncate text-error">失败：{{ run.error }}</div>
-          </div>
+            <div class="mt-2 border-t border-border/40 pt-2">
+              <div class="mb-1 flex items-center justify-between gap-2 text-text-secondary"><span>调用参数</span><button v-if="typeof run.args.text === 'string'" class="rounded border border-border px-1.5 py-0.5 hover:bg-hover" @click="copyText(String(run.args.text))">复制命令</button></div>
+              <pre class="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolArguments(run) }}</pre>
+              <div class="mb-1 mt-2 text-text-secondary">返回内容（已截断）</div>
+              <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolResult(run) }}</pre>
+              <div v-if="run.error" class="mt-1 break-words text-error">失败：{{ run.error }}</div>
+            </div>
+          </details>
         </div>
       </details>
       <div class="ai-compression-details group mt-2 rounded border border-border/50 bg-header/20 px-2 py-1.5 text-[11px] text-text-secondary">
@@ -827,6 +908,7 @@ const deleteHistory = async () => {
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportJson">导出 JSON</button>
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportMarkdown">导出 Markdown</button>
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="openImportDialog">导入 JSON</button>
+            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="openCurrentHistoryDirectory">打开当前终端目录</button>
           </div>
           <div v-if="hasMemorySummary" class="rounded border border-border/60 p-2">
             <div class="mb-2 font-medium text-text-secondary">记忆摘要</div>

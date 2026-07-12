@@ -343,7 +343,7 @@ export const compactSessionContext = async ({
     hardLimitBytes: effectiveMaxRequestBytes,
     compactedCount,
     retainedCount,
-    summaryMode: awaitAiSummary ? 'pending' : 'pending',
+    summaryMode: 'pending',
   };
 
   const aiSummaryPromise = summarizeWithAi(olderMessages, memory, runtimeState)
@@ -359,6 +359,12 @@ export const compactSessionContext = async ({
     void aiSummaryPromise;
   }
 
+  const finalRequestBytes = awaitAiSummary ? estimateMemoryRequestBytes(memory) : afterBytes;
+  if (awaitAiSummary && memory.compression) {
+    memory.compression.afterBytes = finalRequestBytes;
+    memory.compression.at = Date.now();
+  }
+
   return {
     compacted: true,
     reason: 'compacted',
@@ -366,7 +372,7 @@ export const compactSessionContext = async ({
     thresholdBytes: effectiveCompactTriggerBytes,
     compactedCount,
     retainedCount,
-    finalRequestBytes: afterBytes,
+    finalRequestBytes,
     hardLimitBytes: effectiveMaxRequestBytes,
     summaryMode: awaitAiSummary ? (memory.compression?.summaryMode || 'local') : 'pending',
   };

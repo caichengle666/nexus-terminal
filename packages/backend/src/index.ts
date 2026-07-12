@@ -59,6 +59,7 @@ import pathHistoryRoutes from './path-history/path-history.routes';
 import favoritePathsRouter from './favorite-paths/favorite-paths.routes';
 import webdavBackupRoutes from './webdav-backup/webdav-backup.routes';
 import aiRoutes from './ai/ai.routes';
+import aiHistoryRoutes from './ai/ai-history.routes';
 import { initializeWebSocket } from './websocket';
 import { clientStates } from './websocket/state';
 import { cleanupClientConnection } from './websocket/utils';
@@ -279,6 +280,7 @@ const startServer = () => {
     app.use('/api/v1/path-history', pathHistoryRoutes);
     app.use('/api/v1/favorite-paths', favoritePathsRouter);
     app.use('/api/v1/webdav-backup', webdavBackupRoutes);
+    app.use('/api/v1/ai/history', aiHistoryRoutes);
     app.use('/api/v1/ai', aiRoutes);
     
     // 状态检查接口

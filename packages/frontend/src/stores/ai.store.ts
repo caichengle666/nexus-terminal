@@ -50,6 +50,7 @@ import type {
   AiChatMessage,
   AiActivityEvent,
   AiCompactResult,
+  AiHistoryConfig,
   AiRunContext,
   AiRunMode,
   AiRuntimeState,
@@ -82,7 +83,20 @@ export const useAiStore = defineStore('ai', () => {
   const isFetchingModels = ref(false);
   const modelFetchMessage = ref('');
   const storageWarning = ref('');
+  const historyConfig = ref<AiHistoryConfig>({
+    enabled: true,
+    storagePath: '',
+    maxStorageMb: 500,
+    maxSessionMb: 20,
+    writeMarkdown: true,
+  });
+  const historyConfigMessage = ref('');
+  const historySyncWarning = ref('');
   let memoryPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  let historyPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  let historyConfigLoaded = false;
+  let historyWriteInProgress = false;
+  const pendingHistorySessionIds = new Set<string>();
 
   const config = ref({
     apiBaseUrl: '',
@@ -349,6 +363,25 @@ export const useAiStore = defineStore('ai', () => {
     } catch (error) {
       console.warn('[AI Terminal] Failed to load server config:', error);
     }
+
+    try {
+      const response = await apiClient.get('/ai/history/config');
+      historyConfig.value = { ...historyConfig.value, ...(response.data || {}) };
+    } catch (error) {
+      historySyncWarning.value = '无法读取文件会话存储配置，将继续使用本地临时历史。';
+      console.warn('[AI Terminal] Failed to load history config:', error);
+    } finally {
+      historyConfigLoaded = true;
+      if (historyConfig.value.enabled) {
+        Object.keys(sessionMemories.value).forEach(sessionId => pendingHistorySessionIds.add(sessionId));
+        if (pendingHistorySessionIds.size > 0 && !historyPersistTimer) {
+          historyPersistTimer = setTimeout(() => {
+            historyPersistTimer = null;
+            void flushSessionHistory();
+          }, 1000);
+        }
+      }
+    }
   };
 
   watch(config, () => {
@@ -364,6 +397,14 @@ export const useAiStore = defineStore('ai', () => {
         ? result.droppedSessionCount > 0 ? `本地存储空间有限，已移除 ${result.droppedSessionCount} 个最旧 AI 会话。` : ''
         : 'AI 历史保存失败，本地存储空间可能已满。请先导出会话后删除旧历史。';
     }, 300);
+
+    if (!historyConfigLoaded || !historyConfig.value.enabled) return;
+    Object.keys(next).forEach(sessionId => pendingHistorySessionIds.add(sessionId));
+    if (historyPersistTimer) return;
+    historyPersistTimer = setTimeout(() => {
+      historyPersistTimer = null;
+      void flushSessionHistory();
+    }, 1000);
   }, { deep: true });
 
   void loadConfig();
@@ -391,6 +432,70 @@ export const useAiStore = defineStore('ai', () => {
     const current = activeSession.value;
     if (current && (sessionId === storeActiveSessionId.value || sessionId === current.sessionId)) return current;
     return null;
+  };
+
+  const saveHistoryConfig = async () => {
+    const response = await apiClient.put('/ai/history/config', {
+      enabled: historyConfig.value.enabled,
+      storagePath: historyConfig.value.storagePath,
+      maxStorageMb: historyConfig.value.maxStorageMb,
+      maxSessionMb: historyConfig.value.maxSessionMb,
+      writeMarkdown: historyConfig.value.writeMarkdown,
+    });
+    historyConfig.value = { ...historyConfig.value, ...(response.data || {}) };
+    historyConfigLoaded = true;
+    historyConfigMessage.value = historyConfig.value.enabled
+      ? `已保存，会话将写入 ${historyConfig.value.effectiveStoragePath || historyConfig.value.storagePath}`
+      : '已关闭文件会话存储。';
+  };
+
+  const flushSessionHistory = async (onlySessionId?: string) => {
+    if (!historyConfigLoaded || !historyConfig.value.enabled || historyWriteInProgress) return;
+    const sessionIds = onlySessionId ? [onlySessionId] : Array.from(pendingHistorySessionIds);
+    if (sessionIds.length === 0) return;
+    historyWriteInProgress = true;
+    try {
+      for (const sessionId of sessionIds) {
+        const session = getTargetSession(sessionId);
+        if (!session?.connectionId) {
+          pendingHistorySessionIds.delete(sessionId);
+          continue;
+        }
+        try {
+          const response = await apiClient.put('/ai/history/session', {
+            session: exportSessionData(sessionId),
+            connectionId: session.connectionId,
+          });
+          pendingHistorySessionIds.delete(sessionId);
+          const removed = Number(response.data?.removedSessionCount || 0);
+          if (removed > 0) {
+            historySyncWarning.value = `文件会话存储达到上限，已清理 ${removed} 个最旧归档会话。`;
+          }
+        } catch (error: any) {
+          historySyncWarning.value = error?.response?.data?.message || error?.message || '写入 AI 会话文件失败。';
+          console.warn('[AI Terminal] Failed to persist session history:', error);
+        }
+      }
+    } finally {
+      historyWriteInProgress = false;
+      if (pendingHistorySessionIds.size > 0 && !historyPersistTimer) {
+        historyPersistTimer = setTimeout(() => {
+          historyPersistTimer = null;
+          void flushSessionHistory();
+        }, 3000);
+      }
+    }
+  };
+
+  const getCurrentHistoryDirectory = async () => {
+    const sessionId = activeMemoryKey.value;
+    const session = getTargetSession(sessionId);
+    if (!session?.connectionId) throw new Error('当前终端连接信息不完整，无法定位会话目录。');
+    const response = await apiClient.post('/ai/history/directory', {
+      session: exportSessionData(sessionId),
+      connectionId: session.connectionId,
+    });
+    return String(response.data?.directory || '');
   };
 
   const readTerminalOutput = (sessionId?: string, maxLines = 120) => {
@@ -1262,6 +1367,9 @@ export const useAiStore = defineStore('ai', () => {
     availableModels,
     isFetchingModels,
     modelFetchMessage,
+    historyConfig,
+    historyConfigMessage,
+    historySyncWarning,
     sendMessage,
     stopRun,
     clearChat,
@@ -1271,6 +1379,9 @@ export const useAiStore = defineStore('ai', () => {
     importSessionData,
     checkSessionImport,
     compactContextNow,
+    saveHistoryConfig,
+    flushSessionHistory,
+    getCurrentHistoryDirectory,
     sendInterruptToTerminal,
     sessionRuntimes,
   };

@@ -8,6 +8,7 @@ import {
   deleteBackup,
   restoreFromBackup,
   testConnection,
+  createWebDavClient,
   WebDavBackupConfig,
 } from './webdav-backup.service';
 
@@ -17,7 +18,7 @@ export const webdavBackupController = {
       const config = await getWebDavConfig();
       if (config) {
         // Never return the password
-        res.json({ url: config.url, username: config.username, configured: true });
+        res.json({ url: config.url, username: config.username, proxyId: config.proxyId ?? null, configured: true });
       } else {
         res.json({ url: '', username: '', configured: false });
       }
@@ -29,15 +30,15 @@ export const webdavBackupController = {
 
   async saveConfig(req: Request, res: Response): Promise<void> {
     try {
-      const { url, username, password } = req.body;
+      const { url, username, password, proxyId } = req.body;
       if (!url || !username || !password) {
         res.status(400).json({ message: 'url、username、password 均为必填项' });
         return;
       }
-      const config: WebDavBackupConfig = { url, username, password };
+      const config: WebDavBackupConfig = { url, username, password, proxyId: normalizeProxyId(proxyId) };
 
-      // Test connection before saving
-      await testConnection();
+      // Test the submitted configuration before it replaces the saved one.
+      await testConnection(await createWebDavClient(config));
 
       await saveWebDavConfig(config);
       res.json({ message: 'WebDAV 配置已保存', configured: true });
@@ -59,7 +60,28 @@ export const webdavBackupController = {
 
   async testConn(req: Request, res: Response): Promise<void> {
     try {
-      await testConnection();
+      const { url, username, password, proxyId } = req.body ?? {};
+      const suppliedValues = [url, username, password];
+      const suppliedCount = suppliedValues.filter(value => typeof value === 'string' && value.length > 0).length;
+
+      if (suppliedCount > 0 && suppliedCount < suppliedValues.length) {
+        res.status(400).json({ message: '测试当前填写的配置时，url、username、password 均为必填项。', connected: false });
+        return;
+      }
+
+      if (suppliedCount === suppliedValues.length) {
+        await testConnection(await createWebDavClient({ url, username, password, proxyId: normalizeProxyId(proxyId) }));
+      } else {
+        const savedConfig = await getWebDavConfig();
+        if (!savedConfig) {
+          throw new Error('WebDAV 备份未配置。');
+        }
+        const hasProxyOverride = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'proxyId');
+        const config = hasProxyOverride
+          ? { ...savedConfig, proxyId: normalizeProxyId(proxyId) }
+          : savedConfig;
+        await testConnection(await createWebDavClient(config));
+      }
       res.json({ message: 'WebDAV 连接测试成功', connected: true });
     } catch (error: any) {
       console.error('[WebDAV] 连接测试失败:', error);
@@ -117,3 +139,12 @@ export const webdavBackupController = {
     }
   },
 };
+
+function normalizeProxyId(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const proxyId = Number(value);
+  if (!Number.isInteger(proxyId) || proxyId <= 0) {
+    throw new Error('无效的 WebDAV 代理。');
+  }
+  return proxyId;
+}
