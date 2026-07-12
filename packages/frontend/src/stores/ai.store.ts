@@ -5,6 +5,7 @@ import { useSessionStore } from './session.store';
 import { useConnectionsStore } from './connections.store';
 import {
   CONFIG_KEY,
+  DEFAULT_TERMINAL_READ_LINES,
   DEFAULT_AUTO_COMPACTS_PER_TASK,
   MAX_AUTO_COMPACTS_PER_TASK,
   MAX_CONFIGURABLE_AI_REQUEST_BYTES,
@@ -13,6 +14,7 @@ import {
   MAX_MODEL_RECENT_MESSAGES,
   MAX_MODEL_SUMMARY_LENGTH,
   MAX_TERMINAL_OUTPUT_CHARS,
+  MAX_TERMINAL_READ_LINES,
   MIN_AUTO_COMPACTS_PER_TASK,
   MIN_COMPACT_TRIGGER_PERCENT,
   MIN_AI_REQUEST_BYTES,
@@ -74,6 +76,7 @@ export const useAiStore = defineStore('ai', () => {
   const connectionsStore = useConnectionsStore();
 
   const sessionInputs = ref<Record<string, string>>({});
+  const lastTerminalInputMarks = ref<Record<string, number>>({});
   const configMessage = ref('');
   const hasSavedApiKey = ref(false);
   const showConfig = ref(false);
@@ -498,7 +501,23 @@ export const useAiStore = defineStore('ai', () => {
     return String(response.data?.directory || '');
   };
 
-  const readTerminalOutput = (sessionId?: string, maxLines = 120) => {
+  const getTerminalCursorLine = (session: SessionState) => {
+    const term = session.terminalManager?.terminalInstance?.value;
+    if (!term) return 0;
+    const buffer = term.buffer.active;
+    return buffer.baseY + buffer.cursorY;
+  };
+
+  const appendTerminalLine = (lines: string[], line: any) => {
+    const text = line.translateToString(true);
+    if (line.isWrapped && lines.length > 0) {
+      lines[lines.length - 1] = `${lines[lines.length - 1]}${text}`;
+      return;
+    }
+    lines.push(text);
+  };
+
+  const readTerminalOutput = (sessionId?: string, maxLines = DEFAULT_TERMINAL_READ_LINES, sinceLastInput = false) => {
     let session = getTargetSession(sessionId);
     if (!sessionId && !session?.terminalManager?.terminalInstance?.value) {
       session = activeSession.value;
@@ -516,14 +535,16 @@ export const useAiStore = defineStore('ai', () => {
 
     const buffer = term.buffer.active;
     const end = buffer.baseY + buffer.cursorY;
-    const start = Math.max(0, end - Math.max(1, Math.min(Number(maxLines) || 120, 500)) + 1);
+    const requestedLines = Math.max(1, Math.min(Number(maxLines) || DEFAULT_TERMINAL_READ_LINES, MAX_TERMINAL_READ_LINES));
+    const lastInputMark = lastTerminalInputMarks.value[session.sessionId];
+    const start = sinceLastInput && typeof lastInputMark === 'number'
+      ? Math.max(0, Math.min(lastInputMark + 1, end), end - requestedLines + 1)
+      : Math.max(0, end - requestedLines + 1);
     const lines: string[] = [];
 
     for (let i = start; i <= end; i += 1) {
       const line = buffer.getLine(i);
-      if (line) {
-        lines.push(line.translateToString(true));
-      }
+      if (line) appendTerminalLine(lines, line);
     }
 
     const output = lines.join('\n').trimEnd();
@@ -532,6 +553,11 @@ export const useAiStore = defineStore('ai', () => {
       ok: true,
       sessionId: session.sessionId,
       connectionName: session.connectionName,
+      sinceLastInput,
+      limitedByMaxLines: sinceLastInput && typeof lastInputMark === 'number' && start > lastInputMark + 1,
+      startLine: start,
+      endLine: end,
+      lineCount: lines.length,
       output: output.length > MAX_TERMINAL_OUTPUT_CHARS
         ? `...<terminal output truncated>\n${output.slice(-MAX_TERMINAL_OUTPUT_CHARS)}`
         : output,
@@ -587,6 +613,8 @@ export const useAiStore = defineStore('ai', () => {
       };
     }
 
+    const inputMark = getTerminalCursorLine(session);
+    lastTerminalInputMarks.value[session.sessionId] = inputMark;
     const data = `${String(args.text || '')}${args.pressEnter ? '\r' : ''}`;
     session.terminalManager.sendData(data);
 
@@ -602,7 +630,8 @@ export const useAiStore = defineStore('ai', () => {
       sessionId: session.sessionId,
       sent: args.text,
       pressEnter: !!args.pressEnter,
-      outputAfter: readTerminalOutput(session.sessionId, 120).output,
+      inputMark,
+      outputAfter: readTerminalOutput(session.sessionId, DEFAULT_TERMINAL_READ_LINES, true).output,
     };
   };
 
@@ -653,7 +682,7 @@ export const useAiStore = defineStore('ai', () => {
       );
       let result: unknown;
       if (toolCall.function.name === 'get_terminal_output') {
-        result = readTerminalOutput(args.sessionId, args.maxLines);
+        result = readTerminalOutput(args.sessionId, args.maxLines, args.sinceLastInput === true);
       } else if (toolCall.function.name === 'terminal_input') {
         result = await sendTerminalInput(args as TerminalInputArgs, context, options);
       } else {
@@ -735,6 +764,8 @@ export const useAiStore = defineStore('ai', () => {
       'Use get_terminal_output before deciding what to do when context is unclear.',
       'Use terminal_input to type into the locked SSH terminal. Use pressEnter=true only when you intend to submit a command.',
       'When calling tools, include the locked sessionId unless the user explicitly asks to operate a different terminal.',
+      'After terminal_input, use the returned outputAfter or get_terminal_output with sinceLastInput=true before deciding whether to retry.',
+      'Do not repeat a command only because earlier terminal history was noisy or incomplete; request more recent output first.',
       'When using terminal_input, always include a short reason field explaining why the input is needed.',
       'After sending a command, inspect output and continue until the user request is complete, blocked, or needs confirmation.',
       'You may decide how many tool calls are needed. Do not stop early when more inspection or verification is required.',

@@ -15,7 +15,8 @@ export const aiTools = [
         type: 'object',
         properties: {
           sessionId: { type: 'string', description: 'Target terminal session ID. Defaults to the locked session for this AI run.' },
-          maxLines: { type: 'number', description: 'Maximum lines to read. Default 120.' },
+          maxLines: { type: 'number', description: 'Maximum lines to read. Default 800, maximum 3000.' },
+          sinceLastInput: { type: 'boolean', description: 'When true, read only output produced after the last terminal_input call in this session.' },
         },
       },
     },
@@ -95,7 +96,7 @@ export const stringifyToolResultForModel = (result: unknown) => {
   const content = JSON.stringify(result);
   const summarized = summarizeToolResultContent(content);
   if (summarized.length <= MAX_TOOL_RESULT_CONTENT_LENGTH) return summarized;
-  return `${summarized.slice(0, MAX_TOOL_RESULT_CONTENT_LENGTH)}\n...<tool result summarized, ask get_terminal_output with narrower maxLines if needed>`;
+  return `${summarized.slice(0, MAX_TOOL_RESULT_CONTENT_LENGTH)}\n...<tool result summarized, ask get_terminal_output with sinceLastInput=true or narrower maxLines if needed>`;
 };
 
 export const truncateForModel = (content: string, maxLength = MAX_MODEL_MESSAGE_CONTENT_LENGTH) => {

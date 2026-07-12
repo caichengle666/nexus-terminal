@@ -283,7 +283,18 @@ const copyText = async (text: string) => {
 };
 
 const fillCommandInput = (command: string) => {
-  userInput.value = command;
+  const normalized = command.trim();
+  if (!normalized) return;
+  if (/\r|\n/.test(normalized)) {
+    errorMessage.value = '多行命令不能安全填入终端，请先复制后手动确认执行。';
+    return;
+  }
+  const sender = activeSession.value?.terminalManager?.sendData;
+  if (sender) {
+    sender(normalized);
+    return;
+  }
+  errorMessage.value = '当前没有可输入的活动终端。';
 };
 
 const openDrawer = (panel: Exclude<DrawerPanel, null>) => {
