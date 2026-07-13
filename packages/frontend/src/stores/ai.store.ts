@@ -107,7 +107,7 @@ export const useAiStore = defineStore('ai', () => {
     model: '',
     runMode: 'confirm' as AiRunMode,
     compactTriggerPercent: 80,
-    maxRequestKb: 256,
+    maxRequestKb: 512,
     maxAutoCompactsPerTask: DEFAULT_AUTO_COMPACTS_PER_TASK,
   });
 
