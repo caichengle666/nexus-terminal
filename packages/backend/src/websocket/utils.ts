@@ -67,7 +67,10 @@ export function parsePortsString(portsString: string | undefined | null): PortIn
  * 清理指定会话 ID 关联的所有资源
  * @param sessionId - 会话 ID
  */
-export const cleanupClientConnection = async (sessionId: string | undefined) => { // Made async
+export const cleanupClientConnection = async (
+    sessionId: string | undefined,
+    options: { forceClose?: boolean } = {}
+) => { // Made async
     if (!sessionId) return;
 
     const state = clientStates.get(sessionId);
@@ -83,7 +86,7 @@ export const cleanupClientConnection = async (sessionId: string | undefined) => 
         if (sftpService) sftpService.cleanupSftpSession(sessionId);
 
         // 3. 处理 SSH 连接 (核心修改点)
-        if (state.isMarkedForSuspend && state.sshClient && state.sshShellStream && state.suspendLogPath && state.ws.userId !== undefined) {
+        if (!options.forceClose && state.isMarkedForSuspend && state.sshClient && state.sshShellStream && state.suspendLogPath && state.ws.userId !== undefined) {
             console.log(`WebSocket: 会话 ${sessionId} 已被标记为待挂起，尝试移交给 SshSuspendService...`);
             try {
                 const takeoverDetails = {

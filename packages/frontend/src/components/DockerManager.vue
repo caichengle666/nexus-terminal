@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useSessionStore } from '../stores/session.store';
 import { storeToRefs } from 'pinia';
@@ -26,6 +26,12 @@ const expandedContainerIds = computed(() => dockerManager.value?.expandedContain
 const currentSessionId = computed(() => activeSession.value?.sessionId);
 const sshConnectionStatus = computed(() => activeSession.value?.wsManager.connectionStatus.value ?? 'disconnected');
 
+const requestDockerStatus = () => {
+  if (sshConnectionStatus.value === 'connected') {
+    dockerManager.value?.requestDockerStatus();
+  }
+};
+
 // --- Methods delegated to Docker Manager ---
 const sendDockerCommand = (containerId: string, command: 'start' | 'stop' | 'restart' | 'remove') => {
   dockerManager.value?.sendDockerCommand(containerId, command);
@@ -49,7 +55,14 @@ const viewContainerLogs = (containerId: string) => {
   }
 };
 
-// --- Removed internal state, methods (setupWsListeners, clearWsListeners, requestDockerStatus), watcher, and lifecycle hooks (onMounted, onUnmounted) ---
+// WebSocket listener state lives in the per-session Docker manager.
+watch(currentSessionId, () => {
+  requestDockerStatus();
+});
+
+onMounted(() => {
+  requestDockerStatus();
+});
 
 </script>
 

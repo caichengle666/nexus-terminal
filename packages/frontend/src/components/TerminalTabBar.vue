@@ -60,6 +60,11 @@ const closeSession = (event: MouseEvent, sessionId: string) => {
   confirmCloseSession(sessionId);
 };
 
+const reconnectSession = (event: MouseEvent, sessionId: string) => {
+  event.stopPropagation();
+  confirmReconnectSession(sessionId);
+};
+
 const confirmCloseSession = async (sessionId: string) => {
   if (aiStore.sessionRuntimes[sessionId]?.isRunning) {
     const confirmed = await showConfirmDialog({
@@ -73,6 +78,20 @@ const confirmCloseSession = async (sessionId: string) => {
   }
   await aiStore.flushSessionHistory(sessionId);
   emitWorkspaceEvent('session:close', { sessionId });
+};
+
+const confirmReconnectSession = async (sessionId: string) => {
+  if (aiStore.sessionRuntimes[sessionId]?.isRunning) {
+    const confirmed = await showConfirmDialog({
+      title: 'AI 正在操作该终端',
+      message: '重新连接会断开当前终端通道，并停止正在运行的 AI 任务。AI 对话上下文会保留。是否继续？',
+      confirmText: '停止 AI 并重连',
+      cancelText: '取消',
+    });
+    if (!confirmed) return;
+    aiStore.stopRun(sessionId);
+  }
+  await sessionStore.reconnectSession(sessionId);
 };
 
 // --- 本地状态 ---
@@ -469,6 +488,11 @@ onBeforeUnmount(() => {
             <span class="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse"></span>
             AI
           </span>
+          <button class="ml-2 p-0.5 rounded-full text-text-secondary hover:bg-border hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                  :class="{'text-foreground hover:bg-header': session.sessionId === activeSessionId}"
+                  @click="reconnectSession($event, session.sessionId)" :title="$t('common.reconnect', '重新连接')">
+            <i class="fas fa-rotate-right text-xs"></i>
+          </button>
           <button class="ml-2 p-0.5 rounded-full text-text-secondary hover:bg-border hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-150"
                   :class="{'text-foreground hover:bg-header': session.sessionId === activeSessionId}"
                   @click="closeSession($event, session.sessionId)" :title="$t('tabs.closeTabTooltip')">

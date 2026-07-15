@@ -152,7 +152,7 @@
 
 <script setup lang="ts">
 
-import { ref, computed, watch, type PropType, nextTick } from 'vue'; 
+import { ref, computed, watch, type PropType, nextTick, onMounted } from 'vue';
 import { ElProgress } from 'element-plus';
 import { useI18n } from 'vue-i18n';
 import StatusCharts from './StatusCharts.vue';
@@ -231,6 +231,10 @@ const currentStatusError = computed<string | null>(() => {
   return currentSessionState.value?.statusMonitorManager?.statusError?.value ?? null;
 });
 
+const requestCurrentStatus = () => {
+  currentSessionState.value?.statusMonitorManager?.requestStatusUpdate();
+};
+
 // --- 缓存逻辑保持不变 ---
 const cachedCpuModel = ref<string | null>(null);
 const cachedOsName = ref<string | null>(null);
@@ -254,7 +258,12 @@ watch(() => props.activeSessionId, async (newId, oldId) => {
     isSwitchingSession.value = true;
     await nextTick(); // 等待DOM更新（currentServerStatus已改变，displayPercent们会返回0）
     isSwitchingSession.value = false;
+    requestCurrentStatus();
   }
+});
+
+onMounted(() => {
+  requestCurrentStatus();
 });
 
 // --- Computed properties for display ---

@@ -157,6 +157,10 @@ const form = ref({
   proxyId: null as number | null,
 });
 
+function currentProxyId(): number | null {
+  return useProxy.value ? form.value.proxyId : null;
+}
+
 async function fetchConfig() {
   try {
     const res = await axios.get('/api/v1/webdav-backup/config');
@@ -185,7 +189,7 @@ async function handleSaveConfig() {
       url: form.value.url,
       username: form.value.username,
       password: form.value.password,
-      proxyId: useProxy.value ? form.value.proxyId : null,
+      proxyId: currentProxyId(),
     });
     configMessage.value = t('settings.webdavBackup.configSaved', '配置已保存，连接正常');
     configSuccess.value = true;
@@ -201,6 +205,10 @@ async function handleSaveConfig() {
 }
 
 async function handleDeleteConfig() {
+  if (!confirm(t('settings.webdavBackup.confirmDisconnect', '确定要断开 WebDAV 备份连接吗？这只会删除本地保存的 WebDAV 配置，不会删除远端备份文件。'))) {
+    return;
+  }
+
   saving.value = true;
   try {
     await axios.delete('/api/v1/webdav-backup/config');
@@ -233,9 +241,9 @@ async function handleTestConnection() {
           url: form.value.url,
           username: form.value.username,
           password: form.value.password,
-          proxyId: useProxy.value ? form.value.proxyId : null,
+          proxyId: currentProxyId(),
         }
-      : { proxyId: useProxy.value ? form.value.proxyId : null };
+      : { proxyId: currentProxyId() };
     await axios.post('/api/v1/webdav-backup/test', payload);
     configMessage.value = t('settings.webdavBackup.connectionOk', '连接正常');
     configSuccess.value = true;
@@ -263,7 +271,7 @@ async function handleCreateBackup() {
   backingUp.value = true;
   backupMessage.value = '';
   try {
-    const res = await axios.post('/api/v1/webdav-backup/run');
+    const res = await axios.post('/api/v1/webdav-backup/run', { proxyId: currentProxyId() });
     backupMessage.value = t('settings.webdavBackup.backupCreated', {
       name: res.data.fileName,
       size: formatSize(res.data.size),
@@ -281,7 +289,7 @@ async function handleCreateBackup() {
 async function fetchBackupList() {
   loadingList.value = true;
   try {
-    const res = await axios.get('/api/v1/webdav-backup/list');
+    const res = await axios.get('/api/v1/webdav-backup/list', { params: { proxyId: currentProxyId() ?? '' } });
     backupList.value = res.data.files || [];
   } catch (err: any) {
     console.error('获取备份列表失败:', err);
@@ -302,7 +310,7 @@ async function handleRestoreBackup(fileName: string) {
   restoring.value = true;
   backupMessage.value = '';
   try {
-    const res = await axios.post('/api/v1/webdav-backup/restore', { fileName });
+    const res = await axios.post('/api/v1/webdav-backup/restore', { fileName, proxyId: currentProxyId() });
     backupMessage.value = t('settings.webdavBackup.restoreSuccess', { message: res.data.message });
     backupSuccess.value = true;
   } catch (err: any) {
@@ -319,7 +327,7 @@ async function handleDeleteBackup(fileName: string) {
   }
   deletingFile.value = fileName;
   try {
-    await axios.delete(`/api/v1/webdav-backup/${encodeURIComponent(fileName)}`);
+    await axios.delete(`/api/v1/webdav-backup/${encodeURIComponent(fileName)}`, { data: { proxyId: currentProxyId() } });
     backupList.value = backupList.value.filter(f => f.name !== fileName);
     backupMessage.value = t('settings.webdavBackup.deleteSuccess', '备份已删除');
     backupSuccess.value = true;

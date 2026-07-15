@@ -1,6 +1,6 @@
 {
   "name": "nexus-electron-app",
-  "version": "0.9.15",
+  "version": "0.9.16",
   "description": "Electron application for Nexus Terminal",
   "main": "main.js",
   "author": {

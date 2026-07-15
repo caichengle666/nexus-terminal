@@ -58,6 +58,8 @@ export const useSessionStore = defineStore('session', () => {
     sessionActions.openNewSession(connectionId, { connectionsStore, t }); // 移除了 router 和不正确的 registerSshSuspendHandlers
   const activateSession = (sessionId: string) => sessionActions.activateSession(sessionId);
   const closeSession = (sessionId: string) => sessionActions.closeSession(sessionId);
+  const reconnectSession = (sessionId: string) => sessionActions.reconnectSession(sessionId);
+  const refreshSessionSidePanels = (sessionId: string) => sessionActions.refreshSessionSidePanels(sessionId);
   const handleConnectRequest = (connection: ConnectionInfo) =>
     sessionActions.handleConnectRequest(connection, {
       connectionsStore,
@@ -124,6 +126,8 @@ export const useSessionStore = defineStore('session', () => {
     openNewSession,
     activateSession,
     closeSession,
+    reconnectSession,
+    refreshSessionSidePanels,
     handleConnectRequest,
     handleOpenNewSession,
     cleanupAllSessions,

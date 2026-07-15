@@ -88,6 +88,7 @@ export const openNewSession = (
   };
   const terminalManager = createSshTerminalManager(newSessionId, sshTerminalDeps, t);
   const statusMonitorDeps: StatusMonitorDependencies = {
+      sendMessage: wsManager.sendMessage,
       onMessage: wsManager.onMessage,
       isConnected: wsManager.isConnected,
   };
@@ -197,6 +198,55 @@ export const closeSession = (sessionId: string) => {
     activeSessionId.value = nextActiveId;
     console.log(`[SessionActions] 关闭活动会话后，切换到: ${nextActiveId}`);
   }
+};
+
+export const reconnectSession = async (sessionId: string): Promise<boolean> => {
+  console.log(`[SessionActions] 请求重新连接会话 ID: ${sessionId}`);
+  const sessionToReconnect = sessions.value.get(sessionId);
+  if (!sessionToReconnect) {
+    console.warn(`[SessionActions] 尝试重新连接不存在的会话 ID: ${sessionId}`);
+    return false;
+  }
+
+  sessionToReconnect.sftpManagers.forEach((manager, instanceId) => {
+    manager.cleanup();
+    console.log(`[SessionActions] 重新连接前已清理会话 ${sessionId} 的 sftpManager (实例 ${instanceId})`);
+  });
+  sessionToReconnect.sftpManagers.clear();
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsHostAndPort = window.location.host;
+  const wsUrl = `${protocol}//${wsHostAndPort}/ws/`;
+  const reconnected = await sessionToReconnect.wsManager.reconnect(wsUrl);
+  activeSessionId.value = sessionId;
+  return reconnected;
+};
+
+export const refreshSessionSidePanels = (sessionId: string): boolean => {
+  console.log(`[SessionActions] 请求刷新会话侧栏信息 ID: ${sessionId}`);
+  const sessionToRefresh = sessions.value.get(sessionId);
+  if (!sessionToRefresh) {
+    console.warn(`[SessionActions] 尝试刷新不存在的会话侧栏 ID: ${sessionId}`);
+    return false;
+  }
+
+  activeSessionId.value = sessionId;
+  let refreshed = false;
+
+  if (sessionToRefresh.wsManager.isConnected.value) {
+    refreshed = sessionToRefresh.statusMonitorManager.requestStatusUpdate() || refreshed;
+    sessionToRefresh.dockerManager.requestDockerStatus();
+    refreshed = true;
+  }
+
+  if (sessionToRefresh.wsManager.isSftpReady.value) {
+    sessionToRefresh.sftpManagers.forEach((manager) => {
+      manager.loadDirectory(manager.currentPath.value || '/', true);
+      refreshed = true;
+    });
+  }
+
+  return refreshed;
 };
 
 export const handleConnectRequest = (

@@ -94,7 +94,7 @@ export class StatusMonitorService {
      * 获取并发送服务器状态给客户端
      * @param sessionId 会话 ID
      */
-    private async fetchAndSendServerStatus(sessionId: string): Promise<void> {
+    async fetchAndSendServerStatus(sessionId: string): Promise<void> {
         const state = this.clientStates.get(sessionId);
         if (!state || !state.sshClient || state.ws.readyState !== WebSocket.OPEN) {
             //console.warn(`[StatusMonitor] 无法获取会话 ${sessionId} 的状态，停止轮询。原因：状态无效、SSH断开或WS关闭。`);
@@ -104,11 +104,11 @@ export class StatusMonitorService {
         try {
             // 传递 sessionId 给 fetchServerStatus 以便查找 previousNetStats
             const status = await this.fetchServerStatus(state.sshClient, sessionId);
-            state.ws.send(JSON.stringify({ type: 'status_update', payload: { connectionId: state.dbConnectionId, status } }));
+            state.ws.send(JSON.stringify({ type: 'status_update', sessionId, payload: { connectionId: state.dbConnectionId, status } }));
         } catch (error: any) {
             // --- 移除 console.warn ---
             // console.warn(`[StatusMonitor] 获取会话 ${sessionId} 服务器状态失败:`, error);
-            state.ws.send(JSON.stringify({ type: 'status_error', payload: { connectionId: state.dbConnectionId, message: `获取状态失败: ${error.message}` } }));
+            state.ws.send(JSON.stringify({ type: 'status_error', sessionId, payload: { connectionId: state.dbConnectionId, message: `获取状态失败: ${error.message}` } }));
         }
     }
 

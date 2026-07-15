@@ -91,7 +91,10 @@ export const webdavBackupController = {
 
   async runBackup(req: Request, res: Response): Promise<void> {
     try {
-      const result = await createBackup();
+      const proxyId = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'proxyId')
+        ? normalizeProxyId(req.body.proxyId)
+        : undefined;
+      const result = await createBackup(proxyId);
       res.json({ message: '备份成功', ...result });
     } catch (error: any) {
       console.error('[WebDAV] 备份执行失败:', error);
@@ -101,7 +104,10 @@ export const webdavBackupController = {
 
   async listAllBackups(req: Request, res: Response): Promise<void> {
     try {
-      const files = await listBackups();
+      const proxyId = Object.prototype.hasOwnProperty.call(req.query, 'proxyId')
+        ? normalizeProxyId(req.query.proxyId)
+        : undefined;
+      const files = await listBackups(proxyId);
       res.json({ files });
     } catch (error: any) {
       console.error('[WebDAV] 获取备份列表失败:', error);
@@ -116,7 +122,10 @@ export const webdavBackupController = {
         res.status(400).json({ message: '缺少文件名参数' });
         return;
       }
-      await deleteBackup(fileName);
+      const proxyId = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'proxyId')
+        ? normalizeProxyId(req.body.proxyId)
+        : undefined;
+      await deleteBackup(fileName, proxyId);
       res.json({ message: '备份文件已删除' });
     } catch (error: any) {
       console.error('[WebDAV] 删除备份失败:', error);
@@ -131,7 +140,10 @@ export const webdavBackupController = {
         res.status(400).json({ message: '缺少文件名' });
         return;
       }
-      const result = await restoreFromBackup(fileName);
+      const proxyId = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'proxyId')
+        ? normalizeProxyId(req.body.proxyId)
+        : undefined;
+      const result = await restoreFromBackup(fileName, proxyId);
       res.json({ message: result.message, tables: result.tables });
     } catch (error: any) {
       console.error('[WebDAV] 恢复备份失败:', error);

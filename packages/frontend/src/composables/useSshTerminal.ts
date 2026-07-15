@@ -31,6 +31,7 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
     // const currentSearchResultIndex = ref(-1);
     const terminalOutputBuffer = ref<(string | Uint8Array)[]>([]); // 缓冲 WebSocket 消息直到终端准备好
     const isSshConnected = ref(false); // 跟踪 SSH 连接状态
+    const isReconnecting = ref(false);
 
     // 辅助函数：获取终端消息文本
     const getTerminalText = (key: string, params?: Record<string, any>): string => {
@@ -159,6 +160,10 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
 
         console.log(`[会话 ${sessionId}][SSH终端模块] SSH 会话已连接。 Payload:`, payload, 'Full message:', message); // 更详细的日志
         isSshConnected.value = true; // 更新状态
+        if (isReconnecting.value) {
+            terminalInstance.value?.writeln('\r\n\x1b[32m[Nexus] 终端重新连接成功。\x1b[0m');
+            isReconnecting.value = false;
+        }
         // 连接成功后聚焦终端
         terminalInstance.value?.focus();
 
@@ -246,6 +251,18 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
         terminalInstance.value?.writeln(`\r\n\x1b[31m${getTerminalText('errorPrefix')} ${errorMsg}\x1b[0m`);
     };
 
+    const handleReconnectStatus = (payload: MessagePayload) => {
+        if (payload?.phase === 'disconnecting') {
+            isReconnecting.value = true;
+            terminalInstance.value?.writeln('\r\n\x1b[33m[Nexus] 正在关闭旧终端连接...\x1b[0m');
+        } else if (payload?.phase === 'connecting') {
+            terminalInstance.value?.writeln('\x1b[33m[Nexus] 旧连接已释放，正在重新连接...\x1b[0m');
+        } else if (payload?.phase === 'failed') {
+            isReconnecting.value = false;
+            terminalInstance.value?.writeln(`\r\n\x1b[31m[Nexus] 重新连接失败：${payload?.message || '未知错误'}\x1b[0m`);
+        }
+    };
+
 
     // --- 注册 WebSocket 消息处理器 ---
     const unregisterHandlers: (() => void)[] = [];
@@ -258,6 +275,7 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
         unregisterHandlers.push(onMessage('ssh:status', handleSshStatus));
         unregisterHandlers.push(onMessage('info', handleInfoMessage));
         unregisterHandlers.push(onMessage('error', handleErrorMessage)); // 也处理通用错误
+        unregisterHandlers.push(onMessage('internal:reconnect-status', handleReconnectStatus));
         console.log(`[会话 ${sessionId}][SSH终端模块] 已注册 SSH 相关消息处理器。`);
     };
 

@@ -6,6 +6,7 @@ import { useLayoutStore } from '../stores/layout.store';
 
 // 定义与 WebSocket 相关的依赖接口
 export interface StatusMonitorDependencies {
+    sendMessage: (message: WebSocketMessage) => void;
     onMessage: (type: string, handler: (payload: any, fullMessage?: WebSocketMessage) => void) => () => void;
     isConnected: ComputedRef<boolean>;
 }
@@ -17,7 +18,7 @@ export interface StatusMonitorDependencies {
  * @returns 状态监控管理器实例
  */
 export function createStatusMonitorManager(sessionId: string, wsDeps: StatusMonitorDependencies) {
-    const { onMessage, isConnected } = wsDeps;
+    const { sendMessage, onMessage, isConnected } = wsDeps;
     const MAX_HISTORY_POINTS = 60; // 图表显示的点数
 
     const serverStatus = ref<ServerStatus | null>(null);
@@ -81,10 +82,11 @@ export function createStatusMonitorManager(sessionId: string, wsDeps: StatusMoni
     // --- 注册 WebSocket 消息处理器 ---
     let unregisterUpdate: (() => void) | null = null;
     let unregisterError: (() => void) | null = null;
+    let unregisterLegacyError: (() => void) | null = null;
 
     const registerStatusHandlers = () => {
         // 防止重复注册
-        if (unregisterUpdate || unregisterError) {
+        if (unregisterUpdate || unregisterError || unregisterLegacyError) {
             console.log(`[会话 ${sessionId}][状态监控模块] 处理器已注册，跳过。`);
             return;
         }
@@ -92,19 +94,31 @@ export function createStatusMonitorManager(sessionId: string, wsDeps: StatusMoni
             console.log(`[会话 ${sessionId}][状态监控模块] 注册状态消息处理器。`);
             unregisterUpdate = onMessage('status_update', handleStatusUpdate);
             unregisterError = onMessage('status:error', handleStatusError);
+            unregisterLegacyError = onMessage('status_error', handleStatusError);
         } else {
             console.warn(`[会话 ${sessionId}][状态监控模块] WebSocket 未连接，无法注册状态处理器。`);
         }
     };
 
     const unregisterAllStatusHandlers = () => {
-        if (unregisterUpdate || unregisterError) {
+        if (unregisterUpdate || unregisterError || unregisterLegacyError) {
             console.log(`[会话 ${sessionId}][状态监控模块] 注销状态消息处理器。`);
             unregisterUpdate?.();
             unregisterError?.();
+            unregisterLegacyError?.();
             unregisterUpdate = null;
             unregisterError = null;
+            unregisterLegacyError = null;
         }
+    };
+
+    const requestStatusUpdate = () => {
+        if (!isConnected.value) {
+            return false;
+        }
+        registerStatusHandlers();
+        sendMessage({ type: 'status:get', sessionId });
+        return true;
     };
 
     // 监听连接状态变化以自动注册/注销处理器
@@ -114,9 +128,8 @@ export function createStatusMonitorManager(sessionId: string, wsDeps: StatusMoni
             // 只有当状态监视器在布局中时才注册处理器
             const layoutStore = useLayoutStore();
             if (layoutStore.usedPanes.has('statusMonitor')) {
-                registerStatusHandlers();
-                // 连接成功后，可以考虑请求一次初始状态（如果后端支持）
-                // sendMessage({ type: 'status:update', sessionId });
+                statusError.value = null;
+                requestStatusUpdate();
             } else {
                 console.log(`[会话 ${sessionId}][状态监控模块] 状态监视器不在布局中，跳过注册处理器。`);
             }
@@ -149,6 +162,7 @@ export function createStatusMonitorManager(sessionId: string, wsDeps: StatusMoni
         // --- 控制函数 ---
         registerStatusHandlers,
         unregisterAllStatusHandlers,
+        requestStatusUpdate,
         cleanup,
     };
 }

@@ -25,7 +25,7 @@ import {
 import { SshSuspendService } from '../ssh-suspend/ssh-suspend.service';
 import { SftpService } from '../sftp/sftp.service';
 import { cleanupClientConnection } from './utils';
-import { clientStates } from './state';
+import { clientStates, statusMonitorService } from './state';
 import { temporaryLogStorageService } from '../ssh-suspend/temporary-log-storage.service'; 
 
 // Handlers
@@ -92,6 +92,32 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
                             break;
                         case 'ssh:resize':
                             handleSshResize(ws, payload);
+                            break;
+                        case 'ssh:disconnect':
+                            if (!sessionId) {
+                                if (ws.readyState === WebSocket.OPEN) {
+                                    ws.send(JSON.stringify({
+                                        type: 'ssh:disconnect:ack',
+                                        payload: { success: false, message: '未找到活动终端会话' }
+                                    }));
+                                }
+                                break;
+                            }
+                            await cleanupClientConnection(sessionId, { forceClose: true });
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({
+                                    type: 'ssh:disconnect:ack',
+                                    sessionId,
+                                    payload: { success: true }
+                                }));
+                            }
+                            break;
+                        case 'status:get':
+                            if (sessionId) {
+                                await statusMonitorService.fetchAndSendServerStatus(sessionId);
+                            } else if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({ type: 'status_error', payload: { message: '未找到活动终端会话' } }));
+                            }
                             break;
 
                         // Docker Cases

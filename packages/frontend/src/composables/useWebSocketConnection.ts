@@ -39,6 +39,7 @@ export function createWebSocketConnectionManager(
     let reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null; // 重连定时器 ID
     let lastUrl = ''; // 保存上次连接的 URL
     let intentionalDisconnect = false; // 标记是否为用户主动断开
+    let reconnectInProgress = false;
 
 
     /**
@@ -209,6 +210,10 @@ export function createWebSocketConnectionManager(
                             connectionStatus.value = 'connected';
                             statusMessage.value = getStatusText('connected');
                         }
+                        if (reconnectInProgress) {
+                            reconnectInProgress = false;
+                            dispatchMessage('internal:reconnect-status', { phase: 'connected' }, { type: 'internal:reconnect-status' });
+                        }
                     } else if (message.type === 'ssh:disconnected') {
                         if (connectionStatus.value !== 'disconnected') {
                             connectionStatus.value = 'disconnected';
@@ -303,6 +308,90 @@ export function createWebSocketConnectionManager(
         }
     };
 
+    const reconnect = (url = lastUrl): Promise<boolean> => {
+        if (!url) {
+            connectionStatus.value = 'error';
+            statusMessage.value = getStatusText('wsError');
+            return Promise.resolve(false);
+        }
+
+        intentionalDisconnect = true;
+        if (reconnectTimeoutId) {
+            clearTimeout(reconnectTimeoutId);
+            reconnectTimeoutId = null;
+        }
+
+        const oldWs = ws.value;
+        if (!oldWs || oldWs.readyState !== WebSocket.OPEN) {
+            ws.value = null;
+            reconnectAttempts = 0;
+            isSftpReady.value = false;
+            intentionalDisconnect = false;
+            reconnectInProgress = true;
+            dispatchMessage('internal:reconnect-status', { phase: 'connecting' }, { type: 'internal:reconnect-status' });
+            connect(url);
+            return Promise.resolve(true);
+        }
+
+        connectionStatus.value = 'disconnected';
+        statusMessage.value = getStatusText('disconnected', { reason: '准备重新连接' });
+        dispatchMessage('internal:reconnect-status', { phase: 'disconnecting' }, { type: 'internal:reconnect-status' });
+
+        return new Promise<boolean>((resolve) => {
+            let finished = false;
+            let unregisterAck: () => void = () => undefined;
+            let ackTimeoutId: ReturnType<typeof setTimeout>;
+            let closeTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+            const finish = (success: boolean) => {
+                if (finished) return;
+                finished = true;
+                unregisterAck();
+                clearTimeout(ackTimeoutId);
+                if (closeTimeoutId) clearTimeout(closeTimeoutId);
+                resolve(success);
+            };
+
+            const fail = (message: string) => {
+                reconnectInProgress = false;
+                connectionStatus.value = 'error';
+                statusMessage.value = message;
+                dispatchMessage('internal:reconnect-status', { phase: 'failed', message }, { type: 'internal:reconnect-status' });
+                finish(false);
+            };
+
+            const connectAfterClose = () => {
+                oldWs.onopen = null;
+                oldWs.onmessage = null;
+                oldWs.onerror = null;
+                oldWs.onclose = () => {
+                    if (ws.value === oldWs) ws.value = null;
+                    reconnectAttempts = 0;
+                    isSftpReady.value = false;
+                    intentionalDisconnect = false;
+                    reconnectInProgress = true;
+                    dispatchMessage('internal:reconnect-status', { phase: 'connecting' }, { type: 'internal:reconnect-status' });
+                    connect(url);
+                    finish(true);
+                };
+
+                closeTimeoutId = setTimeout(() => fail('旧终端连接未能正常关闭'), 5000);
+                oldWs.close(1000, '客户端请求重新连接');
+            };
+
+            unregisterAck = onMessage('ssh:disconnect:ack', (payload) => {
+                if (!payload?.success) {
+                    fail(payload?.message || '后端未能释放旧终端连接');
+                    return;
+                }
+                connectAfterClose();
+            });
+
+            ackTimeoutId = setTimeout(() => fail('等待旧终端释放超时'), 5000);
+            oldWs.send(JSON.stringify({ type: 'ssh:disconnect', sessionId: instanceSessionId }));
+        });
+    };
+
     /**
      * 发送 WebSocket 消息
      * @param {WebSocketMessage} message - 要发送的消息对象
@@ -363,6 +452,7 @@ export function createWebSocketConnectionManager(
         // 方法
         connect,
         disconnect,
+        reconnect,
         sendMessage,
         onMessage,
     };

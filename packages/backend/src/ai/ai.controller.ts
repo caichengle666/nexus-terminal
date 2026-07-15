@@ -61,7 +61,9 @@ export const chat = async (req: Request, res: Response): Promise<void> => {
     if (req.body?.stream === true) {
       const upstream = await AiService.forwardChatCompletionStream(req.body || {});
       res.status(upstream.status);
-      res.setHeader('Content-Type', upstream.headers['content-type'] || 'text/event-stream');
+      const rawContentType = upstream.headers['content-type'];
+      const contentType = typeof rawContentType === 'string' ? rawContentType : 'text/event-stream';
+      res.setHeader('Content-Type', contentType);
       res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');

@@ -120,6 +120,12 @@ export async function createWebDavClient(config: WebDavBackupConfig): Promise<We
   return createClient(config.url, options);
 }
 
+async function getWebDavConfigForRequest(proxyId?: number | null): Promise<WebDavBackupConfig> {
+  const config = await getWebDavConfig();
+  if (!config) throw new Error('WebDAV 备份未配置。');
+  return proxyId === undefined ? config : { ...config, proxyId };
+}
+
 async function ensureBackupDir(client: WebDAVClient): Promise<void> {
   try {
     await client.getDirectoryContents(BACKUP_DIR);
@@ -171,10 +177,8 @@ async function collectBackupData(): Promise<Record<string, any>> {
   return backup;
 }
 
-export async function createBackup(): Promise<{ fileName: string; size: number }> {
-  const config = await getWebDavConfig();
-  if (!config) throw new Error('WebDAV 备份未配置，请先保存 WebDAV 连接信息。');
-
+export async function createBackup(proxyId?: number | null): Promise<{ fileName: string; size: number }> {
+  const config = await getWebDavConfigForRequest(proxyId);
   const client = await createWebDavClient(config);
   await ensureBackupDir(client);
 
@@ -212,10 +216,8 @@ export async function createBackup(): Promise<{ fileName: string; size: number }
   return { fileName: zipName, size };
 }
 
-export async function listBackups(): Promise<BackupFileInfo[]> {
-  const config = await getWebDavConfig();
-  if (!config) throw new Error('WebDAV 备份未配置。');
-
+export async function listBackups(proxyId?: number | null): Promise<BackupFileInfo[]> {
+  const config = await getWebDavConfigForRequest(proxyId);
   const client = await createWebDavClient(config);
   await ensureBackupDir(client);
 
@@ -232,10 +234,8 @@ export async function listBackups(): Promise<BackupFileInfo[]> {
   return files;
 }
 
-export async function downloadBackup(fileName: string): Promise<Buffer> {
-  const config = await getWebDavConfig();
-  if (!config) throw new Error('WebDAV 备份未配置。');
-
+export async function downloadBackup(fileName: string, proxyId?: number | null): Promise<Buffer> {
+  const config = await getWebDavConfigForRequest(proxyId);
   const client = await createWebDavClient(config);
   const remotePath = getBackupRemotePath(fileName);
   const raw = await client.getFileContents(remotePath);
@@ -243,17 +243,15 @@ export async function downloadBackup(fileName: string): Promise<Buffer> {
   return bufData;
 }
 
-export async function deleteBackup(fileName: string): Promise<void> {
-  const config = await getWebDavConfig();
-  if (!config) throw new Error('WebDAV 备份未配置。');
-
+export async function deleteBackup(fileName: string, proxyId?: number | null): Promise<void> {
+  const config = await getWebDavConfigForRequest(proxyId);
   const client = await createWebDavClient(config);
   const remotePath = getBackupRemotePath(fileName);
   await client.deleteFile(remotePath);
 }
 
-export async function restoreFromBackup(fileName: string): Promise<{ tables: string[]; message: string }> {
-  const buffer = await downloadBackup(fileName);
+export async function restoreFromBackup(fileName: string, proxyId?: number | null): Promise<{ tables: string[]; message: string }> {
+  const buffer = await downloadBackup(fileName, proxyId);
   let data: Record<string, any>;
 
   try {
