@@ -6,6 +6,7 @@ import { useConnectionsStore } from '../stores/connections.store';
 // @ts-ignore - guacamole-common-js 缺少官方类型定义
 import Guacamole from 'guacamole-common-js';
 import type { ConnectionInfo } from '../stores/connections.store';
+import apiClient from '../utils/apiClient';
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
@@ -98,6 +99,21 @@ let dragOffsetX = 0;
 let dragOffsetY = 0;
 let hasDragged = false;
 
+interface RemoteGatewayStatus {
+  available: boolean;
+  apiBaseUrl: string;
+  message: string;
+  detail?: string;
+}
+
+const checkRemoteGateway = async () => {
+  const response = await apiClient.get<RemoteGatewayStatus>('/connections/remote-desktop/status');
+  if (!response.data.available) {
+    const detail = response.data.detail ? ` (${response.data.detail})` : '';
+    throw new Error(`${response.data.message}${detail}`);
+  }
+};
+
 let remoteDesktopWsBaseUrl: string; // Renamed for clarity
 const LOCAL_BACKEND_URL_FOR_PROXY = 'ws://localhost:3001'; // Main backend's WebSocket for proxying
 
@@ -128,6 +144,8 @@ const handleConnection = async () => {
 
   try {
     const connectionsStore = useConnectionsStore();
+    statusMessage.value = '正在检查远程桌面网关...';
+    await checkRemoteGateway();
     // Pass width and height to the token generation, backend will forward to gateway
     const token = await connectionsStore.getVncSessionToken(props.connection.id, desiredModalWidth.value, desiredModalHeight.value);
     if (!token) {

@@ -5,6 +5,27 @@ import type { ConnectionInfo } from '../../connections.store'; // 路径: packag
 
 // --- RDP Modal Actions ---
 export const openRdpModal = (connection: ConnectionInfo) => {
+  const electronApi = (window as any).electronAPI;
+  if (electronApi?.openRdp && electronApi?.getPlatform) {
+    electronApi.getPlatform().then((platform: string) => {
+      if (platform === 'win32') {
+        electronApi.openRdp({
+          host: connection.host,
+          port: connection.port || 3389,
+          username: connection.username,
+        });
+        return;
+      }
+
+      rdpConnectionInfo.value = connection;
+      isRdpModalOpen.value = true;
+    }).catch(() => {
+      rdpConnectionInfo.value = connection;
+      isRdpModalOpen.value = true;
+    });
+    return;
+  }
+
   // console.log(`[ModalActions] Opening RDP modal for connection: ${connection.name} (ID: ${connection.id})`);
   rdpConnectionInfo.value = connection;
   isRdpModalOpen.value = true;

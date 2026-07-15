@@ -2,7 +2,6 @@
 import { ref, onMounted, onUnmounted, watch, nextTick, computed, watchEffect } from 'vue'; 
 import { useI18n } from 'vue-i18n';
 import { useSettingsStore } from '../stores/settings.store';
-import { useConnectionsStore } from '../stores/connections.store'; 
 // @ts-ignore - guacamole-common-js 缺少官方类型定义
 import Guacamole from 'guacamole-common-js';
 import apiClient from '../utils/apiClient';
@@ -55,6 +54,42 @@ let hasDragged = false;
 const MIN_MODAL_WIDTH = 1024;
 const MIN_MODAL_HEIGHT = 768;
 
+interface RemoteGatewayStatus {
+  available: boolean;
+  apiBaseUrl: string;
+  message: string;
+  detail?: string;
+}
+
+const checkRemoteGateway = async () => {
+  const response = await apiClient.get<RemoteGatewayStatus>('/connections/remote-desktop/status');
+  if (!response.data.available) {
+    const detail = response.data.detail ? ` (${response.data.detail})` : '';
+    throw new Error(`${response.data.message}${detail}`);
+  }
+};
+
+const tryOpenExternalRdpClient = async (reason: string): Promise<boolean> => {
+  const electronApi = (window as any).electronAPI;
+  if (!props.connection || props.connection.type !== 'RDP' || !electronApi?.getRdpClientStatus || !electronApi?.openExternalRdp) {
+    return false;
+  }
+
+  const status = await electronApi.getRdpClientStatus();
+  if (!status?.available) {
+    statusMessage.value = `${reason}\n未检测到外部 RDP 客户端。macOS 请安装 Windows App / Microsoft Remote Desktop；Linux 请安装 FreeRDP 或 Remmina。`;
+    return false;
+  }
+
+  const result = await electronApi.openExternalRdp({
+    host: props.connection.host,
+    port: props.connection.port || 3389,
+    username: props.connection.username,
+  });
+  statusMessage.value = result?.message || '已尝试打开外部 RDP 客户端。';
+  return Boolean(result?.ok);
+};
+
 // Dynamically construct WebSocket URL based on environment
 let backendBaseUrl: string;
 const LOCAL_BACKEND_URL = 'ws://localhost:3001'; // For RDP proxy via main backend
@@ -87,7 +122,8 @@ const handleConnection = async () => {
   try {
     let token: string | null = null;
     let tunnelUrl: string = '';
-    const connectionsStore = useConnectionsStore();
+    statusMessage.value = '正在检查远程桌面网关...';
+    await checkRemoteGateway();
 
     if (props.connection.type === 'RDP') {
       const apiUrl = `connections/${props.connection.id}/rdp-session`;
@@ -191,7 +227,11 @@ const handleConnection = async () => {
     guacClient.value.connect('');
 
   } catch (error: any) {
-    statusMessage.value = `${t('remoteDesktopModal.errors.connectionFailed')}: ${error.response?.data?.message || error.message || String(error)}`;
+    const message = error.response?.data?.message || error.message || String(error);
+    const externalOpened = await tryOpenExternalRdpClient(message);
+    if (!externalOpened) {
+      statusMessage.value = `${t('remoteDesktopModal.errors.connectionFailed')}: ${statusMessage.value || message}`;
+    }
     connectionStatus.value = 'error';
     disconnectGuacamole();
   }

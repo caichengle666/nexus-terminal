@@ -3,6 +3,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 // 将选择的 API 暴露给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  getPlatform: () => ipcRenderer.invoke('get-platform'),
+  getRdpClientStatus: () => ipcRenderer.invoke('get-rdp-client-status'),
+  openExternalRdp: (connectionDetails) => ipcRenderer.invoke('open-external-rdp-connection', connectionDetails),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
   openPath: (targetPath) => ipcRenderer.invoke('open-path', targetPath),
   // 从渲染进程向主进程发送消息

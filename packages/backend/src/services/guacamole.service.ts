@@ -15,6 +15,40 @@ interface TokenResponse {
     token: string;
 }
 
+export interface RemoteGatewayStatus {
+    available: boolean;
+    apiBaseUrl: string;
+    message: string;
+    detail?: string;
+}
+
+export const getRemoteGatewayStatus = async (): Promise<RemoteGatewayStatus> => {
+    const healthUrl = `${REMOTE_GATEWAY_API_BASE}/api/health`;
+    try {
+        const response = await axios.get(healthUrl, { timeout: 3000 });
+        return {
+            available: response.status === 200 && response.data?.ok !== false,
+            apiBaseUrl: REMOTE_GATEWAY_API_BASE,
+            message: response.data?.message || '远程桌面网关可用。',
+        };
+    } catch (error: any) {
+        if (axios.isAxiosError(error) && error.response) {
+            return {
+                available: false,
+                apiBaseUrl: REMOTE_GATEWAY_API_BASE,
+                message: error.response.data?.message || '远程桌面网关不可用。',
+                detail: `HTTP ${error.response.status}`,
+            };
+        }
+        return {
+            available: false,
+            apiBaseUrl: REMOTE_GATEWAY_API_BASE,
+            message: '远程桌面网关未启动。',
+            detail: error.message,
+        };
+    }
+};
+
 /**
  * 从统一远程桌面网关服务获取 Guacamole 令牌
  * @param protocol 'rdp' 或 'vnc'
@@ -86,7 +120,8 @@ export const getRemoteDesktopToken = async (
     } catch (error: any) {
         console.error(`[GuacamoleService:getRemoteDesktopToken] Error calling ${protocol.toUpperCase()} backend for connection ${connection.id}:`, error.message);
         if (axios.isAxiosError(error) && error.response) {
-            throw new Error(`调用 ${protocol.toUpperCase()} 后端服务失败 (状态: ${error.response.status}): ${error.response.data?.message || error.message}`);
+            const gatewayMessage = error.response.data?.message || error.response.data?.error || error.message;
+            throw new Error(`调用 ${protocol.toUpperCase()} 后端服务失败 (状态: ${error.response.status}): ${gatewayMessage}`);
         }
         throw new Error(`调用 ${protocol.toUpperCase()} 后端服务时发生错误: ${error.message}`);
     }

@@ -275,6 +275,15 @@ import axios from 'axios'; // axios 仍可能用于错误检查类型
 // RDP_BACKEND_API_BASE and VNC_BACKEND_API_BASE are now handled in GuacamoleService
 
 /**
+ * 获取远程桌面网关状态
+ * GET /api/v1/connections/remote-desktop/status
+ */
+export const getRemoteDesktopGatewayStatus = async (_req: Request, res: Response): Promise<void> => {
+    const status = await GuacamoleService.getRemoteGatewayStatus();
+    res.status(200).json(status);
+};
+
+/**
  * 获取 RDP 会话的 Guacamole 令牌 (通过调用 RDP 后端)
  * GET /api/v1/connections/:id/rdp-session
  */
@@ -340,7 +349,7 @@ export const getRdpSessionToken = async (req: Request, res: Response): Promise<v
         let statusCode = 500;
         let responseMessage = '获取 RDP 会话令牌时发生内部服务器错误。';
 
-        if (error.message.includes('调用 RDP 后端服务失败') || error.message.includes('从 RDP 后端获取令牌失败') || error.message.includes('调用 Remote Gateway API 时出错 (RDP)')) {
+        if (error.message.includes('调用 RDP 后端服务失败') || error.message.includes('调用 RDP 后端服务时发生错误') || error.message.includes('从 RDP 后端获取令牌失败') || error.message.includes('调用 Remote Gateway API 时出错 (RDP)')) {
             responseMessage = error.message;
             if (error.message.includes('(状态: 4')) statusCode = 400;
             else if (error.message.includes('(状态: 5')) statusCode = 502;

@@ -13,6 +13,7 @@ import {
     importConnections,
     getRdpSessionToken, 
     getVncSessionToken, 
+    getRemoteDesktopGatewayStatus,
     cloneConnection, 
     
     addTagToConnections 
@@ -65,6 +66,9 @@ router.get('/', getConnections);
 
 // POST /api/v1/connections - 创建新连接
 router.post('/', createConnection);
+
+// GET /api/v1/connections/remote-desktop/status - 检查远程桌面网关状态
+router.get('/remote-desktop/status', getRemoteDesktopGatewayStatus);
 
 // GET /api/v1/connections/:id - 获取单个连接信息
 router.get('/:id', getConnectionById);

@@ -4,6 +4,7 @@ import express, { Request, Response } from 'express';
 import http from 'http';
 import crypto from 'crypto';
 import cors from 'cors';
+import * as net from 'net';
 
 // --- 配置 ---
 const REMOTE_GATEWAY_WS_PORT = process.env.REMOTE_GATEWAY_WS_PORT || 8080; // 统一端口，或按需分开
@@ -30,6 +31,27 @@ const allowedOrigins = [
 ];
 console.log(`[Remote Gateway] CORS 允许的来源: ${allowedOrigins.join(', ')}`);
 app.use(cors({ origin: allowedOrigins }));
+
+const checkGuacdReachable = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+        const socket = net.createConnection({ host: GUACD_HOST, port: GUACD_PORT });
+        const timeout = setTimeout(() => {
+            socket.destroy();
+            resolve(false);
+        }, 2000);
+
+        socket.once('connect', () => {
+            clearTimeout(timeout);
+            socket.end();
+            resolve(true);
+        });
+
+        socket.once('error', () => {
+            clearTimeout(timeout);
+            resolve(false);
+        });
+    });
+};
 
 
 const guacdOptions = {
@@ -164,6 +186,17 @@ app.post('/api/remote-desktop/token', (req: Request, res: Response): void => {
         console.error("[Remote Gateway] /api/remote-desktop/token 接口出错:", error);
         res.status(500).json({ error: '生成令牌失败' });
     }
+});
+
+app.get('/api/health', async (_req: Request, res: Response): Promise<void> => {
+    const guacdReachable = await checkGuacdReachable();
+    res.status(guacdReachable ? 200 : 503).json({
+        ok: guacdReachable,
+        service: 'remote-gateway',
+        guacdHost: GUACD_HOST,
+        guacdPort: GUACD_PORT,
+        message: guacdReachable ? '远程桌面网关可用。' : '远程桌面网关已启动，但 guacd 不可用。',
+    });
 });
 
 apiServer.listen(REMOTE_GATEWAY_API_PORT, () => {

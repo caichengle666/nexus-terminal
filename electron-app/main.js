@@ -673,6 +673,107 @@ ipcMain.on('minimize-window', () => {
 });
 
 ipcMain.handle('get-app-version', () => app.getVersion());
+ipcMain.handle('get-platform', () => process.platform);
+
+const commandExists = (command) => new Promise((resolve) => {
+  const checker = process.platform === 'win32'
+    ? spawn('where.exe', [command], { stdio: 'ignore' })
+    : spawn('sh', ['-lc', `command -v ${command}`], { stdio: 'ignore' });
+  checker.on('close', (code) => resolve(code === 0));
+  checker.on('error', () => resolve(false));
+});
+
+const getExternalRdpClients = async () => {
+  if (process.platform === 'darwin') {
+    const apps = [
+      { id: 'windows-app', name: 'Windows App', path: '/Applications/Windows App.app' },
+      { id: 'microsoft-remote-desktop', name: 'Microsoft Remote Desktop', path: '/Applications/Microsoft Remote Desktop.app' },
+      { id: 'parallels-client', name: 'Parallels Client', path: '/Applications/Parallels Client.app' },
+    ];
+    return apps.filter((client) => fs.existsSync(client.path));
+  }
+
+  if (process.platform === 'linux') {
+    const candidates = [
+      { id: 'xfreerdp', name: 'FreeRDP', command: 'xfreerdp' },
+      { id: 'wlfreerdp', name: 'FreeRDP Wayland', command: 'wlfreerdp' },
+      { id: 'remmina', name: 'Remmina', command: 'remmina' },
+    ];
+    const clients = [];
+    for (const client of candidates) {
+      if (await commandExists(client.command)) {
+        clients.push(client);
+      }
+    }
+    return clients;
+  }
+
+  return [];
+};
+
+ipcMain.handle('get-rdp-client-status', async () => {
+  const clients = await getExternalRdpClients();
+  return {
+    platform: process.platform,
+    available: clients.length > 0,
+    clients,
+  };
+});
+
+ipcMain.handle('open-external-rdp-connection', async (_event, { host, port, username }) => {
+  if (!host) {
+    return { ok: false, message: '缺少 RDP 主机地址。' };
+  }
+
+  const server = port ? `${host}:${port}` : host;
+
+  if (process.platform === 'darwin') {
+    const clients = await getExternalRdpClients();
+    if (clients.length === 0) {
+      return { ok: false, message: '未检测到 macOS 外部 RDP 客户端。请安装 Windows App 或 Microsoft Remote Desktop。' };
+    }
+
+    const safeName = String(host).replace(/[^a-z0-9.-]/gi, '_');
+    const rdpFilePath = path.join(app.getPath('temp'), `nexus-terminal-${safeName}.rdp`);
+    const rdpContent = [
+      `full address:s:${server}`,
+      username ? `username:s:${username}` : '',
+      'prompt for credentials:i:1',
+      'authentication level:i:2',
+      'screen mode id:i:2',
+    ].filter(Boolean).join('\n');
+    fs.writeFileSync(rdpFilePath, rdpContent, 'utf8');
+    const openResult = await shell.openPath(rdpFilePath);
+    return openResult
+      ? { ok: false, message: `打开外部 RDP 客户端失败: ${openResult}` }
+      : { ok: true, message: `已尝试使用外部 RDP 客户端打开 ${server}。` };
+  }
+
+  if (process.platform === 'linux') {
+    const clients = await getExternalRdpClients();
+    const freeRdp = clients.find((client) => client.id === 'xfreerdp' || client.id === 'wlfreerdp');
+    if (freeRdp) {
+      const args = [`/v:${server}`];
+      if (username) args.push(`/u:${username}`);
+      args.push('/cert:ignore');
+      const child = spawn(freeRdp.command, args, { detached: true, stdio: 'ignore' });
+      child.unref();
+      return { ok: true, message: `已尝试使用 ${freeRdp.name} 打开 ${server}。` };
+    }
+
+    const remmina = clients.find((client) => client.id === 'remmina');
+    if (remmina) {
+      const target = username ? `rdp://${username}@${server}` : `rdp://${server}`;
+      const child = spawn(remmina.command, ['-c', target], { detached: true, stdio: 'ignore' });
+      child.unref();
+      return { ok: true, message: `已尝试使用 Remmina 打开 ${server}。` };
+    }
+
+    return { ok: false, message: '未检测到 Linux 外部 RDP 客户端。请安装 FreeRDP 或 Remmina。' };
+  }
+
+  return { ok: false, message: '当前系统不支持外部 RDP 自动调用。' };
+});
 
 ipcMain.handle('select-directory', async () => {
   const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
@@ -712,6 +813,12 @@ ipcMain.on('toggle-always-on-top', () => {
 
 // IPC handler for opening RDP connection
 ipcMain.on('open-rdp-connection', async (event, { host, port, username, password }) => {
+  if (process.platform !== 'win32') {
+    console.warn(`[Main Process] RDP: Native mstsc is only available on Windows. Current platform: ${process.platform}`);
+    dialog.showErrorBox('RDP 不可用', '系统远程桌面 mstsc 只支持 Windows。macOS/Linux 请使用 Web/Docker 远程桌面网关模式，或安装第三方 RDP 客户端手动连接。');
+    return;
+  }
+
   if (!host) {
     console.error('[Main Process] RDP: Received request without host.');
     // event.reply('open-rdp-connection-error', 'Host is required');
