@@ -3,8 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import AdmZip from 'adm-zip';
-import HttpProxyAgent from 'http-proxy-agent';
-import HttpsProxyAgent from 'https-proxy-agent';
+import { HttpProxyAgent } from 'http-proxy-agent';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 const archiver = require('archiver');
 import { allDb, getDbInstance, runDb } from '../database/connection';
@@ -106,8 +106,8 @@ async function getWebDavProxyAgents(proxyId?: number | null): Promise<Pick<WebDA
   }
 
   return {
-    httpAgent: HttpProxyAgent(proxyUrl.toString()),
-    httpsAgent: HttpsProxyAgent(proxyUrl.toString()),
+    httpAgent: new HttpProxyAgent(proxyUrl.toString()),
+    httpsAgent: new HttpsProxyAgent(proxyUrl.toString()),
   };
 }
 

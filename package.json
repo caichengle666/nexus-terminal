@@ -10,8 +10,7 @@
     "doc": "doc"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "postinstall": "patch-package"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
@@ -27,24 +26,31 @@
   "description": "",
   "dependencies": {
     "archiver-zip-encrypted": "^2.0.0",
-    "axios": "^1.8.4",
-    "element-plus": "^2.9.11",
+    "axios": "^1.18.1",
+    "element-plus": "^2.14.3",
     "fs-extra": "^11.3.0",
     "pinia-plugin-persistedstate": "^4.2.0",
     "plist": "^3.1.0",
     "vuedraggable": "^4.1.0",
-    "ws": "^8.18.1"
+    "ws": "^8.21.1"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.4",
+    "@tailwindcss/postcss": "^4.3.2",
     "@types/qrcode": "^1.5.5",
     "@types/speakeasy": "^2.0.10",
-    "patch-package": "^8.0.0",
     "qrcode": "^1.5.4",
     "speakeasy": "^2.0.0",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^6.0.1"
   },
   "overrides": {
-    "esbuild": "^0.25.0"
+    "@xmldom/xmldom": "^0.8.13",
+    "bn.js": "4.12.3",
+    "defu": "^6.1.7",
+    "glob": "^10.5.0",
+    "minimatch": "^9.0.9",
+    "path-to-regexp": "8.4.2",
+    "picomatch": "^4.0.5",
+    "rollup": "4.59.0",
+    "tar-fs": "^2.1.5"
   }
 }
