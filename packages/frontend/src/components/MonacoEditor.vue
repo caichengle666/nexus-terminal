@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch, defineExpose, defineProps, defineEmits } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import * as monaco from 'monaco-editor';
 
 const FONT_SIZE_STORAGE_KEY = 'monacoEditorFontSize'; // localStorage key

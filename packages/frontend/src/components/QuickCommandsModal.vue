@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineProps, defineEmits, watch, onMounted, onBeforeUnmount } from 'vue';
+import { watch, onMounted, onBeforeUnmount } from 'vue';
 import QuickCommandsView from '../views/QuickCommandsView.vue'; // 导入视图
 import { useWorkspaceEventSubscriber } from '../composables/workspaceEvents'; // 导入事件订阅器
 

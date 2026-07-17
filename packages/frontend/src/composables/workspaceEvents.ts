@@ -1,7 +1,7 @@
 // packages/frontend/src/composables/workspaceEvents.ts
 import mitt from 'mitt';
 import type { ConnectionInfo } from '../stores/connections.store';
-import type { Terminal as XtermTerminal } from 'xterm';
+import type { Terminal as XtermTerminal } from '@xterm/xterm';
 
 // 定义事件载荷类型
 export type WorkspaceEventPayloads = {

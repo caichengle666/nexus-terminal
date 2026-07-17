@@ -1,4 +1,4 @@
-import type { ITheme } from 'xterm';
+import type { ITheme } from '@xterm/xterm';
 
 // 定义所有可用面板的名称 (后端独立定义)
 export type PaneName = 'connections' | 'terminal' | 'commandBar' | 'fileManager' | 'editor' | 'statusMonitor' | 'commandHistory' | 'quickCommands' | 'dockerManager';

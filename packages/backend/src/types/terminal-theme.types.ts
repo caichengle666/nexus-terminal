@@ -1,4 +1,4 @@
-import type { ITheme } from 'xterm';
+import type { ITheme } from '@xterm/xterm';
 
 /**
  * 终端主题数据结构

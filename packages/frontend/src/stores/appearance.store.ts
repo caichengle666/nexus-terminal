@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import apiClient from '../utils/apiClient';
 import { ref, computed, watch, nextTick } from 'vue'; 
 import { useDeviceDetection } from '../composables/useDeviceDetection';
-import type { ITheme } from 'xterm';
+import type { ITheme } from '@xterm/xterm';
 import type { TerminalTheme } from '../types/terminal-theme.types'; 
 import type { AppearanceSettings, UpdateAppearanceDto } from '../types/appearance.types';
 import { defaultXtermTheme, defaultUiTheme } from '../features/appearance/config/default-themes';

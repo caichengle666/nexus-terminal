@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAiStore, type AiTaskStatus, type AiToolRun } from '../stores/ai.store';
 import { useConfirmDialog } from '../composables/useConfirmDialog';
@@ -83,6 +83,10 @@ const summaryModeLabel = computed(() => {
 });
 const drawerPanel = ref<DrawerPanel>(null);
 const isDrawerOpen = computed(() => drawerPanel.value !== null);
+const textareaInput = ref<HTMLTextAreaElement | null>(null);
+const refocusInput = () => {
+  void nextTick(() => textareaInput.value?.focus());
+};
 const lastUserPrompt = computed(() => {
   const lastUser = [...visibleMessages.value].reverse().find(message => message.role === 'user');
   return typeof lastUser?.content === 'string' ? lastUser.content : '';
@@ -343,6 +347,7 @@ const stopAi = async () => {
   if (confirmed) {
     aiStore.sendInterruptToTerminal(runSessionId);
   }
+  refocusInput();
 };
 
 const interruptTerminal = async () => {
@@ -355,6 +360,7 @@ const interruptTerminal = async () => {
   if (confirmed) {
     aiStore.sendInterruptToTerminal();
   }
+  refocusInput();
 };
 
 const compactContext = async () => {
@@ -584,6 +590,7 @@ const deleteHistory = async () => {
     aiStore.clearChat();
     closeDrawer();
   }
+  refocusInput();
 };
 </script>
 
@@ -935,6 +942,7 @@ const deleteHistory = async () => {
 
     <div class="border-t border-primary/40 bg-header/20 p-2.5 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
       <textarea
+        ref="textareaInput"
         v-model="userInput"
         class="mb-1.5 h-16 w-full resize-none rounded border border-primary/50 bg-input px-2.5 py-2 text-sm text-foreground outline-none transition placeholder:text-text-secondary/70 focus:border-primary focus:ring-2 focus:ring-primary/30"
         placeholder="例如：查看当前报错，直接输入排查命令并修复"

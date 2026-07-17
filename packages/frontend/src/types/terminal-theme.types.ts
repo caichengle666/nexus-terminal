@@ -1,5 +1,5 @@
 // packages/frontend/src/types/terminal-theme.types.ts
-import type { ITheme } from 'xterm';
+import type { ITheme } from '@xterm/xterm';
 
 // 前端使用的终端主题结构 (对应 API 响应)
 export interface TerminalTheme {

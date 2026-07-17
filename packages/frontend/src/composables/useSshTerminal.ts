@@ -2,7 +2,7 @@ import { ref, readonly, type Ref, ComputedRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { sessions as globalSessionsRef } from '../stores/session/state'; // +++ 导入全局 sessions state +++
 // import { useWebSocketConnection } from './useWebSocketConnection'; // 移除全局导入
-import type { Terminal } from 'xterm';
+import type { Terminal } from '@xterm/xterm';
 import type { SearchAddon, ISearchOptions } from '@xterm/addon-search'; // *** 移除 ISearchResult 导入 ***
 import type { WebSocketMessage, MessagePayload } from '../types/websocket.types';
 

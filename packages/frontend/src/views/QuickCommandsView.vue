@@ -227,7 +227,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed, nextTick, defineExpose, watch, watchEffect } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed, nextTick, watch, watchEffect } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useQuickCommandsStore, type QuickCommandFE, type QuickCommandSortByType, type GroupedQuickCommands } from '../stores/quickCommands.store';
 import { useQuickCommandTagsStore } from '../stores/quickCommandTags.store'; 

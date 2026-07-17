@@ -1,4 +1,4 @@
-import type { ITheme } from 'xterm';
+import type { ITheme } from '@xterm/xterm';
 
 // 默认 xterm 主题
 // (与 backend/src/config/default-themes.ts 中的定义保持一致)

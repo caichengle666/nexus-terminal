@@ -494,7 +494,7 @@ const handleAvailablePaneDragEnd = (event: any) => {
                         :item-key="(element: PaneName) => `left-${element}`"
                         group="layout-items"
                         :sort="true"
-                        @change="(event) => onDraggableChange(event, 'left')"
+                        @change="onDraggableChange($event, 'left')"
                     >
                         <template #item="{ element, index }: { element: PaneName, index: number }">
                             <li class="flex items-center justify-between p-2 mb-2 bg-hover border border-border rounded cursor-grab transition-colors duration-150 hover:bg-border active:cursor-grabbing active:bg-border-alt text-sm">
@@ -523,7 +523,7 @@ const handleAvailablePaneDragEnd = (event: any) => {
                         :item-key="(element: PaneName) => `right-${element}`"
                         group="layout-items"
                         :sort="true"
-                        @change="(event) => onDraggableChange(event, 'right')"
+                        @change="onDraggableChange($event, 'right')"
                     >
                         <template #item="{ element, index }: { element: PaneName, index: number }">
                              <li class="flex items-center justify-between p-2 mb-2 bg-hover border border-border rounded cursor-grab transition-colors duration-150 hover:bg-border active:cursor-grabbing active:bg-border-alt text-sm">

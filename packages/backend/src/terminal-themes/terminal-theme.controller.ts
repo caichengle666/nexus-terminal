@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import * as terminalThemeService from './terminal-theme.service';
 import { CreateTerminalThemeDto, UpdateTerminalThemeDto } from '../types/terminal-theme.types';
-import type { ITheme } from 'xterm';
+import type { ITheme } from '@xterm/xterm';
 import multer from 'multer';
 import fs from 'fs';
 import { resolveBackendDataPath } from '../utils/paths';

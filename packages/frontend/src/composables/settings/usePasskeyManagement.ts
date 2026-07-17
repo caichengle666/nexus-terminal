@@ -35,7 +35,7 @@ export function usePasskeyManagement() {
 
     try {
       const registrationOptions = await authStore.getPasskeyRegistrationOptions(username);
-      const registrationResult = await startRegistration(registrationOptions);
+      const registrationResult = await startRegistration({ optionsJSON: registrationOptions });
       await authStore.registerPasskey(username, registrationResult);
 
       passkeyMessage.value = t('settings.passkey.success.registered');

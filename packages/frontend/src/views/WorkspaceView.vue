@@ -18,7 +18,7 @@ import type { SessionTabInfoWithStatus, SshTerminalInstance } from '../stores/se
 import { useSettingsStore } from '../stores/settings.store';
 import { useFileEditorStore, type FileTab } from '../stores/fileEditor.store';
 import { useCommandHistoryStore } from '../stores/commandHistory.store';
-import type { Terminal as XtermTerminal } from 'xterm';
+import type { Terminal as XtermTerminal } from '@xterm/xterm';
 import type { ISearchOptions } from '@xterm/addon-search';
 import {
   useWorkspaceEventSubscriber,

@@ -29,14 +29,14 @@
     "axios": "^1.18.1",
     "element-plus": "^2.14.3",
     "fs-extra": "^11.3.0",
-    "pinia-plugin-persistedstate": "^4.2.0",
+    "pinia-plugin-persistedstate": "^4.7.1",
     "plist": "^3.1.0",
     "vuedraggable": "^4.1.0",
     "ws": "^8.21.1"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.2",
-    "@types/qrcode": "^1.5.5",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/qrcode": "^1.5.6",
     "@types/speakeasy": "^2.0.10",
     "qrcode": "^1.5.4",
     "speakeasy": "^2.0.0",
@@ -47,10 +47,32 @@
     "bn.js": "4.12.3",
     "defu": "^6.1.7",
     "glob": "^10.5.0",
-    "minimatch": "^9.0.9",
+    "monaco-editor": "0.52.2",
     "path-to-regexp": "8.4.2",
-    "picomatch": "^4.0.5",
     "rollup": "4.59.0",
-    "tar-fs": "^2.1.5"
+    "tar-fs": "^2.1.5",
+    "vite-plugin-monaco-editor": {
+      "monaco-editor": "0.52.2"
+    },
+    "vue": "3.5.40",
+    "brace-expansion@1.1.11": "1.1.16",
+    "diff@4.0.2": "4.0.4",
+    "minimatch@3.1.2": "3.1.5",
+    "picomatch@2.3.1": "2.3.2",
+    "copyfiles": {
+      "minimatch": "3.1.5"
+    },
+    "ts-node": {
+      "diff": "4.0.4"
+    },
+    "chokidar": {
+      "picomatch": "2.3.2"
+    },
+    "anymatch": {
+      "picomatch": "2.3.2"
+    },
+    "readdirp": {
+      "picomatch": "2.3.2"
+    }
   }
 }

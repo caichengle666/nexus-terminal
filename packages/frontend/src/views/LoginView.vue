@@ -123,7 +123,7 @@ const handlePasskeyLogin = async () => {
     const authOptions = await optionsResponse.json();
 
     // Step 2: Use WebAuthn API to authenticate
-    const authenticationResult = await startAuthentication(authOptions);
+    const authenticationResult = await startAuthentication({ optionsJSON: authOptions });
 
     // Step 3: Send authentication result to the server
     // Pass username if it was used to get options, otherwise pass null or rely on backend to extract from assertion
