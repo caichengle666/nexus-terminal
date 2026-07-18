@@ -306,6 +306,23 @@ const definedMigrations: Migration[] = [
         sql: `
             ALTER TABLE quick_commands ADD COLUMN variables TEXT NULL;
         `
+    },
+    {
+        id: 11,
+        name: 'Add extended xterm theme fields to terminal_themes table',
+        check: async (db: Database): Promise<boolean> => {
+            const selectionForegroundExists = await columnExists(db, 'terminal_themes', 'selection_foreground');
+            return !selectionForegroundExists;
+        },
+        sql: `
+            ALTER TABLE terminal_themes ADD COLUMN selection_foreground TEXT NULL;
+            ALTER TABLE terminal_themes ADD COLUMN selection_inactive_background TEXT NULL;
+            ALTER TABLE terminal_themes ADD COLUMN scrollbar_slider_background TEXT NULL;
+            ALTER TABLE terminal_themes ADD COLUMN scrollbar_slider_hover_background TEXT NULL;
+            ALTER TABLE terminal_themes ADD COLUMN scrollbar_slider_active_background TEXT NULL;
+            ALTER TABLE terminal_themes ADD COLUMN overview_ruler_border TEXT NULL;
+            ALTER TABLE terminal_themes ADD COLUMN extended_ansi TEXT NULL;
+        `
     }
 ];
 

@@ -29,6 +29,20 @@ export async function handleSshConnect(
         return;
     }
 
+    // 网络中断时，旧 WebSocket 可能尚未触发 close，导致同一前端会话的
+    // SSH 状态短暂滞留。新的连接明确携带相同 sessionId 时，先释放旧状态，
+    // 再建立新 SSH 通道，避免重连按钮被残留状态阻塞。
+    if (!sessionId && requestedSessionId && existingState) {
+        if (existingState.ws.userId !== ws.userId) {
+            console.warn(`WebSocket: 用户 ${ws.username} 尝试接管不属于自己的会话 ${requestedSessionId}。`);
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ssh:error', payload: '会话归属校验失败。' }));
+            return;
+        }
+
+        console.log(`WebSocket: 为重新连接释放残留会话 ${requestedSessionId}。`);
+        await cleanupClientConnection(requestedSessionId, { forceClose: true });
+    }
+
     const dbConnectionId = payload?.connectionId;
     if (!dbConnectionId) {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ssh:error', payload: '缺少 connectionId。' }));
@@ -69,6 +83,14 @@ export async function handleSshConnect(
             isShellReady: false,
         };
         clientStates.set(newSessionId, newState);
+        // 延迟触发的旧 SSH/Shell close 事件只能清理它自己创建的状态，
+        // 不能按 sessionId 误删已经重新建立的新会话。
+        const cleanupOwnedSession = () => {
+            if (clientStates.get(newSessionId) === newState) {
+                return cleanupClientConnection(newSessionId);
+            }
+            return Promise.resolve();
+        };
         console.log(`WebSocket: 为用户 ${ws.username} (IP: ${clientIp}) 创建新会话 ${newSessionId} (DB ID: ${dbConnectionIdAsNumber}, 连接名称: ${newState.connectionName})`);
 
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ssh:status', payload: 'SSH 连接成功，正在打开 Shell...' }));
@@ -98,7 +120,7 @@ export async function handleSshConnect(
                     if (ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({ type: 'ssh:error', payload: `打开 Shell 失败: ${err.message}` }));
                     }
-                    cleanupClientConnection(newSessionId);
+                    cleanupOwnedSession();
                     return;
                 }
 
@@ -140,7 +162,7 @@ export async function handleSshConnect(
                     if (ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({ type: 'ssh:disconnected', payload: 'Shell 通道已关闭。' }));
                     }
-                    cleanupClientConnection(newSessionId);
+                    cleanupOwnedSession();
                 });
 
                 if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({
@@ -180,19 +202,19 @@ export async function handleSshConnect(
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'ssh:error', payload: `打开 Shell 时发生意外错误: ${shellError.message}` }));
             }
-            cleanupClientConnection(newSessionId);
+            cleanupOwnedSession();
         }
 
         sshClient.on('close', () => {
             console.log(`SSH: 会话 ${newSessionId} 的客户端连接已关闭。`);
-            cleanupClientConnection(newSessionId);
+            cleanupOwnedSession();
         });
         sshClient.on('error', (err: Error) => {
             console.error(`SSH: 会话 ${newSessionId} 的客户端连接错误:`, err);
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'ssh:error', payload: `SSH 连接错误: ${err.message}` }));
             }
-            cleanupClientConnection(newSessionId);
+            cleanupOwnedSession();
         });
 
     } catch (connectError: any) {

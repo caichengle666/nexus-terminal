@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue';
+import { ref, reactive, watch, computed, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAppearanceStore } from '../../stores/appearance.store';
 import { useUiNotificationsStore } from '../../stores/uiNotifications.store';
@@ -7,6 +7,7 @@ import { storeToRefs } from 'pinia';
 import type { ITheme } from '@xterm/xterm';
 import type { TerminalTheme } from '../../types/terminal-theme.types';
 import { defaultXtermTheme } from '../../features/appearance/config/default-themes';
+import TerminalAppearancePreview from './TerminalAppearancePreview.vue';
 
 const { t } = useI18n();
 const appearanceStore = useAppearanceStore();
@@ -36,6 +37,7 @@ const {
   terminalTextShadowOffsetY,
   terminalTextShadowBlur,
   terminalTextShadowColor,
+  currentTerminalTheme,
 } = storeToRefs(appearanceStore);
 
 const editableTerminalFontFamily = ref('');
@@ -54,6 +56,9 @@ const themeSearchTerm = ref('');
 const saveThemeError = ref<string | null>(null);
 const editableTerminalThemeString = ref('');
 const terminalThemeParseError = ref<string | null>(null);
+const previewedTheme = ref<TerminalTheme | null>(null);
+const previewTerminalThemeData = ref<ITheme | null>(null);
+const terminalThemeForPreview = computed(() => previewTerminalThemeData.value ?? currentTerminalTheme.value);
 const terminalThemePlaceholder = `background: #000000
 foreground: #ffffff
 cursor: #ffffff
@@ -199,14 +204,35 @@ const handleApplyTheme = async (theme: TerminalTheme) => {
     console.error(`无效的主题 ID 格式: ${theme._id}`);
     return;
   }
-  if (themeIdNum === activeTerminalThemeId.value) return;
+  if (themeIdNum === activeTerminalThemeId.value) {
+    cancelTerminalThemePreview();
+    return;
+  }
   try {
     await appearanceStore.setActiveTerminalTheme(theme._id);
+    cancelTerminalThemePreview();
     notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.setActiveThemeSuccess', { themeName: theme.name }) });
   } catch (error: any) {
     console.error("应用终端主题失败:", error);
     notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.setActiveThemeFailed', { message: error.message }) });
   }
+};
+
+const handlePreviewTheme = async (theme: TerminalTheme) => {
+  if (!theme._id) return;
+  try {
+    const themeData = await appearanceStore.loadTerminalThemeData(theme._id);
+    if (!themeData) throw new Error(t('styleCustomizer.errorLoadThemeDataFailed'));
+    previewTerminalThemeData.value = themeData;
+    previewedTheme.value = theme;
+  } catch (error: any) {
+    notificationsStore.addNotification({ type: 'error', message: error.message || t('styleCustomizer.errorLoadThemeDataFailed') });
+  }
+};
+
+const cancelTerminalThemePreview = () => {
+  previewTerminalThemeData.value = null;
+  previewedTheme.value = null;
 };
 
 const handleAddNewTheme = () => {
@@ -323,6 +349,7 @@ const handleSaveEditingTheme = async () => {
     emit('update:editingTheme', null);
     editableTerminalThemeString.value = '';
     terminalThemeParseError.value = null;
+    cancelTerminalThemePreview();
   } catch (error: any) {
     console.error("保存终端主题失败:", error);
     saveThemeError.value = error.message || t('styleCustomizer.themeSaveFailed');
@@ -330,6 +357,7 @@ const handleSaveEditingTheme = async () => {
 };
 
 const handleCancelEditingTheme = () => {
+  cancelTerminalThemePreview();
   emit('update:isEditingTheme', false);
   emit('update:editingTheme', null);
   saveThemeError.value = null;
@@ -483,12 +511,29 @@ watch(() => props.isEditingTheme, (isEditing) => {
     }
 }, { immediate: true });
 
+onUnmounted(cancelTerminalThemePreview);
+
 
 </script>
 
 <template>
   <section v-if="!isEditingTheme">
     <h3 class="mt-0 border-b border-border pb-2 mb-4 text-lg font-semibold text-foreground">{{ t('styleCustomizer.terminalStyles') }}</h3>
+
+    <TerminalAppearancePreview
+      class="mb-5"
+      :theme="terminalThemeForPreview"
+      :font-family="editableTerminalFontFamily"
+      :font-size="editableTerminalFontSize"
+      :text-stroke-enabled="editableTerminalTextStrokeEnabled"
+      :text-stroke-width="editableTerminalTextStrokeWidth"
+      :text-stroke-color="editableTerminalTextStrokeColor"
+      :text-shadow-enabled="editableTerminalTextShadowEnabled"
+      :text-shadow-offset-x="editableTerminalTextShadowOffsetX"
+      :text-shadow-offset-y="editableTerminalTextShadowOffsetY"
+      :text-shadow-blur="editableTerminalTextShadowBlur"
+      :text-shadow-color="editableTerminalTextShadowColor"
+    />
     
     <div class="grid grid-cols-1 md:grid-cols-[auto_1fr_auto] items-start md:items-center gap-2 md:gap-3 mb-3">
         <label for="terminalFontFamily" class="text-left text-foreground text-sm font-medium overflow-hidden text-ellipsis block w-full mb-1 md:mb-0">{{ t('styleCustomizer.terminalFontFamily') }}:</label>
@@ -604,6 +649,14 @@ watch(() => props.isEditingTheme, (isEditing) => {
     <hr class="my-4 md:my-6">
 
     <h4 class="mt-6 mb-2 text-base font-semibold text-foreground">{{ t('styleCustomizer.terminalThemeSelection') }}</h4>
+
+    <div v-if="previewedTheme" class="mb-3 flex flex-wrap items-center justify-between gap-2 border border-primary/40 bg-primary/10 px-3 py-2 rounded text-sm">
+      <span class="text-foreground">{{ t('styleCustomizer.previewingUnsaved', '正在预览，尚未保存') }}: <strong>{{ previewedTheme.name }}</strong></span>
+      <div class="flex gap-2">
+        <button @click="cancelTerminalThemePreview" class="px-3 py-1.5 border border-border rounded bg-header text-foreground hover:bg-border">{{ t('common.cancel') }}</button>
+        <button @click="handleApplyTheme(previewedTheme)" class="px-3 py-1.5 border border-button rounded bg-button text-button-text hover:bg-button-hover">{{ t('common.apply') }}</button>
+      </div>
+    </div>
      
      <div class="mb-4 py-2 text-sm md:text-[0.95rem] flex flex-col md:flex-row items-start md:items-center gap-1 md:gap-3"> 
          <span class="text-text-secondary">{{ t('styleCustomizer.activeTheme') }}:</span>
@@ -638,6 +691,13 @@ watch(() => props.isEditingTheme, (isEditing) => {
              <span class="block md:col-start-1 md:col-end-2 overflow-hidden text-ellipsis whitespace-nowrap mb-2 md:mb-0" :class="theme._id === activeTerminalThemeId?.toString() ? 'font-bold text-button-text' : 'text-foreground'" :title="theme.name">{{ theme.name }}</span>
              <div class="flex md:col-start-2 md:col-end-3 flex-shrink-0 gap-2 justify-start md:justify-end flex-wrap"> 
                   <button
+                      @click="handlePreviewTheme(theme)"
+                      :title="t('styleCustomizer.previewThemeTooltip', '临时预览此主题')"
+                      class="px-3 py-1.5 text-xs md:text-sm border rounded transition-colors duration-200 ease-in-out whitespace-nowrap border-border bg-background text-foreground hover:bg-border"
+                  >
+                      {{ t('styleCustomizer.preview', '预览') }}
+                  </button>
+                  <button
                       @click="handleApplyTheme(theme)"
                       :disabled="theme._id === activeTerminalThemeId?.toString()"
                       :title="t('styleCustomizer.applyThemeTooltip', 'Apply this theme')"
@@ -667,6 +727,7 @@ watch(() => props.isEditingTheme, (isEditing) => {
 
   <section v-if="isEditingTheme && editingTheme">
       <h3 class="mt-0 border-b border-border pb-2 mb-4 text-lg font-semibold text-foreground">{{ editingTheme._id ? t('styleCustomizer.editThemeTitle') : t('styleCustomizer.newThemeTitle') }}</h3>
+      <TerminalAppearancePreview class="mb-5" :theme="editingTheme.themeData" />
        <p v-if="saveThemeError" class="text-error-text bg-error/10 border border-error/30 px-3 py-2 rounded text-sm mb-3">{{ saveThemeError }}</p>
       <div class="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start md:items-center gap-2 mb-2">
           <label for="editingThemeName" class="text-left text-foreground text-sm font-medium overflow-hidden text-ellipsis block w-full mb-1 md:mb-0">{{ t('styleCustomizer.themeName') }}:</label>

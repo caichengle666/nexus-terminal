@@ -1,6 +1,6 @@
 {
   "name": "nexus-electron-app",
-  "version": "0.9.17",
+  "version": "0.9.17.1",
   "description": "Electron application for Nexus Terminal",
   "main": "main.js",
   "author": {
@@ -16,7 +16,7 @@
     "dmg-license": "^1.0.10"
   },
   "dependencies": {
-    "electron-store": "^10.0.1",
+    "electron-store": "^11.0.2",
     "express": "^5.2.1",
     "http-proxy-middleware": "^3.0.7",
     "iconv-lite": "^0.7.3"
@@ -26,12 +26,12 @@
     "build:backend": "cd ../packages/backend && npm run build:prod",
     "build:frontend": "cd ../packages/frontend && npm run build",
     "prepare:node-runtime": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"New-Item -ItemType Directory -Force -Path 'nodejs-runtime/win-x64' | Out-Null; Copy-Item -Path (Get-Command node).Source -Destination 'nodejs-runtime/win-x64/node.exe' -Force\"",
-    "build:electron": "npm run prepare:node-runtime && electron-builder build --win --config",
+    "build:electron": "npm run prepare:node-runtime && electron-builder --win",
     "build": "npm run build:frontend && npm run build:backend && npm run build:electron"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron": "^39.8.5",
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.caichengle666.nexus-terminal",

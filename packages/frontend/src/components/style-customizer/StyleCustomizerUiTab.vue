@@ -6,6 +6,7 @@ import { useUiNotificationsStore } from '../../stores/uiNotifications.store';
 import { storeToRefs } from 'pinia';
 import { defaultUiTheme, uiThemePresets, type UiThemePreset } from '../../features/appearance/config/default-themes';
 import { safeJsonParse } from '../../stores/appearance.store';
+import UiAppearancePreview from './UiAppearancePreview.vue';
 
 const { t } = useI18n();
 const appearanceStore = useAppearanceStore();
@@ -79,25 +80,12 @@ const handleSaveUiTheme = async () => {
   }
 };
 
-const handleResetUiTheme = async () => {
-    try {
-        await appearanceStore.resetCustomUiTheme();
-        notificationsStore.addNotification({ type: 'info', message: t('styleCustomizer.uiThemeReset') });
-    } catch (error: any) {
-        console.error("重置 UI 主题失败:", error);
-        notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.uiThemeResetFailed', { message: error.message }) });
-    }
+const handleResetUiTheme = () => {
+  editableUiTheme.value = JSON.parse(JSON.stringify(defaultUiTheme));
 };
 
-const applyThemePreset = async (preset: UiThemePreset) => {
-  try {
-    editableUiTheme.value = JSON.parse(JSON.stringify(preset.theme));
-    await appearanceStore.saveCustomUiTheme(editableUiTheme.value);
-    notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.themePresetApplied', { name: preset.name }) });
-  } catch (error: any) {
-    console.error("应用主题预设失败:", error);
-    notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.themePresetApplyFailed', { message: error.message || '未知错误' }) });
-  }
+const previewThemePreset = (preset: UiThemePreset) => {
+  editableUiTheme.value = JSON.parse(JSON.stringify(preset.theme));
 };
 
 const openCreateCustomTheme = () => {
@@ -110,7 +98,7 @@ const cancelCreateCustomTheme = () => {
   customThemeName.value = '';
 };
 
-const createCustomUiTheme = async () => {
+const createCustomUiTheme = () => {
   const name = customThemeName.value.trim();
   if (!name) {
     notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.errorThemeNameRequired') });
@@ -127,7 +115,7 @@ const createCustomUiTheme = async () => {
   customUiThemes.value.push(theme);
   persistCustomUiThemes();
   cancelCreateCustomTheme();
-  await applyThemePreset(theme);
+  previewThemePreset(theme);
 };
 
 const deleteCustomUiTheme = async (theme: CustomUiTheme) => {
@@ -257,6 +245,7 @@ defineExpose({
 <template>
   <section>
     <h3 class="mt-0 border-b border-border pb-2 mb-4 text-lg font-semibold text-foreground">{{ t('styleCustomizer.uiStyles') }}</h3>
+    <UiAppearancePreview class="mb-5" :theme="editableUiTheme" />
     <div class="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start md:items-center gap-2 md:gap-3 mb-6">
         <label class="text-left text-foreground text-sm font-medium mb-1 md:mb-0">{{ t('styleCustomizer.themeModeLabel', '主题模式:') }}</label>
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -264,7 +253,7 @@ defineExpose({
               v-for="preset in uiThemePresets"
               :key="preset.key"
               type="button"
-              @click="applyThemePreset(preset)"
+              @click="previewThemePreset(preset)"
               class="text-left border rounded-md p-3 bg-header hover:bg-border transition duration-200 ease-in-out"
               :class="isPresetActive(preset) ? 'border-primary ring-1 ring-primary' : 'border-border'"
             >
@@ -287,8 +276,8 @@ defineExpose({
             <div
               v-for="theme in customUiThemes"
               :key="theme.key"
-              @click="applyThemePreset(theme)"
-              @keydown.enter="applyThemePreset(theme)"
+              @click="previewThemePreset(theme)"
+              @keydown.enter="previewThemePreset(theme)"
               role="button"
               tabindex="0"
               class="text-left border rounded-md p-3 bg-header hover:bg-border transition duration-200 ease-in-out"

@@ -71,18 +71,23 @@ export const allDb = <T = any>(db: sqlite3.Database, sql: string, params: any[] 
 };
 
 
-const runDatabaseInitializations = async (db: sqlite3.Database): Promise<void> => {
+const createDatabaseTables = async (db: sqlite3.Database): Promise<void> => {
     try {
         await runDb(db, 'PRAGMA foreign_keys = ON;');
         for (const tableDef of tableDefinitions) {
             await runDb(db, tableDef.sql);
-            if (tableDef.init) {
-                await tableDef.init(db);
-            }
         }
     } catch (error) {
-        console.error('[DB Init] 数据库初始化序列失败:', error);
+        console.error('[DB Init] 数据库建表失败:', error);
         throw error;
+    }
+};
+
+const initializeDatabaseData = async (db: sqlite3.Database): Promise<void> => {
+    for (const tableDef of tableDefinitions) {
+        if (tableDef.init) {
+            await tableDef.init(db);
+        }
     }
 };
 
@@ -104,10 +109,9 @@ export const getDbInstance = (): Promise<sqlite3.Database> => {
         
                 try {
 
-                    // 运行初始表创建
-                    await runDatabaseInitializations(db);
-                    // +++ 运行数据库迁移 +++
+                    await createDatabaseTables(db);
                     await runMigrations(db);
+                    await initializeDatabaseData(db);
                     console.log('[数据库] 初始化和迁移完成。'); 
                     resolve(db);
                 } catch (initError) {

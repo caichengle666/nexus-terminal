@@ -49,7 +49,7 @@ let currentFontSizeOnPinchStart = 0;
 // --- Appearance Store ---
 const appearanceStore = useAppearanceStore();
 const {
-  effectiveTerminalTheme,
+  currentTerminalTheme,
   currentTerminalFontFamily,
   currentTerminalFontSize,
   // --- 文字描边和阴影状态 ---
@@ -241,7 +241,7 @@ onMounted(() => {
       cursorBlink: true,
       fontSize: currentTerminalFontSize.value, 
       fontFamily: currentTerminalFontFamily.value, // 使用 store 中的字体设置
-      theme: effectiveTerminalTheme.value, // 使用 store 中的当前 xterm 主题 (now effectiveTerminalTheme)
+      theme: currentTerminalTheme.value,
       rows: 24, // 初始行数
       cols: 80, // 初始列数
       allowTransparency: true,
@@ -440,9 +440,9 @@ onMounted(() => {
     });
 
     // --- 监听外观变化 ---
-    watch(effectiveTerminalTheme, (newTheme) => { // Changed from currentTerminalTheme
+    watch(currentTerminalTheme, (newTheme) => {
       if (terminal) {
-        console.log(`[Terminal ${props.sessionId}] 应用新终端主题 (effective)。`);
+        console.log(`[Terminal ${props.sessionId}] 应用新终端主题。`);
         // 直接修改 options 对象
         terminal.options.theme = { ...newTheme };
         // 修改选项后需要刷新终端才能生效

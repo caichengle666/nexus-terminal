@@ -39,10 +39,6 @@ export const useAppearanceStore = defineStore('appearance', () => {
     const isLoadingHtmlPresets = ref(false);
     const htmlPresetError = ref<string | null>(null);
  
-    // State for theme preview
-    const isPreviewingTerminalTheme = ref(false);
-    const previewTerminalThemeData = ref<ITheme | null>(null);
-
     // --- Computed Properties (Getters) ---
 
     // 移除 availableTerminalThemes 计算属性，直接使用 allTerminalThemes
@@ -54,33 +50,20 @@ export const useAppearanceStore = defineStore('appearance', () => {
     // 当前激活的终端主题 ID
     const activeTerminalThemeId = computed(() => appearanceSettings.value.activeTerminalThemeId);
 
+    const findDefaultTerminalTheme = () => allTerminalThemes.value.find(theme =>
+        theme.isSystemDefault || (theme.isPreset && theme.name === 'default')
+    );
+
     // 当前应用的终端主题对象 (ITheme)
     const currentTerminalTheme = computed<ITheme>(() => {
         const activeId = activeTerminalThemeId.value; // number | null | undefined
         if (activeId === null || activeId === undefined || allTerminalThemes.value.length === 0) {
-             // 如果没有激活 ID 或列表为空，查找默认主题
-             // TODO: 需要确认默认主题的识别方式 (preset_key='default' 或 name='默认')
-             const defaultTheme = allTerminalThemes.value.find(t => t.name === '默认'); // 假设按名称查找
+             const defaultTheme = findDefaultTerminalTheme();
              return defaultTheme ? defaultTheme.themeData : defaultXtermTheme;
         }
         // 根据数字 ID 查找 (需要将 theme._id 转回数字比较)
         const activeTheme = allTerminalThemes.value.find(t => parseInt(t._id ?? '-1', 10) === activeId);
-        return activeTheme ? activeTheme.themeData : defaultXtermTheme; // 找不到也回退到 xterm 默认
-    });
-
-    // Effective terminal theme, considering preview
-    const effectiveTerminalTheme = computed<ITheme>(() => {
-        if (isPreviewingTerminalTheme.value && previewTerminalThemeData.value) {
-            return previewTerminalThemeData.value;
-        }
-        // Fallback to the currently set theme if not previewing
-        const activeId = activeTerminalThemeId.value;
-        if (activeId === null || activeId === undefined || allTerminalThemes.value.length === 0) {
-            const defaultPresetTheme = allTerminalThemes.value.find(t => t.name === '默认'); // Adjust if default theme identified differently
-            return defaultPresetTheme ? defaultPresetTheme.themeData : defaultXtermTheme;
-        }
-        const activeSetTheme = allTerminalThemes.value.find(t => parseInt(t._id ?? '-1', 10) === activeId);
-        return activeSetTheme ? activeSetTheme.themeData : defaultXtermTheme;
+        return activeTheme?.themeData ?? findDefaultTerminalTheme()?.themeData ?? defaultXtermTheme;
     });
 
     // 当前终端字体设置
@@ -281,23 +264,20 @@ export const useAppearanceStore = defineStore('appearance', () => {
 
      /**
      * 设置激活的终端主题
-     * @param themeId 主题的字符串 ID (来自 UI) 或 null (用于重置，但新逻辑下不直接使用 null)
+     * @param themeId 主题的字符串 ID，null 表示使用内置默认主题
      */
-    async function setActiveTerminalTheme(themeId: string) { // 参数改为 string，不允许 null
-        const previousActiveId = appearanceSettings.value.activeTerminalThemeId; // 记录之前的数字 ID 或 null
+    async function setActiveTerminalTheme(themeId: string | null) {
+        const previousActiveId = appearanceSettings.value.activeTerminalThemeId;
 
-        // 1. 将传入的字符串 ID 转换为数字
-        const idNum = parseInt(themeId, 10);
-        if (isNaN(idNum)) {
+        const idNum = themeId === null ? null : parseInt(themeId, 10);
+        if (themeId !== null && isNaN(idNum as number)) {
             console.error(`[AppearanceStore] setActiveTerminalTheme 接收到无效的数字 ID 字符串: ${themeId}`);
             throw new Error(`无效的主题 ID: ${themeId}`);
         }
 
-        // 2. 立即更新前端本地状态 (使用数字 ID)
         appearanceSettings.value.activeTerminalThemeId = idNum;
         console.log(`[AppearanceStore] Applied theme locally (ID): ${idNum}`);
 
-        // 3. 更新后端 (发送数字 ID)
         try {
             await updateAppearanceSettings({ activeTerminalThemeId: idNum });
             console.log(`[AppearanceStore] Notified backend. Sent activeTerminalThemeId: ${idNum}`);
@@ -462,15 +442,10 @@ export const useAppearanceStore = defineStore('appearance', () => {
     async function deleteTerminalTheme(id: string) {
          try {
             await apiClient.delete(`/terminal-themes/${id}`); // 使用 apiClient
-            // 如果删除的是当前激活的主题，则切换回默认主题 ID
-            // 需要将字符串 id 转换为数字进行比较
             const idNum = parseInt(id, 10);
             if (!isNaN(idNum) && activeTerminalThemeId.value === idNum) {
-                 // 查找默认主题的数字 ID (这里假设默认主题 ID 为 1，实际应从配置或查询获取)
-                 // TODO: 需要一种可靠的方式获取默认主题的数字 ID
-                 const defaultThemeIdNum = 1; // 临时硬编码，需要改进
-                 console.log(`[AppearanceStore] 删除的主题是当前激活主题，尝试切换到默认主题 ID: ${defaultThemeIdNum}`);
-                 await setActiveTerminalTheme(defaultThemeIdNum.toString()); // setActiveTerminalTheme 需要字符串 ID
+                 const defaultThemeId = findDefaultTerminalTheme()?._id;
+                 await setActiveTerminalTheme(defaultThemeId ?? null);
             }
             await loadInitialAppearanceData(); // 重新加载所有数据以更新列表
         } catch (err: any) {
@@ -650,19 +625,6 @@ export const useAppearanceStore = defineStore('appearance', () => {
         }
     }
 
-    // --- Terminal Theme Preview Actions ---
-    function startTerminalThemePreview(themeData: ITheme) {
-        previewTerminalThemeData.value = themeData;
-        isPreviewingTerminalTheme.value = true;
-        console.log('[AppearanceStore] Started terminal theme preview.');
-    }
-
-    function stopTerminalThemePreview() {
-        previewTerminalThemeData.value = null;
-        isPreviewingTerminalTheme.value = false;
-        console.log('[AppearanceStore] Stopped terminal theme preview.');
-    }
- 
     // --- HTML Preset Actions ---
     async function fetchLocalHtmlPresets() {
         isLoadingHtmlPresets.value = true;
@@ -893,12 +855,9 @@ export const useAppearanceStore = defineStore('appearance', () => {
         // State refs (原始数据)
         appearanceSettings,
         allTerminalThemes, // 导出重命名后的 ref
-        isPreviewingTerminalTheme, 
-        previewTerminalThemeData, 
         currentUiTheme,
         activeTerminalThemeId,
         currentTerminalTheme,     
-        effectiveTerminalTheme,   
         currentTerminalFontFamily,
         currentTerminalFontSize, // 这个 getter 会自动根据设备类型返回正确的字体大小
         terminalFontSizeDesktop, // + 用于在设置中分别显示/设置桌面端字号
@@ -956,8 +915,6 @@ export const useAppearanceStore = defineStore('appearance', () => {
         terminalTextShadowOffsetY,
         terminalTextShadowBlur,
         terminalTextShadowColor,
-        startTerminalThemePreview,
-        stopTerminalThemePreview,
         // Visibility control
         isStyleCustomizerVisible,
         toggleStyleCustomizer,

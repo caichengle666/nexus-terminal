@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAppearanceStore } from '../../stores/appearance.store';
 import { useUiNotificationsStore } from '../../stores/uiNotifications.store';
 import { storeToRefs } from 'pinia';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
+import TerminalAppearancePreview from './TerminalAppearancePreview.vue';
 
 
 const { t } = useI18n();
@@ -25,6 +26,18 @@ const {
   activeHtmlPresetTab, // This is the ref from the store
   isLoadingHtmlPresets,
   htmlPresetError,
+  currentTerminalTheme,
+  terminalCustomHTML,
+  currentTerminalFontFamily,
+  currentTerminalFontSize,
+  terminalTextStrokeEnabled,
+  terminalTextStrokeWidth,
+  terminalTextStrokeColor,
+  terminalTextShadowEnabled,
+  terminalTextShadowOffsetX,
+  terminalTextShadowOffsetY,
+  terminalTextShadowBlur,
+  terminalTextShadowColor,
 } = storeToRefs(appearanceStore);
 
 // Actions from store
@@ -48,6 +61,22 @@ const editableTerminalBackgroundOverlayOpacity = ref(0.5);
 
 const terminalBgFileInput = ref<HTMLInputElement | null>(null);
 const uploadError = ref<string | null>(null);
+const pendingTerminalBackgroundFile = ref<File | null>(null);
+const pendingTerminalBackgroundRemoval = ref(false);
+const pendingTerminalCustomHTML = ref<string | undefined>(undefined);
+const terminalBackgroundPreviewUrl = ref<string | null>(null);
+const previewTerminalBackgroundImage = computed(() => {
+  if (pendingTerminalBackgroundRemoval.value) return null;
+  return terminalBackgroundPreviewUrl.value || terminalBackgroundImage.value || null;
+});
+const previewTerminalCustomHTML = computed(() => pendingTerminalCustomHTML.value ?? terminalCustomHTML.value);
+const hasPendingTerminalStyle = computed(() =>
+  pendingTerminalBackgroundFile.value !== null
+  || pendingTerminalBackgroundRemoval.value
+  || pendingTerminalCustomHTML.value !== undefined
+  || localTerminalBackgroundEnabled.value !== isTerminalBackgroundEnabled.value
+  || editableTerminalBackgroundOverlayOpacity.value !== currentTerminalBackgroundOverlayOpacity.value
+);
 
 // Component's internal active tab, synced with store's activeHtmlPresetTab
 const currentActiveTab = ref<'local' | 'remote'>('local');
@@ -131,53 +160,56 @@ const handleTerminalBgUpload = async (event: Event) => {
      const input = event.target as HTMLInputElement;
     if (input.files && input.files[0]) {
         const file = input.files[0];
-        try {
-            await appearanceStore.uploadTerminalBackground(file);
-            notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.terminalBgUploadSuccess') });
-            input.value = '';
-        } catch (error: any) {
-            const determinedErrorMessage = error.message || t('styleCustomizer.uploadFailed');
-            uploadError.value = determinedErrorMessage;
-            notificationsStore.addNotification({ type: 'error', message: determinedErrorMessage });
-            input.value = '';
-        }
+        if (terminalBackgroundPreviewUrl.value) URL.revokeObjectURL(terminalBackgroundPreviewUrl.value);
+        terminalBackgroundPreviewUrl.value = URL.createObjectURL(file);
+        pendingTerminalBackgroundFile.value = file;
+        pendingTerminalBackgroundRemoval.value = false;
+        localTerminalBackgroundEnabled.value = true;
+        input.value = '';
     }
 };
 
-const handleRemoveTerminalBg = async () => {
-    try {
-        await appearanceStore.removeTerminalBackground();
-        notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.terminalBgRemoved') });
-    } catch (error: any) {
-         console.error("移除终端背景失败:", error);
-         notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.removeBgFailed', { message: error.message }) });
-    }
+const handleRemoveTerminalBg = () => {
+    pendingTerminalBackgroundFile.value = null;
+    pendingTerminalBackgroundRemoval.value = true;
+    if (terminalBackgroundPreviewUrl.value) URL.revokeObjectURL(terminalBackgroundPreviewUrl.value);
+    terminalBackgroundPreviewUrl.value = null;
 };
 
-const handleToggleTerminalBackground = async () => {
+const handleToggleTerminalBackground = () => {
     const newValue = !localTerminalBackgroundEnabled.value;
     localTerminalBackgroundEnabled.value = newValue;
-    try {
-        await appearanceStore.setTerminalBackgroundEnabled(newValue);
-    } catch (error: any) {
-        console.error("更新终端背景启用状态失败:", error);
-        localTerminalBackgroundEnabled.value = !newValue;
-        notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.errorToggleTerminalBg', { message: error.message }) });
-    }
 };
 
-const handleSaveTerminalBackgroundOverlayOpacity = async () => {
+const clearPendingTerminalStyle = () => {
+  if (terminalBackgroundPreviewUrl.value) URL.revokeObjectURL(terminalBackgroundPreviewUrl.value);
+  terminalBackgroundPreviewUrl.value = null;
+  pendingTerminalBackgroundFile.value = null;
+  pendingTerminalBackgroundRemoval.value = false;
+  pendingTerminalCustomHTML.value = undefined;
+};
+
+const cancelTerminalStylePreview = () => {
+  clearPendingTerminalStyle();
+  initializeEditableState();
+};
+
+const applyTerminalStylePreview = async () => {
   try {
-    const opacity = Number(editableTerminalBackgroundOverlayOpacity.value);
-    if (isNaN(opacity) || opacity < 0 || opacity > 1) {
-      notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.errorInvalidOpacityValue') });
-      return;
+    await appearanceStore.setTerminalBackgroundEnabled(localTerminalBackgroundEnabled.value);
+    await appearanceStore.setTerminalBackgroundOverlayOpacity(Number(editableTerminalBackgroundOverlayOpacity.value));
+    if (pendingTerminalBackgroundRemoval.value) {
+      await appearanceStore.removeTerminalBackground();
+    } else if (pendingTerminalBackgroundFile.value) {
+      await appearanceStore.uploadTerminalBackground(pendingTerminalBackgroundFile.value);
     }
-    await appearanceStore.setTerminalBackgroundOverlayOpacity(opacity);
-    notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.terminalBgOverlayOpacitySaved') });
+    if (pendingTerminalCustomHTML.value !== undefined) {
+      await applyHtmlPreset(pendingTerminalCustomHTML.value);
+    }
+    clearPendingTerminalStyle();
+    notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.terminalStyleApplied', '终端样式已应用。') });
   } catch (error: any) {
-    console.error("保存终端背景蒙版透明度失败:", error);
-    notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.terminalBgOverlayOpacitySaveFailed', { message: error.message }) });
+    notificationsStore.addNotification({ type: 'error', message: error.message || t('styleCustomizer.terminalStyleApplyFailed', '应用终端样式失败。') });
   }
 };
 
@@ -189,19 +221,19 @@ const switchTab = (tab: 'local' | 'remote') => {
 const handleApplyPreset = async (htmlContent: string) => {
   try {
     await applyHtmlPreset(htmlContent);
+    clearPendingTerminalStyle();
     notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.htmlPresetApplied') });
   } catch (error: any) {
     notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.htmlPresetApplyFailed', { message: error.message }) });
   }
 };
 
-const handleResetCustomHtml = async () => {
-  try {
-    await applyHtmlPreset(''); // Apply empty HTML to reset
-    notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.customHtmlResetSuccess', '自定义 HTML 已重置。') });
-  } catch (error: any) {
-    notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.customHtmlResetFailed', { message: error.message }) });
-  }
+const handlePreviewPreset = (htmlContent: string) => {
+  pendingTerminalCustomHTML.value = htmlContent;
+};
+
+const handleResetCustomHtml = () => {
+  handlePreviewPreset('');
 };
 
 // Local preset functions
@@ -217,6 +249,11 @@ const openEditPresetEditor = (preset: { name: string, content: string }) => { //
   newPresetName.value = preset.name.replace(/\.html$/, ''); // Remove .html for editing
   newPresetContent.value = preset.content;
   showPresetEditor.value = true;
+};
+
+const closePresetEditor = () => {
+  showPresetEditor.value = false;
+  cancelTerminalStylePreview();
 };
 
 // New function to handle "Edit" for a preset theme, which means creating a new custom theme based on it
@@ -366,6 +403,14 @@ const applyLocalPreset = async (presetName: string) => {
   }
 };
 
+const previewLocalPreset = async (presetName: string) => {
+  try {
+    handlePreviewPreset(await getLocalHtmlPresetContent(presetName));
+  } catch (error: any) {
+    notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.localPresetApplyFailed', { message: error.message }) });
+  }
+};
+
 // Placeholder for applying a remote theme (needs to fetch content first)
 const applyRemotePreset = async (downloadUrl?: string) => {
   if (!downloadUrl) {
@@ -375,6 +420,15 @@ const applyRemotePreset = async (downloadUrl?: string) => {
   try {
     const content = await getRemoteHtmlPresetContent(downloadUrl);
     await handleApplyPreset(content);
+  } catch (error: any) {
+    notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.remotePresetApplyFailed', { message: error.message }) });
+  }
+};
+
+const previewRemotePreset = async (downloadUrl?: string) => {
+  if (!downloadUrl) return;
+  try {
+    handlePreviewPreset(await getRemoteHtmlPresetContent(downloadUrl));
   } catch (error: any) {
     notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.remotePresetApplyFailed', { message: error.message }) });
   }
@@ -401,12 +455,41 @@ const filteredRemoteHtmlPresets = computed(() => {
   return presets;
 });
 
+onUnmounted(cancelTerminalStylePreview);
+
 
 </script>
 
 <template>
   <section>
     <h3 class="mt-0 border-b border-border pb-2 mb-4 text-lg font-semibold text-foreground">{{ t('styleCustomizer.backgroundSettings') }}</h3>
+
+    <TerminalAppearancePreview
+      class="mb-4"
+      :theme="currentTerminalTheme"
+      :font-family="currentTerminalFontFamily"
+      :font-size="currentTerminalFontSize"
+      :text-stroke-enabled="terminalTextStrokeEnabled"
+      :text-stroke-width="terminalTextStrokeWidth"
+      :text-stroke-color="terminalTextStrokeColor"
+      :text-shadow-enabled="terminalTextShadowEnabled"
+      :text-shadow-offset-x="terminalTextShadowOffsetX"
+      :text-shadow-offset-y="terminalTextShadowOffsetY"
+      :text-shadow-blur="terminalTextShadowBlur"
+      :text-shadow-color="terminalTextShadowColor"
+      :background-enabled="localTerminalBackgroundEnabled"
+      :background-image="previewTerminalBackgroundImage"
+      :overlay-opacity="editableTerminalBackgroundOverlayOpacity"
+      :custom-html="previewTerminalCustomHTML"
+    />
+
+    <div v-if="hasPendingTerminalStyle" class="mb-4 flex flex-wrap items-center justify-between gap-2 border border-primary/40 bg-primary/10 px-3 py-2 rounded text-sm">
+      <span class="text-foreground">{{ t('styleCustomizer.previewingUnsaved', '正在预览，尚未保存') }}</span>
+      <div class="flex gap-2">
+        <button @click="cancelTerminalStylePreview" class="px-3 py-1.5 border border-border rounded bg-header text-foreground hover:bg-border">{{ t('common.cancel') }}</button>
+        <button @click="applyTerminalStylePreview" class="px-3 py-1.5 border border-button rounded bg-button text-button-text hover:bg-button-hover">{{ t('common.apply') }}</button>
+      </div>
+    </div>
 
     <!-- Tab Switcher -->
 
@@ -437,14 +520,6 @@ const filteredRemoteHtmlPresets = computed(() => {
     </div>
 
      <div v-if="localTerminalBackgroundEnabled">
-       <div class="w-full h-[100px] md:h-[150px] border border-dashed border-border mb-2 flex justify-center items-center text-text-secondary bg-cover bg-center bg-no-repeat rounded bg-header relative overflow-hidden" :style="{ backgroundImage: terminalBackgroundImage ? `url(${terminalBackgroundImage})` : 'none' }">
-           <div
-             v-if="terminalBackgroundImage"
-             class="absolute inset-0"
-             :style="{ backgroundColor: `rgba(0, 0, 0, ${editableTerminalBackgroundOverlayOpacity})` }"
-           ></div>
-           <span v-if="!terminalBackgroundImage" class="bg-[var(--app-bg-color)]/80 px-3 py-1.5 rounded text-sm font-medium text-foreground shadow-sm relative z-10">{{ t('styleCustomizer.noBackground') }}</span>
-       </div>
      <div class="flex gap-2 mb-4 flex-wrap items-center">
         <button @click="handleTriggerTerminalBgUpload" class="px-3 py-1.5 text-sm border border-border rounded bg-header hover:bg-border transition duration-200 ease-in-out whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">{{ t('styleCustomizer.uploadTerminalBg') }}</button>
         <button @click="handleRemoveTerminalBg" :disabled="!terminalBackgroundImage" class="px-3 py-1.5 text-sm border rounded transition duration-200 ease-in-out whitespace-nowrap bg-error/10 text-error border-error/30 hover:bg-error/20 disabled:opacity-60 disabled:cursor-not-allowed">{{ t('styleCustomizer.removeTerminalBg') }}</button>
@@ -464,7 +539,6 @@ const filteredRemoteHtmlPresets = computed(() => {
               class="w-full cursor-pointer accent-primary"
             />
             <span class="text-sm text-foreground min-w-[3em] text-right">{{ editableTerminalBackgroundOverlayOpacity.toFixed(2) }}</span>
-            <button @click="handleSaveTerminalBackgroundOverlayOpacity" class="px-3 py-1.5 text-sm border border-border rounded bg-header hover:bg-border transition duration-200 ease-in-out whitespace-nowrap">{{ t('common.save') }}</button>
         </div>
      </div>
      <!-- Old custom HTML textarea is removed from here -->
@@ -538,6 +612,11 @@ const filteredRemoteHtmlPresets = computed(() => {
             </span>
           </div>
           <div class="flex md:col-start-2 md:col-end-3 flex-shrink-0 gap-2 justify-start md:justify-end flex-wrap">
+            <button @click="previewLocalPreset(preset.name)"
+                    :title="t('styleCustomizer.previewThemeTooltip', '临时预览此主题')"
+                    class="px-3 py-1.5 text-xs md:text-sm border rounded transition-colors duration-200 ease-in-out whitespace-nowrap border-border bg-background text-foreground hover:bg-border">
+              {{ t('styleCustomizer.preview', '预览') }}
+            </button>
             <button @click="applyLocalPreset(preset.name)"
                     :title="t('styleCustomizer.applyThemeTooltip', 'Apply this theme')"
                     class="px-3 py-1.5 text-xs md:text-sm border rounded transition-colors duration-200 ease-in-out whitespace-nowrap border-border bg-header text-foreground hover:bg-border hover:border-text-secondary">
@@ -632,6 +711,11 @@ const filteredRemoteHtmlPresets = computed(() => {
         >
           <span class="block md:col-start-1 md:col-end-2 overflow-hidden text-ellipsis whitespace-nowrap mb-2 md:mb-0 text-foreground font-medium" :title="preset.name.replace(/\.html$/, '')">{{ preset.name.replace(/\.html$/, '') }}</span>
           <div class="flex md:col-start-2 md:col-end-3 flex-shrink-0 gap-2 justify-start md:justify-end flex-wrap">
+            <button @click="previewRemotePreset(preset.downloadUrl)" :disabled="!preset.downloadUrl"
+                    :title="t('styleCustomizer.previewThemeTooltip', '临时预览此主题')"
+                    class="px-3 py-1.5 text-xs md:text-sm border rounded transition-colors duration-200 ease-in-out whitespace-nowrap border-border bg-background text-foreground hover:bg-border disabled:opacity-50">
+              {{ t('styleCustomizer.preview', '预览') }}
+            </button>
             <button @click="applyRemotePreset(preset.downloadUrl)" :disabled="!preset.downloadUrl"
                     :title="t('styleCustomizer.applyThemeTooltip', 'Apply this theme')"
                     class="px-3 py-1.5 text-xs md:text-sm border rounded transition-colors duration-200 ease-in-out whitespace-nowrap border-border bg-header text-foreground hover:bg-border hover:border-text-secondary disabled:opacity-50">
@@ -648,7 +732,7 @@ const filteredRemoteHtmlPresets = computed(() => {
 
 
     <!-- Preset Editor (Modal or Inline) - Simplified for now -->
-    <div v-if="showPresetEditor" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" @click.self="showPresetEditor = false">
+    <div v-if="showPresetEditor" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" @click.self="closePresetEditor">
       <div class="bg-background p-6 rounded-lg shadow-xl w-full max-w-lg">
         <div class="mb-4">
           <label for="presetName" class="block text-sm font-medium text-foreground mb-1">{{ t('styleCustomizer.presetName') }}</label>
@@ -671,7 +755,8 @@ const filteredRemoteHtmlPresets = computed(() => {
           ></textarea>
         </div>
         <div class="flex justify-end gap-2">
-          <button @click="showPresetEditor = false" class="px-4 py-2 text-sm border border-border rounded bg-header hover:bg-border transition">{{ t('common.cancel') }}</button>
+          <button @click="closePresetEditor" class="px-4 py-2 text-sm border border-border rounded bg-header hover:bg-border transition">{{ t('common.cancel') }}</button>
+          <button @click="handlePreviewPreset(newPresetContent)" class="px-4 py-2 text-sm border border-border rounded bg-background text-foreground hover:bg-border transition">{{ t('styleCustomizer.preview', '预览') }}</button>
           <button @click="handleSaveLocalPreset" class="px-4 py-2 text-sm rounded bg-primary text-white hover:bg-primary/90 transition">{{ t('common.save') }}</button>
         </div>
       </div>

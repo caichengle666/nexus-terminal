@@ -11,6 +11,13 @@ interface DbTerminalThemeRow {
     cursor?: string | null;
     cursor_accent?: string | null;
     selection_background?: string | null;
+    selection_foreground?: string | null;
+    selection_inactive_background?: string | null;
+    scrollbar_slider_background?: string | null;
+    scrollbar_slider_hover_background?: string | null;
+    scrollbar_slider_active_background?: string | null;
+    overview_ruler_border?: string | null;
+    extended_ansi?: string | null;
     black?: string | null;
     red?: string | null;
     green?: string | null;
@@ -49,6 +56,13 @@ const mapRowToTerminalTheme = (row: DbTerminalThemeRow): TerminalTheme => {
             cursor: row.cursor ?? undefined,
             cursorAccent: row.cursor_accent ?? undefined,
             selectionBackground: row.selection_background ?? undefined,
+            selectionForeground: row.selection_foreground ?? undefined,
+            selectionInactiveBackground: row.selection_inactive_background ?? undefined,
+            scrollbarSliderBackground: row.scrollbar_slider_background ?? undefined,
+            scrollbarSliderHoverBackground: row.scrollbar_slider_hover_background ?? undefined,
+            scrollbarSliderActiveBackground: row.scrollbar_slider_active_background ?? undefined,
+            overviewRulerBorder: row.overview_ruler_border ?? undefined,
+            extendedAnsi: row.extended_ansi ? JSON.parse(row.extended_ansi) : undefined,
             black: row.black ?? undefined,
             red: row.red ?? undefined,
             green: row.green ?? undefined,
@@ -133,7 +147,10 @@ export const createTheme = async (themeDto: CreateTerminalThemeDto): Promise<Ter
 
   const columns = [
       'name', 'theme_type', 'foreground', 'background', 'cursor', 'cursor_accent',
-      'selection_background', 'black', 'red', 'green', 'yellow', 'blue',
+      'selection_background', 'selection_foreground', 'selection_inactive_background',
+      'scrollbar_slider_background', 'scrollbar_slider_hover_background',
+      'scrollbar_slider_active_background', 'overview_ruler_border', 'extended_ansi',
+      'black', 'red', 'green', 'yellow', 'blue',
       'magenta', 'cyan', 'white', 'bright_black', 'bright_red', 'bright_green',
       'bright_yellow', 'bright_blue', 'bright_magenta', 'bright_cyan', 'bright_white',
       'created_at', 'updated_at'
@@ -141,7 +158,11 @@ export const createTheme = async (themeDto: CreateTerminalThemeDto): Promise<Ter
   const values = [
       themeDto.name, 'user',
       theme?.foreground ?? null, theme?.background ?? null, theme?.cursor ?? null, theme?.cursorAccent ?? null,
-      theme?.selectionBackground ?? null, theme?.black ?? null, theme?.red ?? null, theme?.green ?? null, theme?.yellow ?? null, theme?.blue ?? null,
+      theme?.selectionBackground ?? null, theme?.selectionForeground ?? null, theme?.selectionInactiveBackground ?? null,
+      theme?.scrollbarSliderBackground ?? null, theme?.scrollbarSliderHoverBackground ?? null,
+      theme?.scrollbarSliderActiveBackground ?? null, theme?.overviewRulerBorder ?? null,
+      theme?.extendedAnsi ? JSON.stringify(theme.extendedAnsi) : null,
+      theme?.black ?? null, theme?.red ?? null, theme?.green ?? null, theme?.yellow ?? null, theme?.blue ?? null,
       theme?.magenta ?? null, theme?.cyan ?? null, theme?.white ?? null, theme?.brightBlack ?? null, theme?.brightRed ?? null, theme?.brightGreen ?? null,
       theme?.brightYellow ?? null, theme?.brightBlue ?? null, theme?.brightMagenta ?? null, theme?.brightCyan ?? null, theme?.brightWhite ?? null,
       nowSeconds, nowSeconds
@@ -188,7 +209,10 @@ export const updateTheme = async (id: number, themeDto: UpdateTerminalThemeDto):
   const setClauses = [
     'name = ?',
     'foreground = ?', 'background = ?', 'cursor = ?', 'cursor_accent = ?',
-    'selection_background = ?', 'black = ?', 'red = ?', 'green = ?', 'yellow = ?', 'blue = ?',
+    'selection_background = ?', 'selection_foreground = ?', 'selection_inactive_background = ?',
+    'scrollbar_slider_background = ?', 'scrollbar_slider_hover_background = ?',
+    'scrollbar_slider_active_background = ?', 'overview_ruler_border = ?', 'extended_ansi = ?',
+    'black = ?', 'red = ?', 'green = ?', 'yellow = ?', 'blue = ?',
     'magenta = ?', 'cyan = ?', 'white = ?', 'bright_black = ?', 'bright_red = ?', 'bright_green = ?',
     'bright_yellow = ?', 'bright_blue = ?', 'bright_magenta = ?', 'bright_cyan = ?', 'bright_white = ?',
     'updated_at = ?'
@@ -197,7 +221,11 @@ export const updateTheme = async (id: number, themeDto: UpdateTerminalThemeDto):
   const values = [
     themeDto.name,
     theme?.foreground ?? null, theme?.background ?? null, theme?.cursor ?? null, theme?.cursorAccent ?? null,
-    theme?.selectionBackground ?? null, theme?.black ?? null, theme?.red ?? null, theme?.green ?? null, theme?.yellow ?? null, theme?.blue ?? null,
+    theme?.selectionBackground ?? null, theme?.selectionForeground ?? null, theme?.selectionInactiveBackground ?? null,
+    theme?.scrollbarSliderBackground ?? null, theme?.scrollbarSliderHoverBackground ?? null,
+    theme?.scrollbarSliderActiveBackground ?? null, theme?.overviewRulerBorder ?? null,
+    theme?.extendedAnsi ? JSON.stringify(theme.extendedAnsi) : null,
+    theme?.black ?? null, theme?.red ?? null, theme?.green ?? null, theme?.yellow ?? null, theme?.blue ?? null,
     theme?.magenta ?? null, theme?.cyan ?? null, theme?.white ?? null, theme?.brightBlack ?? null, theme?.brightRed ?? null, theme?.brightGreen ?? null,
     theme?.brightYellow ?? null, theme?.brightBlue ?? null, theme?.brightMagenta ?? null, theme?.brightCyan ?? null, theme?.brightWhite ?? null,
     nowSeconds,
@@ -256,20 +284,37 @@ export const initializePresetThemes = async (db: Database, presets: Array<Omit<T
         // 在循环开始时添加日志，显示正在处理哪个主题
         // console.log(`[DB Init] 正在处理预设主题: "${preset.name}"`);
         try {
-            const existing = await getDb<{ id: number }>(db, `SELECT id FROM terminal_themes WHERE name = ? AND theme_type = 'preset'`, [preset.name]);
+            const existing = await getDb<Pick<DbTerminalThemeRow,
+                'id' | 'selection_foreground' | 'selection_inactive_background' |
+                'scrollbar_slider_background' | 'scrollbar_slider_hover_background' |
+                'scrollbar_slider_active_background' | 'overview_ruler_border' | 'extended_ansi'
+            >>(db, `
+                SELECT id, selection_foreground, selection_inactive_background,
+                       scrollbar_slider_background, scrollbar_slider_hover_background,
+                       scrollbar_slider_active_background, overview_ruler_border, extended_ansi
+                FROM terminal_themes
+                WHERE name = ? AND theme_type = 'preset'
+            `, [preset.name]);
 
             if (!existing) {
                 const theme = preset.themeData;
                 const columns = [
                     'name', 'theme_type', 'foreground', 'background', 'cursor', 'cursor_accent',
-                    'selection_background', 'black', 'red', 'green', 'yellow', 'blue',
+                    'selection_background', 'selection_foreground', 'selection_inactive_background',
+                    'scrollbar_slider_background', 'scrollbar_slider_hover_background',
+                    'scrollbar_slider_active_background', 'overview_ruler_border', 'extended_ansi',
+                    'black', 'red', 'green', 'yellow', 'blue',
                     'magenta', 'cyan', 'white', 'bright_black', 'bright_red', 'bright_green',
                     'bright_yellow', 'bright_blue', 'bright_magenta', 'bright_cyan', 'bright_white',
                     'created_at', 'updated_at'
                 ];
                 const values = [
                     preset.name, 'preset', theme?.foreground, theme?.background, theme?.cursor, theme?.cursorAccent,
-                    theme?.selectionBackground, theme?.black, theme?.red, theme?.green, theme?.yellow, theme?.blue,
+                    theme?.selectionBackground, theme?.selectionForeground, theme?.selectionInactiveBackground,
+                    theme?.scrollbarSliderBackground, theme?.scrollbarSliderHoverBackground,
+                    theme?.scrollbarSliderActiveBackground, theme?.overviewRulerBorder,
+                    theme?.extendedAnsi ? JSON.stringify(theme.extendedAnsi) : null,
+                    theme?.black, theme?.red, theme?.green, theme?.yellow, theme?.blue,
                     theme?.magenta, theme?.cyan, theme?.white, theme?.brightBlack, theme?.brightRed, theme?.brightGreen,
                     theme?.brightYellow, theme?.brightBlue, theme?.brightMagenta, theme?.brightCyan, theme?.brightWhite,
                     nowSeconds, nowSeconds
@@ -283,7 +328,28 @@ export const initializePresetThemes = async (db: Database, presets: Array<Omit<T
                 await runDb(db, insertSql, values);
                 // console.log(`[DB Init] 预设主题 "${preset.name}" 已初始化到数据库。`);
             } else {
-                //  console.log(`[DB Init] 预设主题 "${preset.name}" 已存在，跳过初始化。`);
+                const theme = preset.themeData;
+                const extendedValues = [
+                    theme?.selectionForeground ?? null, theme?.selectionInactiveBackground ?? null,
+                    theme?.scrollbarSliderBackground ?? null, theme?.scrollbarSliderHoverBackground ?? null,
+                    theme?.scrollbarSliderActiveBackground ?? null, theme?.overviewRulerBorder ?? null,
+                    theme?.extendedAnsi ? JSON.stringify(theme.extendedAnsi) : null
+                ];
+                const storedValues = [
+                    existing.selection_foreground ?? null, existing.selection_inactive_background ?? null,
+                    existing.scrollbar_slider_background ?? null, existing.scrollbar_slider_hover_background ?? null,
+                    existing.scrollbar_slider_active_background ?? null, existing.overview_ruler_border ?? null,
+                    existing.extended_ansi ?? null
+                ];
+                if (extendedValues.some((value, index) => value !== storedValues[index])) {
+                    await runDb(db, `
+                        UPDATE terminal_themes
+                        SET selection_foreground = ?, selection_inactive_background = ?,
+                            scrollbar_slider_background = ?, scrollbar_slider_hover_background = ?,
+                            scrollbar_slider_active_background = ?, overview_ruler_border = ?, extended_ansi = ?
+                        WHERE id = ?
+                    `, [...extendedValues, existing.id]);
+                }
             }
         } catch (err: any) {
              console.error(`[DB Init] 处理预设主题 "${preset.name}" 时出错:`, err.message);
