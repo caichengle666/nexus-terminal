@@ -12,5 +12,14 @@ function copyIfExists(from, to) {
 fs.mkdirSync(distDir, { recursive: true });
 copyIfExists(path.join(rootDir, 'src', 'locales'), path.join(distDir, 'locales'));
 copyIfExists(path.join(rootDir, 'html-presets'), path.join(distDir, 'html-presets'));
-copyIfExists(path.join(rootDir, 'package.json'), path.join(distDir, 'package.json'));
+const packageJsonPath = path.join(rootDir, 'package.json');
+if (fs.existsSync(packageJsonPath)) {
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  delete packageJson.devDependencies;
+  fs.writeFileSync(
+    path.join(distDir, 'package.json'),
+    `${JSON.stringify(packageJson, null, 2)}\n`,
+    'utf8'
+  );
+}
 copyIfExists(path.join(rootDir, 'package-lock.json'), path.join(distDir, 'package-lock.json'));
