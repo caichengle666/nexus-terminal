@@ -28,9 +28,9 @@
     "archiver-zip-encrypted": "^2.0.0",
     "axios": "^1.18.1",
     "element-plus": "^2.14.3",
-    "fs-extra": "^11.3.0",
+    "fs-extra": "^11.3.6",
     "pinia-plugin-persistedstate": "^4.7.1",
-    "plist": "^3.1.0",
+    "plist": "^3.1.1",
     "vuedraggable": "^4.1.0",
     "ws": "^8.21.1"
   },
