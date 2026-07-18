@@ -42,6 +42,11 @@
     "speakeasy": "^2.0.0",
     "sqlite3": "^6.0.1"
   },
+  "optionalDependencies": {
+    "@rollup/rollup-darwin-arm64": "4.59.0",
+    "@rollup/rollup-linux-x64-gnu": "4.59.0",
+    "@rollup/rollup-win32-x64-msvc": "4.59.0"
+  },
   "overrides": {
     "@xmldom/xmldom": "^0.8.13",
     "bn.js": "4.12.3",
