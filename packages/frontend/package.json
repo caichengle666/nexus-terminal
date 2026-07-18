@@ -52,7 +52,7 @@
       "vue-chartjs": "^5.3.4",
       "vue-i18n": "^11.4.6",
       "vue-recaptcha-v3": "^2.0.1",
-      "vue-router": "^4.6.4",
+      "vue-router": "5.2.0",
       "vue3-recaptcha2": "^1.8.0",
       "vuedraggable": "^4.1.0"
    },
