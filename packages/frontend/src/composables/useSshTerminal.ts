@@ -30,8 +30,35 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
     // const searchResultCount = ref(0);
     // const currentSearchResultIndex = ref(-1);
     const terminalOutputBuffer = ref<(string | Uint8Array)[]>([]); // 缓冲 WebSocket 消息直到终端准备好
+    const pendingTerminalWrites: (string | Uint8Array)[] = [];
+    let terminalWriteTimer: ReturnType<typeof setTimeout> | null = null;
     const isSshConnected = ref(false); // 跟踪 SSH 连接状态
     const isReconnecting = ref(false);
+
+    const flushTerminalWrites = () => {
+        terminalWriteTimer = null;
+        const term = terminalInstance.value;
+        if (!term || pendingTerminalWrites.length === 0) return;
+
+        const writes = pendingTerminalWrites.splice(0, pendingTerminalWrites.length);
+        writes.forEach(data => term.write(data));
+
+        if (pendingTerminalWrites.length > 0) {
+            terminalWriteTimer = setTimeout(flushTerminalWrites, 16);
+        }
+    };
+
+    const writeToTerminal = (data: string | Uint8Array) => {
+        if (!terminalInstance.value) {
+            terminalOutputBuffer.value.push(data);
+            return;
+        }
+
+        pendingTerminalWrites.push(data);
+        if (terminalWriteTimer === null) {
+            terminalWriteTimer = setTimeout(flushTerminalWrites, 16);
+        }
+    };
 
     // 辅助函数：获取终端消息文本
     const getTerminalText = (key: string, params?: Record<string, any>): string => {
@@ -56,7 +83,7 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
         if (currentSessionState && currentSessionState.pendingOutput && currentSessionState.pendingOutput.length > 0) {
             // console.log(`[会话 ${sessionId}][SSH终端模块] 发现 SessionState.pendingOutput，长度: ${currentSessionState.pendingOutput.length}。正在写入...`);
             currentSessionState.pendingOutput.forEach(data => {
-                term.write(data);
+                writeToTerminal(data);
             });
             currentSessionState.pendingOutput = []; // 清空
             // console.log(`[会话 ${sessionId}][SSH终端模块] SessionState.pendingOutput 处理完毕。`);
@@ -72,7 +99,7 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
         // 2. 将此管理器内部缓冲的输出 (terminalOutputBuffer, 来自 ssh:output) 写入终端
         if (terminalOutputBuffer.value.length > 0) {
             terminalOutputBuffer.value.forEach(data => {
-                 term.write(data);
+                 writeToTerminal(data);
             });
             terminalOutputBuffer.value = []; // 清空内部缓冲区
         }
@@ -144,7 +171,7 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
 
         if (terminalInstance.value) {
             // console.log(`[会话 ${sessionId}][SSH前端] 终端实例存在，尝试写入...`);
-            terminalInstance.value.write(outputData);
+            writeToTerminal(outputData);
             // console.log(`[会话 ${sessionId}][SSH前端] 写入完成。`);
         } else {
             // 如果终端还没准备好，先缓冲输出
@@ -184,7 +211,7 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
         // 清空可能存在的旧缓冲（虽然理论上此时应该已经 ready 了）
         if (terminalOutputBuffer.value.length > 0) {
              console.warn(`[会话 ${sessionId}][SSH终端模块] SSH 连接时仍有缓冲数据，正在写入...`);
-             terminalOutputBuffer.value.forEach(data => terminalInstance.value?.write(data));
+             terminalOutputBuffer.value.forEach(data => writeToTerminal(data));
              terminalOutputBuffer.value = [];
         }
     };
@@ -291,6 +318,12 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
     // --- 清理函数 ---
     const cleanup = () => {
         unregisterAllSshHandlers();
+        if (terminalWriteTimer !== null) {
+            clearTimeout(terminalWriteTimer);
+            terminalWriteTimer = null;
+        }
+        pendingTerminalWrites.length = 0;
+        terminalOutputBuffer.value = [];
         // terminalInstance.value?.dispose(); // 终端实例的销毁由 TerminalComponent 负责
         terminalInstance.value = null;
         console.log(`[会话 ${sessionId}][SSH终端模块] 已清理。`);

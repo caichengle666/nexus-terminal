@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'; // + nextTick
+import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent } from 'vue'; // + nextTick
 import { useI18n } from 'vue-i18n';
 import { storeToRefs } from 'pinia';
-import MonacoEditor from './MonacoEditor.vue';
+const MonacoEditor = defineAsyncComponent(() => import('./MonacoEditor.vue'));
 import CodeMirrorMobileEditor from './CodeMirrorMobileEditor.vue'; // +++ Import new mobile editor
 import FileEditorTabs from './FileEditorTabs.vue';
 import { useFileEditorStore, type FileTab } from '../stores/fileEditor.store';

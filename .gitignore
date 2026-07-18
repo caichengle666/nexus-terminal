@@ -134,6 +134,7 @@ dist
 *.db
 *.db
 *.jpg
+!packages/frontend/src/assets/nexus-ai-avatar.jpg
 /packages/backend/uploads/backgrounds
 /temp_iterm_schemes
 /packages/backend/sessions

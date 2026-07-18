@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAiStore, type AiTaskStatus, type AiToolRun } from '../stores/ai.store';
 import { useConfirmDialog } from '../composables/useConfirmDialog';
-import nexusAiAvatar from '../assets/nexus-ai-avatar.png';
+import nexusAiAvatar from '../assets/nexus-ai-avatar.jpg';
 import { MAX_IMPORT_FILE_BYTES } from '../stores/ai/ai.constants';
 
 const aiStore = useAiStore();

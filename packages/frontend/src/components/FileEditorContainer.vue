@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, type PropType, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'; // 添加 nextTick
+import { computed, type PropType, ref, watch, onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'; // 添加 nextTick
 import { useI18n } from 'vue-i18n';
-import MonacoEditor from './MonacoEditor.vue'; 
+import type MonacoEditorComponent from './MonacoEditor.vue';
+const MonacoEditor = defineAsyncComponent(() => import('./MonacoEditor.vue'));
 import FileEditorTabs from './FileEditorTabs.vue';
 import type { FileTab } from '../stores/fileEditor.store'; 
 import { useFocusSwitcherStore } from '../stores/focusSwitcher.store';
@@ -225,7 +226,7 @@ const handleEditorFontSizeUpdate = (newSize: number) => {
 // const handleMinimizeContainer = () => { ... };
 
 // Monaco Editor 组件的引用
-const monacoEditorRef = ref<InstanceType<typeof MonacoEditor> | null>(null);
+const monacoEditorRef = ref<InstanceType<typeof MonacoEditorComponent> | null>(null);
 
 // 聚焦活动编辑器的方法
 const focusActiveEditor = (): boolean => {
