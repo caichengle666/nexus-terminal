@@ -23,8 +23,10 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install workspace dependencies
-        run: npm install --ignore-scripts
+      - name: Clean install workspace dependencies (fix cross-platform optional deps)
+        run: |
+          rm -rf package-lock.json node_modules packages/*/node_modules
+          npm install --ignore-scripts
 
       - name: Build frontend
         working-directory: packages/frontend
@@ -99,8 +101,10 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install workspace dependencies
-        run: npm install --ignore-scripts
+      - name: Clean install workspace dependencies (fix cross-platform optional deps)
+        run: |
+          rm -rf package-lock.json node_modules packages/*/node_modules
+          npm install --ignore-scripts
 
       - name: Build frontend
         working-directory: packages/frontend
