@@ -12,11 +12,11 @@
    },
    "dependencies": {
       "@simplewebauthn/server": "^13.3.2",
-      "@types/archiver": "^6.0.4",
+      "@types/archiver": "^8.0.0",
       "@types/multer": "^2.0.0",
       "@types/session-file-store": "^1.2.6",
       "adm-zip": "^0.6.0",
-      "archiver": "^7.0.1",
+      "archiver": "^8.0.0",
       "archiver-zip-encrypted": "^2.0.0",
       "axios": "^1.18.1",
       "bcrypt": "^6.0.0",
