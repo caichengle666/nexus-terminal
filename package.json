@@ -43,12 +43,12 @@
     "sqlite3": "^6.0.1"
   },
   "optionalDependencies": {
-    "@esbuild/darwin-arm64": "0.25.12",
-    "@esbuild/linux-x64": "0.25.12",
-    "@esbuild/win32-x64": "0.25.12",
-    "@rollup/rollup-darwin-arm64": "4.59.0",
-    "@rollup/rollup-linux-x64-gnu": "4.59.0",
-    "@rollup/rollup-win32-x64-msvc": "4.59.0"
+    "@esbuild/darwin-arm64": "0.28.1",
+    "@esbuild/linux-x64": "0.28.1",
+    "@esbuild/win32-x64": "0.28.1",
+    "@rollup/rollup-darwin-arm64": "4.62.2",
+    "@rollup/rollup-linux-x64-gnu": "4.62.2",
+    "@rollup/rollup-win32-x64-msvc": "4.62.2"
   },
   "overrides": {
     "@xmldom/xmldom": "^0.8.13",
@@ -57,7 +57,7 @@
     "glob": "^10.5.0",
     "monaco-editor": "0.52.2",
     "path-to-regexp": "8.4.2",
-    "rollup": "4.59.0",
+    "rollup": "4.62.2",
     "tar-fs": "^2.1.5",
     "vite-plugin-monaco-editor": {
       "monaco-editor": "0.52.2"
