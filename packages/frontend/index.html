@@ -13,7 +13,59 @@
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="app-boot" role="status" aria-live="polite">
+        <div class="app-boot__mark" aria-hidden="true">N</div>
+        <div class="app-boot__name">Nexus Terminal</div>
+        <div id="app-loading-status" class="app-boot__status">正在启动客户端...</div>
+      </div>
+    </div>
+    <style>
+      html,
+      body,
+      #app {
+        min-height: 100%;
+        margin: 0;
+      }
+
+      body {
+        background: #101216;
+      }
+
+      .app-boot {
+        box-sizing: border-box;
+        min-height: 100vh;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 10px;
+        padding: 24px;
+        color: #f4f6fa;
+        font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .app-boot__mark {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border: 1px solid #566179;
+        border-radius: 10px;
+        color: #9dbbff;
+        font-size: 22px;
+        font-weight: 700;
+      }
+
+      .app-boot__name {
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+
+      .app-boot__status {
+        min-height: 20px;
+        color: #9aa5b8;
+      }
+    </style>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

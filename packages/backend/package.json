@@ -12,11 +12,12 @@
    },
    "dependencies": {
       "@simplewebauthn/server": "^13.3.2",
-      "@types/archiver": "^8.0.0",
+      "@types/archiver": "^7.0.0",
       "@types/multer": "^2.0.0",
       "@types/session-file-store": "^1.2.6",
+      "@xterm/xterm": "^6.0.0",
       "adm-zip": "^0.6.0",
-      "archiver": "^8.0.0",
+      "archiver": "^7.0.1",
       "archiver-zip-encrypted": "^2.0.0",
       "axios": "^1.18.1",
       "bcrypt": "^6.0.0",
@@ -45,8 +46,7 @@
       "ssh2": "^1.17.0",
       "uuid": "^14.0.1",
       "webdav": "^5.10.0",
-      "ws": "^8.21.1",
-      "@xterm/xterm": "^6.0.0"
+      "ws": "^8.21.1"
    },
    "devDependencies": {
       "@types/bcrypt": "^6.0.0",
