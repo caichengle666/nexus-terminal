@@ -1,6 +1,6 @@
 {
    "name": "@nexus-terminal/frontend",
-   "version": "0.9.17.3",
+   "version": "0.9.18",
    "private": true,
    "type": "module",
    "scripts": {
@@ -43,7 +43,7 @@
       "guacamole-common-js": "^1.5.0",
       "iconv-lite": "^0.7.3",
       "mitt": "^3.0.1",
-      "monaco-editor": "0.52.2",
+      "monaco-editor": "0.55.1",
       "pinia": "^4.0.2",
       "pinia-plugin-persistedstate": "^4.7.1",
       "splitpanes": "^4.1.2",

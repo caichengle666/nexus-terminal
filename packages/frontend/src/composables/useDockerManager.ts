@@ -64,6 +64,7 @@ export function createDockerManager(sessionId: string, wsDeps: DockerManagerDepe
     const isLoading = ref(false);
     const error = ref<string | null>(null);
     const isDockerAvailable = ref(true); // Assume available until checked
+    const hasStatusSnapshot = ref(false);
     const expandedContainerIds = ref<Set<string>>(new Set());
     const initialLoadDone = ref(false);
     let refreshInterval: ReturnType<typeof setInterval> | null = null;
@@ -116,6 +117,7 @@ export function createDockerManager(sessionId: string, wsDeps: DockerManagerDepe
         const unsubStatus = onMessage('docker:status:update', (payload, message) => {
             if (message?.sessionId && message.sessionId !== sessionId) return; // Ignore messages for other sessions
             isLoading.value = false;
+            hasStatusSnapshot.value = true;
 
             if (payload && typeof payload.available === 'boolean') {
                 isDockerAvailable.value = payload.available;
@@ -163,6 +165,7 @@ export function createDockerManager(sessionId: string, wsDeps: DockerManagerDepe
             if (message?.sessionId && message.sessionId !== sessionId) return;
             console.error(`[DockerManager ${sessionId}] Received docker:status:error`, payload);
             isLoading.value = false;
+            hasStatusSnapshot.value = true;
             error.value = payload?.message || t('dockerManager.error.fetchFailed');
             isDockerAvailable.value = false;
             containers.value = [];
@@ -224,6 +227,7 @@ export function createDockerManager(sessionId: string, wsDeps: DockerManagerDepe
         isLoading.value = false;
         error.value = null;
         isDockerAvailable.value = true; // Assume available until checked
+        hasStatusSnapshot.value = false;
         expandedContainerIds.value.clear();
         initialLoadDone.value = false;
 
@@ -237,19 +241,13 @@ export function createDockerManager(sessionId: string, wsDeps: DockerManagerDepe
     // Watch for connection changes to manage listeners and interval
     watch(isConnected, (newIsConnected, oldIsConnected) => {
         if (newIsConnected) {
-            // 只有当Docker管理器在布局中时才设置监听器和定时器
+            setupWsListeners();
+            requestDockerStatus();
             const layoutStore = useLayoutStore();
             if (layoutStore.usedPanes.has('dockerManager')) {
-                // Connection established
-                setupWsListeners();
-                requestDockerStatus(); // Fetch initial status
-
-                // Start refresh interval (consider if backend pushes updates reliably)
                 if (!refreshInterval) {
-                    // Keep a safety interval
                     refreshInterval = setInterval(requestDockerStatus, 15000); // Check every 15s
                 }
-            } else {
             }
         } else {
             // Connection lost
@@ -269,15 +267,13 @@ export function createDockerManager(sessionId: string, wsDeps: DockerManagerDepe
     // If already connected when this manager is created, set up listeners and fetch data.
     // This handles cases where the manager is created after the WS connection is live.
     if (isConnected.value) {
-        // 只有当Docker管理器在布局中时才设置监听器和定时器
+        setupWsListeners();
+        requestDockerStatus();
         const layoutStore = useLayoutStore();
         if (layoutStore.usedPanes.has('dockerManager')) {
-            setupWsListeners();
-            requestDockerStatus();
             if (!refreshInterval) {
                  refreshInterval = setInterval(requestDockerStatus, 15000);
             }
-        } else {
         }
     } else {
          // Set initial state for disconnected status
@@ -293,6 +289,7 @@ export function createDockerManager(sessionId: string, wsDeps: DockerManagerDepe
         isLoading: readonly(isLoading),
         error: readonly(error),
         isDockerAvailable: readonly(isDockerAvailable),
+        hasStatusSnapshot: readonly(hasStatusSnapshot),
         expandedContainerIds: readonly(expandedContainerIds), // UI needs this read-only
 
         // Methods

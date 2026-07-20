@@ -38,6 +38,7 @@ const {
   activeSession,
   activeSessionId,
   canSend,
+  canQueueGuidance,
   hasActiveTerminal,
   continuationAvailable,
 } = storeToRefs(aiStore);
@@ -110,11 +111,19 @@ const quickTasks = [
   '检查当前服务状态并定位异常',
   '分析当前目录项目如何启动和编译',
   '读取最近输出，继续完成上一步任务',
+  '列出当前已连接的 VPS，比较它们的系统版本和运行时间',
 ];
 
 const formatToolName = (name: string) => {
   if (name === 'get_terminal_output') return '读取终端输出';
+  if (name === 'wait_for_terminal_output') return '等待终端输出';
   if (name === 'terminal_input') return '输入终端命令';
+  if (name === 'execute_command') return '后台执行命令';
+  if (name === 'send_terminal_key') return '发送终端按键';
+  if (name === 'read_remote_file') return '读取远程文件';
+  if (name === 'list_remote_directory') return '列出远程目录';
+  if (name === 'list_active_terminals') return '列出活动终端';
+  if (name === 'execute_command_batch') return '批量执行 VPS 命令';
   return name;
 };
 
@@ -146,6 +155,22 @@ const formatToolSummary = (run: AiToolRun) => {
   if (run.name === 'get_terminal_output') {
     return `读取最近 ${run.args.maxLines || 120} 行`;
   }
+  if (run.name === 'wait_for_terminal_output') {
+    const seconds = Math.max(0.2, Number(run.args.timeoutMs || 15000) / 1000);
+    return `最长等待 ${seconds.toFixed(1)} 秒`;
+  }
+  if (run.name === 'execute_command') {
+    const command = typeof run.args.command === 'string' ? run.args.command : '';
+    return command.length > 140 ? `${command.slice(0, 140)}...` : command;
+  }
+  if (run.name === 'send_terminal_key') return String(run.args.key || '未指定按键');
+  if (run.name === 'read_remote_file') return String(run.args.path || '未指定路径');
+  if (run.name === 'list_remote_directory') return String(run.args.path || '未指定路径');
+  if (run.name === 'execute_command_batch') {
+    const count = Array.isArray(run.args.targetSessionIds) ? run.args.targetSessionIds.length : 0;
+    return `${count} 台终端 · ${String(run.args.command || '').slice(0, 100)}`;
+  }
+  if (run.name === 'list_active_terminals') return '读取当前已连接 SSH Tab';
   return JSON.stringify(run.args);
 };
 
@@ -159,6 +184,12 @@ const formatToolDuration = (run: AiToolRun) => {
 const formatToolArguments = (run: AiToolRun) => {
   const command = typeof run.args.text === 'string' ? run.args.text : '';
   return command || JSON.stringify(run.args, null, 2);
+};
+
+const getToolCommand = (run: AiToolRun) => {
+  if (typeof run.args.text === 'string') return run.args.text;
+  if (typeof run.args.command === 'string') return run.args.command;
+  return '';
 };
 
 const formatToolResult = (run: AiToolRun) => {
@@ -570,6 +601,14 @@ const testStreaming = async () => {
   }
 };
 
+const testToolCalling = async () => {
+  try {
+    await aiStore.testToolCalling();
+  } catch (error: any) {
+    errorMessage.value = error.response?.data?.message || error.message || '工具调用测试失败。';
+  }
+};
+
 const deleteHistory = async () => {
   if (isRunning.value) {
     await showConfirmDialog({
@@ -693,10 +732,11 @@ const deleteHistory = async () => {
         <button class="mt-2 rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="saveHistoryConfig">保存文件记录设置</button>
         <div v-if="historyConfigMessage" class="mt-1 text-success">{{ historyConfigMessage }}</div>
       </div>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <button class="rounded bg-primary px-3 py-1.5 text-white" @click="saveConfig">保存配置</button>
         <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="testConfig">测试连接</button>
         <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testStreaming">测试流式</button>
+        <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testToolCalling">测试工具</button>
       </div>
       <div v-if="configMessage" class="text-success">{{ configMessage }}</div>
     </div>
@@ -728,7 +768,7 @@ const deleteHistory = async () => {
             </summary>
             <div class="mt-0.5 truncate font-mono text-text-secondary">{{ formatToolSummary(run) }}</div>
             <div class="mt-2 border-t border-border/40 pt-2">
-              <div class="mb-1 flex items-center justify-between gap-2 text-text-secondary"><span>调用参数</span><button v-if="typeof run.args.text === 'string'" class="rounded border border-border px-1.5 py-0.5 hover:bg-hover" @click="copyText(String(run.args.text))">复制命令</button></div>
+              <div class="mb-1 flex items-center justify-between gap-2 text-text-secondary"><span>调用参数</span><button v-if="getToolCommand(run)" class="rounded border border-border px-1.5 py-0.5 hover:bg-hover" @click="copyText(getToolCommand(run))">复制命令</button></div>
               <pre class="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolArguments(run) }}</pre>
               <div class="mb-1 mt-2 text-text-secondary">返回内容（已截断）</div>
               <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolResult(run) }}</pre>
@@ -945,7 +985,7 @@ const deleteHistory = async () => {
         ref="textareaInput"
         v-model="userInput"
         class="mb-1.5 h-16 w-full resize-none rounded border border-primary/50 bg-input px-2.5 py-2 text-sm text-foreground outline-none transition placeholder:text-text-secondary/70 focus:border-primary focus:ring-2 focus:ring-primary/30"
-        placeholder="例如：查看当前报错，直接输入排查命令并修复"
+        :placeholder="isRunning ? '输入补充要求，发送后将在当前步骤结束时应用' : '例如：查看当前报错，直接输入排查命令并修复'"
         @keydown="handleInputKeydown"
       />
       <div class="mb-1.5 flex items-center justify-between gap-2 text-xs">
@@ -953,7 +993,12 @@ const deleteHistory = async () => {
           <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="hasActiveTerminal ? 'bg-success' : 'bg-error'" />
           <span class="truncate font-medium text-foreground">{{ sessionLabel }}</span>
         </div>
-        <div ref="modeMenuRef" class="relative flex-shrink-0">
+        <div class="flex flex-shrink-0 items-center gap-2">
+          <label class="flex items-center gap-1.5 text-text-secondary" title="允许 AI 使用不会显示在终端中的后台命令和批量命令工具">
+            <input v-model="config.enableBackgroundTools" type="checkbox" class="accent-primary" :disabled="isRunning" />
+            <span>后台工具</span>
+          </label>
+          <div ref="modeMenuRef" class="relative">
           <button
             type="button"
             class="flex items-center gap-1.5 rounded border border-border bg-input px-2 py-1 text-foreground transition-colors hover:bg-hover"
@@ -988,9 +1033,10 @@ const deleteHistory = async () => {
             </button>
           </div>
         </div>
+        </div>
       </div>
       <div class="mb-1.5 flex items-center justify-between gap-2 text-[11px] text-text-secondary">
-        <span>Enter 发送 · Shift+Enter 换行</span>
+        <span>{{ isRunning ? 'Enter 追加引导 · 当前步骤结束后生效' : 'Enter 发送 · Shift+Enter 换行' }}</span>
         <span :class="isRunning ? 'text-primary' : 'text-text-secondary'">AI {{ isRunning ? '运行中' : '空闲' }}</span>
       </div>
       <div class="grid grid-cols-2 gap-2">
@@ -1010,7 +1056,16 @@ const deleteHistory = async () => {
           停止 AI
         </button>
         <button
+          v-if="isRunning"
+          class="rounded border border-primary/60 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+          :disabled="!canQueueGuidance"
+          @click="sendMessage"
+        >
+          追加引导
+        </button>
+        <button
           class="rounded border border-border px-3 py-2 text-sm font-medium hover:bg-hover disabled:opacity-60"
+          :class="isRunning ? 'col-span-2' : ''"
           :disabled="!hasActiveTerminal"
           @click="interruptTerminal"
         >

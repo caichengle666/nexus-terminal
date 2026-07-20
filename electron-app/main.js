@@ -407,7 +407,6 @@ async function createWindow() {
       target: backendTarget,
       ws: true,
       changeOrigin: true,
-      logLevel: 'warn',
     });
     expressApp.use(backendProxy);
 

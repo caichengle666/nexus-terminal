@@ -32,6 +32,8 @@ import { temporaryLogStorageService } from '../ssh-suspend/temporary-log-storage
 import { handleRdpProxyConnection } from './handlers/rdp.handler';
 import {
     handleSshConnect,
+    handleSshExec,
+    handleSshExecCancel,
     handleSshInput,
     handleSshResize,
     handleSshResumeSuccess
@@ -89,6 +91,12 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
                             break;
                         case 'ssh:input':
                             handleSshInput(ws, payload);
+                            break;
+                        case 'ssh:exec':
+                            handleSshExec(ws, payload, requestId);
+                            break;
+                        case 'ssh:exec:cancel':
+                            handleSshExecCancel(ws, payload);
                             break;
                         case 'ssh:resize':
                             handleSshResize(ws, payload);

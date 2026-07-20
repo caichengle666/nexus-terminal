@@ -209,20 +209,36 @@ export class SftpService {
     }
 
     /** 读取文件内容 (支持指定编码) */
-    async readFile(sessionId: string, path: string, requestId: string, requestedEncoding?: string): Promise<void> {
+    async readFile(sessionId: string, path: string, requestId: string, requestedEncoding?: string, requestedMaxBytes?: number): Promise<void> {
         const state = this.clientStates.get(sessionId);
         if (!state || !state.sftp) {
             console.warn(`[SFTP] SFTP 未准备好，无法在 ${sessionId} 上执行 readFile (ID: ${requestId})`);
             state?.ws.send(JSON.stringify({ type: 'sftp:readfile:error', path: path, payload: 'SFTP 会话未就绪', requestId: requestId }));
             return;
         }
+        const maxBytes = Number.isFinite(Number(requestedMaxBytes))
+            ? Math.max(1, Math.min(Math.floor(Number(requestedMaxBytes)), 16777216))
+            : undefined;
         console.debug(`[SFTP ${sessionId}] Received readFile request for ${path} (ID: ${requestId}, Requested Encoding: ${requestedEncoding ?? 'auto'})`);
         try {
             const readStream = state.sftp.createReadStream(path);
             let fileData = Buffer.alloc(0);
             let errorOccurred = false;
 
-            readStream.on('data', (chunk: Buffer) => { fileData = Buffer.concat([fileData, chunk]); });
+            readStream.on('data', (chunk: Buffer) => {
+                if (maxBytes && fileData.length + chunk.length > maxBytes) {
+                    errorOccurred = true;
+                    readStream.destroy();
+                    state.ws.send(JSON.stringify({
+                        type: 'sftp:readfile:error',
+                        path: path,
+                        payload: `文件超过读取上限 ${maxBytes} 字节，已停止读取`,
+                        requestId: requestId,
+                    }));
+                    return;
+                }
+                fileData = Buffer.concat([fileData, chunk]);
+            });
             readStream.on('error', (err: Error) => {
                 if (errorOccurred) return; errorOccurred = true;
                 console.error(`[SFTP ${sessionId}] readFile ${path} stream error (ID: ${requestId}):`, err);

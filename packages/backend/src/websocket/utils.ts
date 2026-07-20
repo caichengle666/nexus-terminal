@@ -85,6 +85,18 @@ export const cleanupClientConnection = async (
         // 2. 清理 SFTP 会话 (如果存在)
         if (sftpService) sftpService.cleanupSftpSession(sessionId);
 
+        state.activeExecCommands?.forEach(command => command.cancel());
+        state.activeExecCommands?.clear();
+        state.cancelledPendingExecRequestIds ||= new Set();
+        state.reportedPendingExecRequestIds ||= new Set();
+        state.pendingExecRequestIds?.forEach(requestId => {
+            state.cancelledPendingExecRequestIds?.add(requestId);
+            state.reportedPendingExecRequestIds?.add(requestId);
+        });
+        state.pendingExecTimeouts?.forEach(timeoutId => clearTimeout(timeoutId));
+        state.pendingExecTimeouts?.clear();
+        state.pendingExecRequestIds?.clear();
+
         // 3. 处理 SSH 连接 (核心修改点)
         if (!options.forceClose && state.isMarkedForSuspend && state.sshClient && state.sshShellStream && state.suspendLogPath && state.ws.userId !== undefined) {
             console.log(`WebSocket: 会话 ${sessionId} 已被标记为待挂起，尝试移交给 SshSuspendService...`);

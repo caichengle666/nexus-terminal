@@ -37,7 +37,8 @@ export async function handleSftpOperation(
             case 'sftp:readfile':
                 if (payload?.path) {
                     const requestedEncoding = payload?.encoding;
-                    sftpService.readFile(sessionId, payload.path, requestId, requestedEncoding);
+                    const maxBytes = payload?.maxBytes;
+                    sftpService.readFile(sessionId, payload.path, requestId, requestedEncoding, maxBytes);
                 } else {
                     throw new Error("Missing 'path' in payload for readfile");
                 }

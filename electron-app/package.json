@@ -1,6 +1,6 @@
 {
   "name": "nexus-electron-app",
-  "version": "0.9.17.3",
+  "version": "0.9.18",
   "description": "Electron application for Nexus Terminal",
   "main": "main.js",
   "author": {
@@ -18,7 +18,7 @@
   "dependencies": {
     "electron-store": "^11.0.2",
     "express": "^5.2.1",
-    "http-proxy-middleware": "^3.0.7",
+    "http-proxy-middleware": "^4.2.0",
     "iconv-lite": "^0.7.3"
   },
   "scripts": {
@@ -30,7 +30,7 @@
     "build": "npm run build:frontend && npm run build:backend && npm run build:electron"
   },
   "devDependencies": {
-    "electron": "^39.8.5",
+    "electron": "^43.1.1",
     "electron-builder": "^26.15.3"
   },
   "build": {

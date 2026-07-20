@@ -310,3 +310,218 @@ export function handleSshResumeSuccess(sessionId: string): void {
         console.error(`[SSH Handler ${sessionId}] 无法为恢复的会话启动状态轮询：未找到会话状态或 SSH 客户端。`);
     }
 }
+
+const sendExecResult = (ws: AuthenticatedWebSocket, requestId: string, payload: Record<string, unknown>): void => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'ssh:exec:result', requestId, payload }));
+};
+
+export function handleSshExec(ws: AuthenticatedWebSocket, payload: any, requestIdValue: unknown): void {
+    const requestId = typeof requestIdValue === 'string' && requestIdValue.length <= 128
+        ? requestIdValue
+        : '';
+    const sessionId = ws.sessionId;
+    const state = sessionId ? clientStates.get(sessionId) : undefined;
+    const command = typeof payload?.command === 'string' ? payload.command.trim() : '';
+
+    if (!requestId) {
+        sendExecResult(ws, 'invalid-request', { ok: false, error: '缺少有效的 requestId。' });
+        return;
+    }
+    if (!state?.sshClient) {
+        sendExecResult(ws, requestId, { ok: false, error: '当前 SSH 会话不可用。' });
+        return;
+    }
+    if (!command || Buffer.byteLength(command, 'utf8') > 32768) {
+        sendExecResult(ws, requestId, { ok: false, error: '命令为空或超过 32KB 限制。' });
+        return;
+    }
+
+    state.activeExecCommands ||= new Map();
+    state.pendingExecRequestIds ||= new Set();
+    state.cancelledPendingExecRequestIds ||= new Set();
+    state.reportedPendingExecRequestIds ||= new Set();
+    state.pendingExecTimeouts ||= new Map();
+    if (state.activeExecCommands.has(requestId)
+        || state.pendingExecRequestIds.has(requestId)
+        || state.cancelledPendingExecRequestIds.has(requestId)) {
+        sendExecResult(ws, requestId, { ok: false, error: '重复的命令请求 ID。' });
+        return;
+    }
+    const inFlightCommandCount = state.activeExecCommands.size
+        + state.pendingExecRequestIds.size
+        + state.cancelledPendingExecRequestIds.size;
+    if (inFlightCommandCount >= 4) {
+        sendExecResult(ws, requestId, { ok: false, error: '当前终端已有 4 个命令正在执行，请等待后重试。' });
+        return;
+    }
+
+    const timeoutMs = Math.max(1000, Math.min(Number(payload?.timeoutMs) || 30000, 180000));
+    const maxOutputChars = 131072;
+    const startedAt = Date.now();
+
+    state.pendingExecRequestIds.add(requestId);
+    const pendingTimeoutId = setTimeout(() => {
+        if (!state.pendingExecRequestIds?.delete(requestId)) return;
+        state.pendingExecTimeouts?.delete(requestId);
+        state.cancelledPendingExecRequestIds?.add(requestId);
+        state.reportedPendingExecRequestIds?.add(requestId);
+        sendExecResult(ws, requestId, {
+            ok: false,
+            timedOut: true,
+            sessionId,
+            error: '建立 SSH 命令执行通道超时。',
+            durationMs: Date.now() - startedAt,
+        });
+    }, 10000);
+    state.pendingExecTimeouts.set(requestId, pendingTimeoutId);
+    try {
+        state.sshClient.exec(command, { pty: false }, (error, stream) => {
+            const pendingTimer = state.pendingExecTimeouts?.get(requestId);
+            if (pendingTimer) clearTimeout(pendingTimer);
+            state.pendingExecTimeouts?.delete(requestId);
+            const cancelledBeforeStart = state.cancelledPendingExecRequestIds?.delete(requestId) === true;
+            const resultAlreadySent = state.reportedPendingExecRequestIds?.delete(requestId) === true;
+            state.pendingExecRequestIds?.delete(requestId);
+            if (cancelledBeforeStart) {
+                if (!error) {
+                    try { stream.signal('TERM'); } catch { /* Best effort. */ }
+                    try { stream.close(); } catch { /* Best effort. */ }
+                }
+                if (!resultAlreadySent) {
+                    sendExecResult(ws, requestId, {
+                        ok: false,
+                        cancelled: true,
+                        sessionId,
+                        error: '命令在建立执行通道前已被取消。',
+                        durationMs: Date.now() - startedAt,
+                    });
+                }
+                return;
+            }
+            if (error) {
+                sendExecResult(ws, requestId, { ok: false, error: error.message, durationMs: Date.now() - startedAt });
+                return;
+            }
+
+            let stdout = '';
+            let stderr = '';
+            let truncated = false;
+            let timedOut = false;
+            let cancelled = false;
+            let finished = false;
+            let streamError: string | null = null;
+            let exitCode: number | null = null;
+            let exitSignal: string | null = null;
+            let timeoutId: NodeJS.Timeout;
+            let forceFinishId: NodeJS.Timeout | undefined;
+
+            const appendOutput = (target: 'stdout' | 'stderr', chunk: Buffer) => {
+            const text = chunk.toString('utf8');
+            const currentLength = stdout.length + stderr.length;
+            const remaining = Math.max(0, maxOutputChars - currentLength);
+            if (remaining === 0) {
+                truncated = true;
+                return;
+            }
+            const accepted = text.slice(0, remaining);
+            if (target === 'stdout') stdout += accepted;
+            else stderr += accepted;
+            if (accepted.length < text.length) truncated = true;
+            };
+
+            const finish = () => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timeoutId);
+                if (forceFinishId) clearTimeout(forceFinishId);
+                state.activeExecCommands?.delete(requestId);
+                const commandSucceeded = !timedOut
+                    && !cancelled
+                    && !streamError
+                    && exitCode === 0;
+                const resultError = streamError
+                    || (timedOut ? '命令执行超时。' : null)
+                    || (cancelled ? '命令已取消。' : null)
+                    || (!commandSucceeded ? `命令退出码为 ${exitCode ?? '未知'}。` : null);
+                sendExecResult(ws, requestId, {
+                    ok: commandSucceeded,
+                    sessionId,
+                    connectionName: state.connectionName,
+                    stdout,
+                    stderr,
+                    exitCode,
+                    signal: exitSignal,
+                    commandSucceeded,
+                    timedOut,
+                    cancelled,
+                    error: resultError,
+                truncated,
+                durationMs: Date.now() - startedAt,
+            });
+            };
+
+            const cancel = () => {
+            if (finished) return;
+            cancelled = true;
+            try { stream.signal('TERM'); } catch { /* Best effort. */ }
+            try { stream.close(); } catch { finish(); }
+            if (!finished) forceFinishId ||= setTimeout(finish, 1000);
+            };
+
+            timeoutId = setTimeout(() => {
+            if (finished) return;
+            timedOut = true;
+            try { stream.signal('TERM'); } catch { /* Best effort. */ }
+            try { stream.close(); } catch { finish(); }
+            if (!finished) forceFinishId ||= setTimeout(finish, 1000);
+            }, timeoutMs);
+
+            state.activeExecCommands?.set(requestId, { channel: stream, cancel });
+            stream.on('data', (data: Buffer) => appendOutput('stdout', data));
+            stream.stderr.on('data', (data: Buffer) => appendOutput('stderr', data));
+            stream.on('exit', (code: number | null, signal: string | null) => {
+                exitCode = code;
+                exitSignal = signal;
+            });
+            stream.on('close', finish);
+            stream.on('error', (error: Error) => {
+                streamError = error.message;
+                stderr += `${stderr ? '\n' : ''}${streamError}`;
+                finish();
+            });
+        });
+    } catch (error: any) {
+        const pendingTimer = state.pendingExecTimeouts.get(requestId);
+        if (pendingTimer) clearTimeout(pendingTimer);
+        state.pendingExecTimeouts.delete(requestId);
+        state.pendingExecRequestIds.delete(requestId);
+        state.cancelledPendingExecRequestIds.delete(requestId);
+        state.reportedPendingExecRequestIds.delete(requestId);
+        sendExecResult(ws, requestId, { ok: false, error: error.message || String(error), durationMs: Date.now() - startedAt });
+    }
+}
+
+export function handleSshExecCancel(ws: AuthenticatedWebSocket, payload: any): void {
+    const requestId = typeof payload?.requestId === 'string' ? payload.requestId : '';
+    const state = ws.sessionId ? clientStates.get(ws.sessionId) : undefined;
+    const activeCommand = state?.activeExecCommands?.get(requestId);
+    if (activeCommand) {
+        activeCommand.cancel();
+    } else if (state?.pendingExecRequestIds?.has(requestId)) {
+        state.cancelledPendingExecRequestIds ||= new Set();
+        state.reportedPendingExecRequestIds ||= new Set();
+        const pendingTimer = state.pendingExecTimeouts?.get(requestId);
+        if (pendingTimer) clearTimeout(pendingTimer);
+        state.pendingExecTimeouts?.delete(requestId);
+        state.pendingExecRequestIds.delete(requestId);
+        state.cancelledPendingExecRequestIds.add(requestId);
+        state.reportedPendingExecRequestIds.add(requestId);
+        sendExecResult(ws, requestId, {
+            ok: false,
+            cancelled: true,
+            sessionId: ws.sessionId,
+            error: '命令在建立执行通道前已被取消。',
+        });
+    }
+}

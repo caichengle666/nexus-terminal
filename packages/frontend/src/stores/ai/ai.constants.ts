@@ -28,5 +28,12 @@ export const TAIL_CONTEXT_BUDGET_CHARS = 131072;
 export const MIN_TAIL_MESSAGES = 3;
 export const DEFAULT_TERMINAL_READ_LINES = 800;
 export const MAX_TERMINAL_READ_LINES = 3000;
+export const MAX_AGENT_MODEL_REQUESTS = 20;
+export const MAX_AGENT_TOOL_CALLS = 30;
+export const MAX_BATCH_TERMINALS = 20;
+export const DEFAULT_TERMINAL_SETTLE_MS = 3000;
+export const MAX_TERMINAL_SETTLE_MS = 10000;
+export const DEFAULT_TERMINAL_WAIT_MS = 15000;
+export const MAX_TERMINAL_WAIT_MS = 60000;
 
 export const SUMMARY_SECTION_TITLES = ['本次压缩摘要', '手动压缩摘要', 'AI 智能摘要'];

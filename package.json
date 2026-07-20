@@ -55,12 +55,12 @@
     "bn.js": "4.12.3",
     "defu": "^6.1.7",
     "glob": "^10.5.0",
-    "monaco-editor": "0.52.2",
+    "monaco-editor": "0.55.1",
     "path-to-regexp": "8.4.2",
     "rollup": "4.62.2",
     "tar-fs": "^2.1.5",
     "vite-plugin-monaco-editor": {
-      "monaco-editor": "0.52.2"
+      "monaco-editor": "0.55.1"
     },
     "vue": "3.5.40",
     "brace-expansion@1.1.11": "1.1.16",

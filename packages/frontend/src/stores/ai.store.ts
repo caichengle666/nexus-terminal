@@ -6,8 +6,13 @@ import { useConnectionsStore } from './connections.store';
 import {
   CONFIG_KEY,
   DEFAULT_TERMINAL_READ_LINES,
+  DEFAULT_TERMINAL_SETTLE_MS,
+  DEFAULT_TERMINAL_WAIT_MS,
   DEFAULT_AUTO_COMPACTS_PER_TASK,
+  MAX_AGENT_MODEL_REQUESTS,
+  MAX_AGENT_TOOL_CALLS,
   MAX_AUTO_COMPACTS_PER_TASK,
+  MAX_BATCH_TERMINALS,
   MAX_CONFIGURABLE_AI_REQUEST_BYTES,
   MAX_IMPORT_FILE_BYTES,
   MAX_COMPACT_TRIGGER_PERCENT,
@@ -15,6 +20,8 @@ import {
   MAX_MODEL_SUMMARY_LENGTH,
   MAX_TERMINAL_OUTPUT_CHARS,
   MAX_TERMINAL_READ_LINES,
+  MAX_TERMINAL_SETTLE_MS,
+  MAX_TERMINAL_WAIT_MS,
   MIN_AUTO_COMPACTS_PER_TASK,
   MIN_COMPACT_TRIGGER_PERCENT,
   MIN_AI_REQUEST_BYTES,
@@ -66,10 +73,35 @@ import type {
   TerminalInputArgs,
 } from './ai/ai.types';
 import type { SessionState } from './session/types';
+import { decodeRawContent } from './session/utils';
 
 export type { AiTaskStatus, AiToolRun } from './ai/ai.types';
 
 const sleep = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms));
+
+type TerminalOutputResult = {
+  ok: boolean;
+  sessionId: string;
+  output: string;
+  error?: string;
+  connectionName?: string;
+  sinceLastInput?: boolean;
+  limitedByMaxLines?: boolean;
+  truncated?: boolean;
+  truncatedByChars?: boolean;
+  startLine?: number;
+  endLine?: number;
+  lineCount?: number;
+  outputChanged?: boolean;
+  outputMode?: 'delta';
+  outputOmitted?: 'unchanged';
+  cursor?: string;
+  cursorReset?: boolean;
+  lastPromptSeen?: boolean;
+  likelyRunning?: boolean;
+  currentPrompt?: string;
+  __fullOutput?: string;
+};
 
 export const useAiStore = defineStore('ai', () => {
   const sessionStore = useSessionStore();
@@ -77,6 +109,8 @@ export const useAiStore = defineStore('ai', () => {
 
   const sessionInputs = ref<Record<string, string>>({});
   const lastTerminalInputMarks = ref<Record<string, number>>({});
+  const terminalOutputCursors = new Map<string, { sessionId: string; sinceLastInput: boolean; output: string }>();
+  let terminalCursorSequence = 0;
   const configMessage = ref('');
   const hasSavedApiKey = ref(false);
   const showConfig = ref(false);
@@ -106,6 +140,7 @@ export const useAiStore = defineStore('ai', () => {
     apiKey: '',
     model: '',
     runMode: 'confirm' as AiRunMode,
+    enableBackgroundTools: false,
     compactTriggerPercent: 80,
     maxRequestKb: 512,
     maxAutoCompactsPerTask: DEFAULT_AUTO_COMPACTS_PER_TASK,
@@ -127,9 +162,18 @@ export const useAiStore = defineStore('ai', () => {
         activityEvents: [],
         continuationAvailable: false,
         autoCompactCount: 0,
+        pendingGuidance: [],
+        modelRequestCount: 0,
+        toolCallCount: 0,
+        commandCounts: {},
       };
-    } else if (typeof sessionRuntimes.value[key].autoCompactCount !== 'number') {
-      sessionRuntimes.value[key].autoCompactCount = 0;
+    } else {
+      const runtime = sessionRuntimes.value[key];
+      if (typeof runtime.autoCompactCount !== 'number') runtime.autoCompactCount = 0;
+      if (!Array.isArray(runtime.pendingGuidance)) runtime.pendingGuidance = [];
+      if (typeof runtime.modelRequestCount !== 'number') runtime.modelRequestCount = 0;
+      if (typeof runtime.toolCallCount !== 'number') runtime.toolCallCount = 0;
+      if (!runtime.commandCounts || typeof runtime.commandCounts !== 'object') runtime.commandCounts = {};
     }
     return sessionRuntimes.value[key];
   };
@@ -174,6 +218,7 @@ export const useAiStore = defineStore('ai', () => {
     },
   });
   const canSend = computed(() => !!userInput.value.trim() && !isRunning.value);
+  const canQueueGuidance = computed(() => !!userInput.value.trim() && isRunning.value);
   const hasActiveTerminal = computed(() => !!activeSession.value?.terminalManager?.terminalInstance?.value);
   const continuationAvailable = computed(() => currentRuntime.value.continuationAvailable);
 
@@ -285,6 +330,8 @@ export const useAiStore = defineStore('ai', () => {
       if ((partialMessage.content || partialMessage.tool_calls?.length) && !context.runtime.stopRequested) {
         error.partial = true;
         error.partialMessage = partialMessage;
+      } else if (context.memory.messages[context.memory.messages.length - 1] === partialMessage) {
+        context.memory.messages.pop();
       }
       throw error;
     }
@@ -313,6 +360,7 @@ export const useAiStore = defineStore('ai', () => {
     apiBaseUrl: config.value.apiBaseUrl,
     model: config.value.model,
     runMode: config.value.runMode,
+    enableBackgroundTools: config.value.enableBackgroundTools === true,
     compactTriggerPercent: Math.min(
       MAX_COMPACT_TRIGGER_PERCENT,
       Math.max(MIN_COMPACT_TRIGGER_PERCENT, Number(config.value.compactTriggerPercent) || 80),
@@ -517,7 +565,56 @@ export const useAiStore = defineStore('ai', () => {
     lines.push(text);
   };
 
-  const readTerminalOutput = (sessionId?: string, maxLines = DEFAULT_TERMINAL_READ_LINES, sinceLastInput = false) => {
+  const getLastNonEmptyLine = (output: string) => (
+    output.split('\n').map(line => line.trimEnd()).filter(Boolean).at(-1) || ''
+  );
+
+  const isShellPromptLine = (line: string) => (
+    /(?:^|\s)(?:[\w.-]+@)?[\w.-]+(?::[^\n]*)?[#$>]\s*$/.test(line)
+    || /^PS\s+[^>]+>\s*$/i.test(line)
+  );
+
+  const calculateOutputDelta = (previous: string, current: string) => {
+    if (!previous) return current;
+    if (previous === current) return '';
+    if (current.startsWith(previous)) return current.slice(previous.length).replace(/^\n/, '');
+
+    const maxPrefix = Math.min(previous.length, current.length);
+    let prefixLength = 0;
+    while (prefixLength < maxPrefix && previous[prefixLength] === current[prefixLength]) prefixLength += 1;
+    if (prefixLength >= 256 || prefixLength >= Math.floor(maxPrefix / 2)) {
+      return current.slice(prefixLength).replace(/^\n/, '');
+    }
+
+    const previousLines = previous.split('\n');
+    const currentLines = current.split('\n');
+    const maxOverlap = Math.min(previousLines.length, currentLines.length, 100);
+    for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+      if (previousLines.slice(-overlap).join('\n') === currentLines.slice(0, overlap).join('\n')) {
+        return currentLines.slice(overlap).join('\n');
+      }
+    }
+    return current;
+  };
+
+  const createTerminalOutputCursor = (sessionId: string, sinceLastInput: boolean, output: string) => {
+    terminalCursorSequence += 1;
+    const cursor = `terminal-${terminalCursorSequence.toString(36)}`;
+    terminalOutputCursors.set(cursor, { sessionId, sinceLastInput, output });
+    while (terminalOutputCursors.size > 64) {
+      const oldestCursor = terminalOutputCursors.keys().next().value;
+      if (!oldestCursor) break;
+      terminalOutputCursors.delete(oldestCursor);
+    }
+    return cursor;
+  };
+
+  const readTerminalOutput = (
+    sessionId?: string,
+    maxLines = DEFAULT_TERMINAL_READ_LINES,
+    sinceLastInput = false,
+    afterCursor?: unknown,
+  ): TerminalOutputResult => {
     let session = getTargetSession(sessionId);
     if (!sessionId && !session?.terminalManager?.terminalInstance?.value) {
       session = activeSession.value;
@@ -547,20 +644,303 @@ export const useAiStore = defineStore('ai', () => {
       if (line) appendTerminalLine(lines, line);
     }
 
-    const output = lines.join('\n').trimEnd();
+    const fullOutput = lines.join('\n').trimEnd();
+    const truncatedByChars = fullOutput.length > MAX_TERMINAL_OUTPUT_CHARS;
+    const normalizedOutput = truncatedByChars ? fullOutput.slice(-MAX_TERMINAL_OUTPUT_CHARS) : fullOutput;
+    const desiredStart = sinceLastInput && typeof lastInputMark === 'number' ? lastInputMark + 1 : 0;
+    const limitedByMaxLines = start > desiredStart;
+    const lastLine = getLastNonEmptyLine(fullOutput);
+    const lastPromptSeen = isShellPromptLine(lastLine);
+    const requestedCursor = typeof afterCursor === 'string' ? terminalOutputCursors.get(afterCursor) : undefined;
+    const cursorMatches = requestedCursor?.sessionId === session.sessionId
+      && requestedCursor.sinceLastInput === sinceLastInput;
+    const previousOutput = typeof afterCursor === 'string'
+      ? (cursorMatches ? requestedCursor.output : undefined)
+      : undefined;
+    const outputChanged = typeof previousOutput === 'string'
+      ? previousOutput !== normalizedOutput
+      : normalizedOutput.length > 0;
+    const outputDelta = typeof previousOutput === 'string'
+      ? calculateOutputDelta(previousOutput, normalizedOutput)
+      : normalizedOutput;
+    const cursor = createTerminalOutputCursor(session.sessionId, sinceLastInput, normalizedOutput);
+    const modelOutput = outputDelta.length > MAX_TERMINAL_OUTPUT_CHARS
+      ? outputDelta.slice(-MAX_TERMINAL_OUTPUT_CHARS)
+      : outputDelta;
 
-    return {
+    const result: TerminalOutputResult = {
       ok: true,
       sessionId: session.sessionId,
       connectionName: session.connectionName,
       sinceLastInput,
-      limitedByMaxLines: sinceLastInput && typeof lastInputMark === 'number' && start > lastInputMark + 1,
+      limitedByMaxLines,
+      truncated: limitedByMaxLines || truncatedByChars || outputDelta.length > MAX_TERMINAL_OUTPUT_CHARS,
+      truncatedByChars,
       startLine: start,
       endLine: end,
       lineCount: lines.length,
-      output: output.length > MAX_TERMINAL_OUTPUT_CHARS
-        ? `...<terminal output truncated>\n${output.slice(-MAX_TERMINAL_OUTPUT_CHARS)}`
-        : output,
+      outputChanged,
+      outputMode: 'delta',
+      outputOmitted: !outputChanged ? 'unchanged' : undefined,
+      cursor,
+      cursorReset: typeof afterCursor === 'string' && !cursorMatches,
+      lastPromptSeen,
+      likelyRunning: sinceLastInput && typeof lastInputMark === 'number' && !lastPromptSeen,
+      currentPrompt: lastPromptSeen ? lastLine.trim() : '',
+      output: modelOutput,
+    };
+    Object.defineProperty(result, '__fullOutput', { value: normalizedOutput, enumerable: false });
+    return result;
+  };
+
+  const waitForTerminalOutput = async (
+    sessionId: string,
+    maxWaitMs: number,
+    context: AiRunContext,
+    maxLines = DEFAULT_TERMINAL_READ_LINES,
+    sinceLastInput = true,
+    afterCursor?: unknown,
+  ) => {
+    const startedAt = Date.now();
+    let latest = readTerminalOutput(sessionId, maxLines, sinceLastInput, afterCursor);
+    let previousOutput = String((latest as any).__fullOutput || '');
+    let accumulatedOutput = String(latest.output || '');
+    let cursorReset = latest.cursorReset === true;
+    let lastChangedAt = startedAt;
+    let outputChanged = latest.outputChanged === true;
+
+    while (!context.runtime.stopRequested && Date.now() - startedAt < maxWaitMs) {
+      await sleep(200);
+      latest = readTerminalOutput(sessionId, maxLines, sinceLastInput);
+      cursorReset = cursorReset || latest.cursorReset === true;
+      const output = String((latest as any).__fullOutput || '');
+      if (output !== previousOutput) {
+        const delta = calculateOutputDelta(previousOutput, output);
+        if (delta) accumulatedOutput = `${accumulatedOutput}${accumulatedOutput ? '\n' : ''}${delta}`;
+        previousOutput = output;
+        outputChanged = true;
+        lastChangedAt = Date.now();
+      }
+
+      const quietMs = Date.now() - lastChangedAt;
+      const likelyComplete = latest.lastPromptSeen === true;
+      if ((outputChanged && quietMs >= 450) || (likelyComplete && quietMs >= 250)) {
+        const truncatedWaitOutput = accumulatedOutput.length > MAX_TERMINAL_OUTPUT_CHARS;
+        return {
+          ...latest,
+          elapsedMs: Date.now() - startedAt,
+          outputChanged,
+          likelyComplete,
+          likelyRunning: !likelyComplete,
+          pending: !likelyComplete,
+          timedOut: false,
+          truncated: latest.truncated || truncatedWaitOutput,
+          outputMode: 'delta',
+          outputOmitted: accumulatedOutput ? undefined : 'unchanged',
+          cursorReset,
+          output: truncatedWaitOutput ? accumulatedOutput.slice(-MAX_TERMINAL_OUTPUT_CHARS) : accumulatedOutput,
+        };
+      }
+    }
+
+    const likelyComplete = latest.lastPromptSeen === true;
+    const truncatedWaitOutput = accumulatedOutput.length > MAX_TERMINAL_OUTPUT_CHARS;
+    return {
+      ...latest,
+      elapsedMs: Date.now() - startedAt,
+      outputChanged,
+      likelyComplete,
+      likelyRunning: !likelyComplete,
+      pending: !likelyComplete,
+      timedOut: !context.runtime.stopRequested,
+      cancelled: context.runtime.stopRequested,
+      truncated: latest.truncated || truncatedWaitOutput,
+      outputMode: 'delta',
+      outputOmitted: accumulatedOutput ? undefined : 'unchanged',
+      cursorReset,
+      output: truncatedWaitOutput ? accumulatedOutput.slice(-MAX_TERMINAL_OUTPUT_CHARS) : accumulatedOutput,
+    };
+  };
+
+  const registerCommandAttempt = (runtime: AiRuntimeState, command: string) => {
+    const normalized = normalizeCommand(command);
+    const count = (runtime.commandCounts[normalized] || 0) + 1;
+    runtime.commandCounts[normalized] = count;
+    return count <= 2;
+  };
+
+  const requestStructuredCommand = (
+    session: SessionState,
+    command: string,
+    timeoutMs: number,
+    context: AiRunContext,
+  ): Promise<Record<string, any>> => new Promise((resolve) => {
+    if (session.wsManager.connectionStatus.value !== 'connected') {
+      resolve({ ok: false, sessionId: session.sessionId, error: '目标终端未连接。' });
+      return;
+    }
+
+    const requestId = `ai-exec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    let settled = false;
+    let unregister: () => void = () => undefined;
+    let timer = 0;
+    const signal = context.runtime.abortController?.signal;
+
+    const cleanup = () => {
+      unregister();
+      window.clearTimeout(timer);
+      signal?.removeEventListener('abort', handleAbort);
+    };
+    const finish = (result: Record<string, any>) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+    const handleAbort = () => {
+      session.wsManager.sendMessage({ type: 'ssh:exec:cancel', payload: { requestId } });
+      finish({ ok: false, cancelled: true, sessionId: session.sessionId, error: 'AI run was stopped during command execution.' });
+    };
+
+    unregister = session.wsManager.onMessage('ssh:exec:result', (payload, message) => {
+      if (message.requestId !== requestId) return;
+      finish(payload && typeof payload === 'object' ? payload : { ok: false, error: '命令返回格式无效。' });
+    });
+    timer = window.setTimeout(() => {
+      session.wsManager.sendMessage({ type: 'ssh:exec:cancel', payload: { requestId } });
+      finish({ ok: false, timedOut: true, sessionId: session.sessionId, error: '等待命令结果超时。' });
+    }, timeoutMs + 5000);
+    if (signal?.aborted) {
+      finish({ ok: false, cancelled: true, sessionId: session.sessionId, error: 'AI run was stopped before command execution.' });
+      return;
+    }
+    signal?.addEventListener('abort', handleAbort, { once: true });
+    session.wsManager.sendMessage({
+      type: 'ssh:exec',
+      requestId,
+      payload: { command, timeoutMs },
+    });
+  });
+
+  const requestSessionOperation = (
+    session: SessionState,
+    requestType: string,
+    successType: string,
+    errorType: string,
+    payload: Record<string, unknown>,
+    timeoutMs = 15000,
+  ): Promise<unknown> => new Promise((resolve, reject) => {
+    if (session.wsManager.connectionStatus.value !== 'connected') {
+      reject(new Error('目标终端未连接。'));
+      return;
+    }
+
+    const requestId = `ai-sftp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    let settled = false;
+    let unregisterSuccess: () => void = () => undefined;
+    let unregisterError: () => void = () => undefined;
+    let timer = 0;
+    const cleanup = () => {
+      unregisterSuccess();
+      unregisterError();
+      window.clearTimeout(timer);
+    };
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    unregisterSuccess = session.wsManager.onMessage(successType, (responsePayload, message) => {
+      if (message.requestId !== requestId) return;
+      finish(() => resolve(responsePayload));
+    });
+    unregisterError = session.wsManager.onMessage(errorType, (responsePayload, message) => {
+      if (message.requestId !== requestId) return;
+      const messageText = typeof responsePayload === 'string'
+        ? responsePayload
+        : String(responsePayload?.message || 'SFTP 操作失败。');
+      finish(() => reject(new Error(messageText)));
+    });
+    timer = window.setTimeout(() => {
+      finish(() => reject(new Error('等待 SFTP 操作结果超时。')));
+    }, timeoutMs);
+    session.wsManager.sendMessage({ type: requestType, requestId, payload });
+  });
+
+  const validateRemotePath = (value: unknown) => {
+    const path = typeof value === 'string' ? value.trim() : '';
+    if (!path) throw new Error('远程路径不能为空。');
+    if (path.length > 4096) throw new Error('远程路径超过 4096 字符限制。');
+    return path;
+  };
+
+  const readRemoteFile = async (args: Record<string, any>, context: AiRunContext) => {
+    const session = getTargetSession(context.sessionId);
+    if (!session) return { ok: false, error: '锁定的终端会话不可用。' };
+    if (!session.wsManager.isSftpReady.value) return { ok: false, error: '当前终端的 SFTP 尚未就绪。' };
+
+    const path = validateRemotePath(args.path);
+    const stats = await requestSessionOperation(
+      session,
+      'sftp:stat',
+      'sftp:stat:success',
+      'sftp:stat:error',
+      { path },
+    ) as Record<string, unknown>;
+    if (stats.isFile !== true) return { ok: false, path, error: '目标路径不是普通文件。' };
+    const size = Number(stats.size) || 0;
+    if (size > 1048576) {
+      return { ok: false, path, size, error: '文件超过 1MB，已阻止 AI 整文件读取。请改用命令按范围读取。' };
+    }
+
+    const encoding = typeof args.encoding === 'string' && args.encoding.trim()
+      ? args.encoding.trim().slice(0, 64)
+      : undefined;
+    const filePayload = await requestSessionOperation(
+      session,
+      'sftp:readfile',
+      'sftp:readfile:success',
+      'sftp:readfile:error',
+      { path, maxBytes: 1048576, ...(encoding ? { encoding } : {}) },
+      30000,
+    ) as Record<string, unknown>;
+    if (typeof filePayload.rawContentBase64 !== 'string') {
+      return { ok: false, path, error: '远程文件返回格式无效。' };
+    }
+    const encodingUsed = typeof filePayload.encodingUsed === 'string' ? filePayload.encodingUsed : 'utf-8';
+    const decoded = decodeRawContent(filePayload.rawContentBase64, encodingUsed);
+    const truncated = decoded.length > 65536;
+    return {
+      ok: true,
+      path,
+      size,
+      encoding: encodingUsed,
+      truncated,
+      content: truncated ? decoded.slice(0, 65536) : decoded,
+    };
+  };
+
+  const listRemoteDirectory = async (args: Record<string, any>, context: AiRunContext) => {
+    const session = getTargetSession(context.sessionId);
+    if (!session) return { ok: false, error: '锁定的终端会话不可用。' };
+    if (!session.wsManager.isSftpReady.value) return { ok: false, error: '当前终端的 SFTP 尚未就绪。' };
+
+    const path = validateRemotePath(args.path);
+    const entries = await requestSessionOperation(
+      session,
+      'sftp:readdir',
+      'sftp:readdir:success',
+      'sftp:readdir:error',
+      { path },
+    );
+    if (!Array.isArray(entries)) return { ok: false, path, error: '远程目录返回格式无效。' };
+    return {
+      ok: true,
+      path,
+      totalCount: entries.length,
+      truncated: entries.length > 500,
+      entries: entries.slice(0, 500),
     };
   };
 
@@ -580,6 +960,9 @@ export const useAiStore = defineStore('ai', () => {
     }
     const command = normalizeCommand(String(args.text || ''));
     const needsConfirmation = runMode.value === 'confirm' || !!risk;
+    if (needsConfirmation && !options?.confirmCommand) {
+      return { ok: false, cancelled: true, error: '命令需要用户确认，但当前调用入口无法显示确认窗口，已阻止执行。' };
+    }
     if (needsConfirmation && options?.confirmCommand) {
       context.runtime.taskStatus = 'awaitingConfirmation';
       addActivity(context.runtime, '等待你确认终端命令');
@@ -612,26 +995,274 @@ export const useAiStore = defineStore('ai', () => {
         error: 'No active terminal is available.',
       };
     }
+    if (args.pressEnter && command && !registerCommandAttempt(context.runtime, command)) {
+      return {
+        ok: false,
+        duplicate: true,
+        error: '同一命令在本轮任务中已执行两次。请先读取最新输出或让用户确认是否继续重试。',
+      };
+    }
 
     const inputMark = getTerminalCursorLine(session);
     lastTerminalInputMarks.value[session.sessionId] = inputMark;
+    const baseline = readTerminalOutput(session.sessionId, DEFAULT_TERMINAL_READ_LINES, true);
     const data = `${String(args.text || '')}${args.pressEnter ? '\r' : ''}`;
     session.terminalManager.sendData(data);
 
-    const waitMs = Math.max(0, Math.min(Number(args.waitMs) || 900, 10000));
+    const waitMs = Math.max(0, Math.min(Number(args.waitMs) || DEFAULT_TERMINAL_SETTLE_MS, MAX_TERMINAL_SETTLE_MS));
+    let terminalResult: Record<string, any>;
     if (waitMs > 0) {
       context.runtime.taskStatus = 'waitingOutput';
       addActivity(context.runtime, '命令已发送，正在等待终端输出');
-      await sleep(waitMs);
+      terminalResult = await waitForTerminalOutput(session.sessionId, waitMs, context, DEFAULT_TERMINAL_READ_LINES, true, baseline.cursor);
+    } else {
+      const initialOutput = readTerminalOutput(session.sessionId, DEFAULT_TERMINAL_READ_LINES, true, baseline.cursor);
+      terminalResult = {
+        ...initialOutput,
+        elapsedMs: 0,
+        likelyComplete: initialOutput.lastPromptSeen === true,
+        pending: initialOutput.likelyRunning === true,
+        timedOut: false,
+      };
     }
-
     return {
       ok: true,
       sessionId: session.sessionId,
       sent: args.text,
       pressEnter: !!args.pressEnter,
       inputMark,
-      outputAfter: readTerminalOutput(session.sessionId, DEFAULT_TERMINAL_READ_LINES, true).output,
+      outputAfter: terminalResult.output,
+      elapsedMs: terminalResult.elapsedMs,
+      outputChanged: terminalResult.outputChanged,
+      likelyComplete: terminalResult.likelyComplete,
+      lastPromptSeen: terminalResult.lastPromptSeen,
+      likelyRunning: terminalResult.likelyRunning,
+      pending: terminalResult.pending,
+      timedOut: terminalResult.timedOut,
+      truncated: terminalResult.truncated,
+      currentPrompt: terminalResult.currentPrompt,
+      cursor: terminalResult.cursor,
+      outputMode: terminalResult.outputMode,
+      outputOmitted: terminalResult.outputOmitted,
+    };
+  };
+
+  const waitForVisibleTerminalOutput = async (args: Record<string, any>, context: AiRunContext) => {
+    const session = getTargetSession(context.sessionId);
+    if (!session?.terminalManager?.terminalInstance?.value) {
+      return {
+        ok: false,
+        error: 'No active terminal is available.',
+        hint: '打开或重新连接目标终端后再等待输出。',
+      };
+    }
+
+    const timeoutMs = Math.max(200, Math.min(Number(args.timeoutMs) || DEFAULT_TERMINAL_WAIT_MS, MAX_TERMINAL_WAIT_MS));
+    const maxLines = Math.max(1, Math.min(Number(args.maxLines) || DEFAULT_TERMINAL_READ_LINES, MAX_TERMINAL_READ_LINES));
+    const sinceLastInput = args.sinceLastInput !== false;
+    context.runtime.taskStatus = 'waitingOutput';
+    addActivity(context.runtime, '正在等待可见终端输出', `最长等待 ${(timeoutMs / 1000).toFixed(1)} 秒`);
+    return waitForTerminalOutput(session.sessionId, timeoutMs, context, maxLines, sinceLastInput, args.afterCursor);
+  };
+
+  const sendTerminalKey = async (
+    args: Record<string, any>,
+    context: AiRunContext,
+    options?: SendMessageOptions,
+  ) => {
+    if (runMode.value === 'readOnly') {
+      return { ok: false, cancelled: true, error: '当前是只读模式，AI 不会向终端发送按键。' };
+    }
+    const key = typeof args.key === 'string' ? args.key.toLowerCase() : '';
+    const keyMap: Record<string, { data: string; label: string }> = {
+      enter: { data: '\r', label: 'Enter' },
+      ctrl_c: { data: '\x03', label: 'Ctrl+C' },
+      escape: { data: '\x1b', label: 'Escape' },
+      tab: { data: '\t', label: 'Tab' },
+    };
+    const selectedKey = keyMap[key];
+    if (!selectedKey) {
+      return {
+        ok: false,
+        error: '不支持的终端按键。',
+        hint: 'key 只能是 enter、ctrl_c、escape 或 tab。',
+      };
+    }
+    const session = getTargetSession(context.sessionId);
+    if (!session?.terminalManager?.sendData) {
+      return { ok: false, error: 'No active terminal is available.' };
+    }
+    if (runMode.value === 'confirm') {
+      if (!options?.confirmCommand) {
+        return { ok: false, cancelled: true, error: '终端按键需要用户确认，但当前调用入口无法显示确认窗口。' };
+      }
+      context.runtime.taskStatus = 'awaitingConfirmation';
+      addActivity(context.runtime, `等待你确认终端按键 ${selectedKey.label}`);
+      const confirmed = await options.confirmCommand({
+        command: `[终端按键] ${selectedKey.label}`,
+        reason: String(args.reason || `AI 需要向当前终端发送 ${selectedKey.label}。`),
+        riskLevel: 'normal',
+        sessionId: session.sessionId,
+        connectionName: session.connectionName,
+      });
+      if (!confirmed) return { ok: false, cancelled: true, error: 'User rejected terminal key input.' };
+    }
+    if (context.runtime.stopRequested) {
+      return { ok: false, cancelled: true, error: 'AI run was stopped before terminal key input.' };
+    }
+
+    const inputMark = getTerminalCursorLine(session);
+    lastTerminalInputMarks.value[session.sessionId] = inputMark;
+    const baseline = readTerminalOutput(session.sessionId, DEFAULT_TERMINAL_READ_LINES, true);
+    session.terminalManager.sendData(selectedKey.data);
+    return {
+      ok: true,
+      sessionId: session.sessionId,
+      key,
+      label: selectedKey.label,
+      inputMark,
+      cursor: baseline.cursor,
+      hint: '调用 wait_for_terminal_output，并把此 cursor 作为 afterCursor，以读取按键产生的新输出。',
+    };
+  };
+
+  const listActiveTerminals = () => Array.from(sessionStore.sessions.values())
+    .filter(session => {
+      if (session.wsManager.connectionStatus.value !== 'connected') return false;
+      const connection = connectionsStore.connections.find(item => item.id === Number(session.connectionId));
+      return String(connection?.type || 'SSH').toUpperCase() === 'SSH';
+    })
+    .map(session => {
+      const connection = connectionsStore.connections.find(item => item.id === Number(session.connectionId));
+      return {
+        sessionId: session.sessionId,
+        connectionName: session.connectionName,
+        host: connection?.host || '',
+        port: connection?.port || 22,
+      };
+    });
+
+  const executeCommand = async (
+    args: Record<string, any>,
+    context: AiRunContext,
+    options?: SendMessageOptions,
+  ) => {
+    if (!config.value.enableBackgroundTools) {
+      return { ok: false, error: '后台命令工具未启用。请使用可见终端工具，或由用户勾选“后台工具”。' };
+    }
+    if (runMode.value === 'readOnly') {
+      return { ok: false, cancelled: true, error: '当前是只读模式，AI 不会执行终端命令。' };
+    }
+    const command = typeof args.command === 'string' ? args.command.trim() : '';
+    if (!command) return { ok: false, error: 'execute_command 缺少 command。' };
+    if (new TextEncoder().encode(command).length > 32768) {
+      return { ok: false, error: 'execute_command 的 command 超过 32KB 限制。' };
+    }
+    const session = getTargetSession(context.sessionId);
+    if (!session) return { ok: false, sessionId: context.sessionId, error: '锁定的终端会话不可用。' };
+
+    const risk = detectRiskyCommand({ text: command, pressEnter: true });
+    const needsConfirmation = runMode.value === 'confirm' || !!risk;
+    if (needsConfirmation && !options?.confirmCommand) {
+      return { ok: false, cancelled: true, error: '命令需要用户确认，但当前调用入口无法显示确认窗口，已阻止执行。' };
+    }
+    if (needsConfirmation && options?.confirmCommand) {
+      context.runtime.taskStatus = 'awaitingConfirmation';
+      addActivity(context.runtime, '等待你确认结构化命令');
+      const confirmed = await options.confirmCommand({
+        command,
+        reason: String(args.reason || 'AI 需要执行这一步来继续处理当前任务。'),
+        riskReason: risk?.reason,
+        riskLevel: risk ? 'risky' : 'normal',
+        sessionId: session.sessionId,
+        connectionName: session.connectionName,
+      });
+      if (!confirmed) return { ok: false, cancelled: true, error: 'User rejected terminal command.' };
+    }
+    if (!registerCommandAttempt(context.runtime, command)) {
+      return { ok: false, duplicate: true, error: '同一命令在本轮任务中已执行两次。请先分析已有结果，不要继续重复执行。' };
+    }
+
+    context.runtime.taskStatus = 'waitingOutput';
+    addActivity(context.runtime, '正在后台执行命令', `${session.connectionName} · ${command}`);
+    const timeoutMs = Math.max(1000, Math.min(Number(args.timeoutMs) || 30000, 180000));
+    return requestStructuredCommand(session, command, timeoutMs, context);
+  };
+
+  const executeCommandBatch = async (
+    args: Record<string, any>,
+    context: AiRunContext,
+    options?: SendMessageOptions,
+  ) => {
+    if (!config.value.enableBackgroundTools) {
+      return { ok: false, error: '后台批量工具未启用。需要用户先勾选“后台工具”。' };
+    }
+    if (runMode.value === 'readOnly') {
+      return { ok: false, cancelled: true, error: '当前是只读模式，AI 不会执行批量命令。' };
+    }
+    const command = typeof args.command === 'string' ? args.command.trim() : '';
+    const requestedIds = Array.isArray(args.targetSessionIds)
+      ? Array.from(new Set(args.targetSessionIds.filter((id: unknown): id is string => typeof id === 'string')))
+      : [];
+    if (!command || requestedIds.length === 0) {
+      return { ok: false, error: '批量命令必须包含 command 和明确的 targetSessionIds。' };
+    }
+    if (new TextEncoder().encode(command).length > 32768) {
+      return { ok: false, error: '批量命令超过 32KB 限制。' };
+    }
+    if (requestedIds.length > MAX_BATCH_TERMINALS) {
+      return { ok: false, error: `批量命令最多支持 ${MAX_BATCH_TERMINALS} 个终端，本次未执行任何命令。` };
+    }
+
+    const activeById = new Map(listActiveTerminals().map(item => [item.sessionId, item]));
+    const targets = requestedIds
+      .map(sessionId => getTargetSession(sessionId))
+      .filter((session): session is SessionState => !!session && activeById.has(session.sessionId));
+    const missingSessionIds = requestedIds.filter(sessionId => !targets.some(session => session.sessionId === sessionId));
+    if (targets.length === 0) {
+      return { ok: false, error: '指定的批量目标均未连接。', missingSessionIds };
+    }
+    if (!options?.confirmCommand) {
+      return { ok: false, cancelled: true, error: '批量命令必须由用户确认，但当前调用入口无法显示确认窗口。' };
+    }
+
+    const risk = detectRiskyCommand({ text: command, pressEnter: true });
+    context.runtime.taskStatus = 'awaitingConfirmation';
+    addActivity(context.runtime, `等待确认批量命令（${targets.length} 台）`);
+    const confirmed = await options.confirmCommand({
+      command,
+      reason: String(args.reason || 'AI 需要在多个已连接 VPS 上执行同一条命令。'),
+      riskReason: risk?.reason || `将同时影响 ${targets.length} 个终端`,
+      riskLevel: 'risky',
+      sessionId: context.sessionId,
+      connectionName: targets.map(session => session.connectionName).join('、'),
+    });
+    if (!confirmed) return { ok: false, cancelled: true, error: 'User rejected batch command.' };
+    if (!registerCommandAttempt(context.runtime, `batch:${command}`)) {
+      return { ok: false, duplicate: true, error: '同一批量命令在本轮任务中已执行两次，已阻止继续重复。' };
+    }
+
+    const timeoutMs = Math.max(1000, Math.min(Number(args.timeoutMs) || 30000, 180000));
+    const results: Record<string, any>[] = [];
+    context.runtime.taskStatus = 'waitingOutput';
+    for (let index = 0; index < targets.length && !context.runtime.stopRequested; index += 4) {
+      const group = targets.slice(index, index + 4);
+      addActivity(context.runtime, `正在批量执行 ${index + 1}-${index + group.length}/${targets.length}`);
+      const groupResults = await Promise.all(group.map(async session => ({
+        sessionId: session.sessionId,
+        connectionName: session.connectionName,
+        ...(await requestStructuredCommand(session, command, timeoutMs, context)),
+      })));
+      results.push(...groupResults);
+    }
+
+    return {
+      ok: results.length === targets.length && results.every(result => result.ok !== false),
+      command,
+      targetCount: targets.length,
+      completedCount: results.length,
+      missingSessionIds,
+      results,
     };
   };
 
@@ -648,26 +1279,31 @@ export const useAiStore = defineStore('ai', () => {
   };
 
   const runTool = async (toolCall: AiToolCall, context: AiRunContext, options?: SendMessageOptions) => {
-    const parsedArgs = parseToolArgs(toolCall);
-    const args: Record<string, any> = {
-      ...parsedArgs,
-      sessionId: context.sessionId,
-    };
     const toolRun: AiToolRun = {
       id: toolCall.id,
       name: toolCall.function.name,
-      args,
+      args: {},
       status: 'running',
       startedAt: Date.now(),
     };
     context.memory.toolRuns.push(toolRun);
 
     try {
+      const parsedArgs = parseToolArgs(toolCall);
+      const args: Record<string, any> = {
+        ...parsedArgs,
+        sessionId: context.sessionId,
+      };
+      toolRun.args = args;
       if (toolCall.function.name === 'terminal_input' && (typeof parsedArgs.text !== 'string' || !parsedArgs.text.trim())) {
         toolRun.status = 'error';
         toolRun.error = 'AI 返回的终端输入参数不完整，已阻止执行。';
         addActivity(context.runtime, '工具参数不完整，已阻止执行', toolRun.error, 'error');
-        return { ok: false, error: toolRun.error };
+        return {
+          ok: false,
+          error: toolRun.error,
+          hint: '如果只需要等待命令输出，请调用 wait_for_terminal_output；不要发送空回车。',
+        };
       }
       if (context.runtime.stopRequested) {
         toolRun.status = 'cancelled';
@@ -675,16 +1311,42 @@ export const useAiStore = defineStore('ai', () => {
       }
 
       context.runtime.taskStatus = 'runningTool';
+      const activityTitle: Record<string, string> = {
+        get_terminal_output: '正在读取当前终端输出',
+        wait_for_terminal_output: '正在等待当前终端输出',
+        terminal_input: '正在准备发送终端输入',
+        execute_command: '正在准备执行结构化命令',
+        send_terminal_key: '正在准备发送终端按键',
+        read_remote_file: '正在读取远程文件',
+        list_remote_directory: '正在读取远程目录',
+        list_active_terminals: '正在读取活动终端列表',
+        execute_command_batch: '正在准备批量 VPS 命令',
+      };
       addActivity(
         context.runtime,
-        toolCall.function.name === 'get_terminal_output' ? '正在读取当前终端输出' : '正在准备发送终端命令',
+        activityTitle[toolCall.function.name] || `正在调用工具 ${toolCall.function.name}`,
         toolCall.function.name === 'get_terminal_output' ? `读取最近 ${args.maxLines || 120} 行` : undefined,
       );
       let result: unknown;
       if (toolCall.function.name === 'get_terminal_output') {
-        result = readTerminalOutput(args.sessionId, args.maxLines, args.sinceLastInput === true);
+        result = readTerminalOutput(args.sessionId, args.maxLines, args.sinceLastInput === true, args.afterCursor);
+      } else if (toolCall.function.name === 'wait_for_terminal_output') {
+        result = await waitForVisibleTerminalOutput(args, context);
       } else if (toolCall.function.name === 'terminal_input') {
         result = await sendTerminalInput(args as TerminalInputArgs, context, options);
+      } else if (toolCall.function.name === 'execute_command') {
+        result = await executeCommand(args, context, options);
+      } else if (toolCall.function.name === 'send_terminal_key') {
+        result = await sendTerminalKey(args, context, options);
+      } else if (toolCall.function.name === 'read_remote_file') {
+        result = await readRemoteFile(args, context);
+      } else if (toolCall.function.name === 'list_remote_directory') {
+        result = await listRemoteDirectory(args, context);
+      } else if (toolCall.function.name === 'list_active_terminals') {
+        const terminals = listActiveTerminals();
+        result = { ok: true, count: terminals.length, terminals };
+      } else if (toolCall.function.name === 'execute_command_batch') {
+        result = await executeCommandBatch(args, context, options);
       } else {
         result = { ok: false, error: `Unknown tool: ${toolCall.function.name}` };
       }
@@ -697,9 +1359,11 @@ export const useAiStore = defineStore('ai', () => {
           : 'done';
       if (toolRun.status === 'error') toolRun.error = String((result as any)?.error || '工具调用失败。');
       if (toolRun.status === 'done') {
+        const readOnlyTerminalTool = toolCall.function.name === 'get_terminal_output'
+          || toolCall.function.name === 'wait_for_terminal_output';
         addActivity(
           context.runtime,
-          toolCall.function.name === 'get_terminal_output' ? '终端输出已读取，正在分析' : '命令已发送，正在读取结果',
+          readOnlyTerminalTool ? '终端输出已读取，正在分析' : '命令已发送，正在读取结果',
           undefined,
           'done',
         );
@@ -736,9 +1400,16 @@ export const useAiStore = defineStore('ai', () => {
   };
 
   const formatServerProfileForPrompt = (sessionId?: string) => {
-    const status = getTargetSession(sessionId)?.statusMonitorManager?.serverStatus?.value;
+    const session = getTargetSession(sessionId);
+    const status = session?.statusMonitorManager?.serverStatus?.value;
+    const dockerManager = session?.dockerManager;
+    const dockerSummary = !dockerManager?.hasStatusSnapshot.value
+      ? 'unknown (initial check pending)'
+      : !dockerManager.isDockerAvailable.value
+        ? 'not available'
+        : `available, ${dockerManager.containers.value.length} containers, ${dockerManager.containers.value.filter(container => container.State === 'running').length} running`;
     if (!status) {
-      return 'Known terminal environment: no status monitor snapshot is available yet.';
+      return `Known terminal environment: no status monitor snapshot is available yet.\n- Docker: ${dockerSummary}`;
     }
     return [
       'Known terminal environment from Nexus status monitor:',
@@ -749,6 +1420,7 @@ export const useAiStore = defineStore('ai', () => {
       `- Swap: ${status.swapPercent ?? 'unknown'}% (${formatDataSize(status.swapUsed)} / ${formatDataSize(status.swapTotal)})`,
       `- Disk: ${status.diskPercent ?? 'unknown'}% (${formatDataSize(status.diskUsed, 'KB')} / ${formatDataSize(status.diskTotal, 'KB')})`,
       `- Network: ${status.netInterface || 'unknown'} down ${formatRate(status.netRxRate)}, up ${formatRate(status.netTxRate)}`,
+      `- Docker: ${dockerSummary}`,
       'Use this environment snapshot to choose OS-appropriate commands. If required facts are missing, inspect the terminal before acting.',
     ].join('\n');
   };
@@ -761,11 +1433,18 @@ export const useAiStore = defineStore('ai', () => {
       formatServerProfileForPrompt(sessionId),
       'You can inspect and operate only the locked SSH terminal for this run.',
       `Run mode: ${runMode.value}. In readOnly mode, inspect only and explain what you would do.`,
-      'Use get_terminal_output before deciding what to do when context is unclear.',
-      'Use terminal_input to type into the locked SSH terminal. Use pressEnter=true only when you intend to submit a command.',
-      'When calling tools, include the locked sessionId unless the user explicitly asks to operate a different terminal.',
-      'After terminal_input, use the returned outputAfter or get_terminal_output with sinceLastInput=true before deciding whether to retry.',
+      'Use get_terminal_output for an immediate terminal snapshot when context is unclear.',
+      'Terminal reads without afterCursor return a full snapshot. Reuse a returned cursor as afterCursor for incremental output; only then may an unchanged body be omitted.',
+      'Use read_remote_file and list_remote_directory for read-only file inspection instead of shell commands when the exact path is known.',
+      'Prefer terminal_input for ordinary commands on the current terminal so the user can see what you are doing in the visible shell.',
+      config.value.enableBackgroundTools
+        ? 'Background tools are enabled by the user. Use execute_command only when you need an exact exit code, clean machine-readable output, or batch-safe background execution. Its command and result remain visible in the AI tool activity, but it does not type into the terminal.'
+        : 'Background tools are disabled by the user. Use only visible terminal input for commands; do not request execute_command or execute_command_batch.',
+      'Use send_terminal_key for Enter, Ctrl+C, Escape, or Tab. Do not encode control characters manually.',
+      'After terminal_input, inspect its status fields. If likelyRunning or pending is true, call wait_for_terminal_output; never send an empty Enter merely to check progress.',
+      'Treat likelyRunning as a prompt-based hint, not a guaranteed process state. A returned shell prompt is the strongest visible-terminal completion signal.',
       'Do not repeat a command only because earlier terminal history was noisy or incomplete; request more recent output first.',
+      'Do not append echo markers merely to detect completion. execute_command already returns an exit code, while visible commands should be observed with wait_for_terminal_output.',
       'When using terminal_input, always include a short reason field explaining why the input is needed.',
       'After sending a command, inspect output and continue until the user request is complete, blocked, or needs confirmation.',
       'You may decide how many tool calls are needed. Do not stop early when more inspection or verification is required.',
@@ -774,6 +1453,8 @@ export const useAiStore = defineStore('ai', () => {
       'Avoid destructive or service-impacting commands unless the user clearly requested them and the app confirms them.',
       'If a command may take a long time, explain what is happening after observing output.',
       'Ignore later UI tab switches. They do not change the locked session for this run.',
+      'Only when the user explicitly requests a multi-VPS operation, call list_active_terminals first and then execute_command_batch with exact target session IDs.',
+      'Never infer batch targets or broadcast a command merely because multiple terminals are open.',
     ].join('\n'),
   });
 
@@ -860,11 +1541,15 @@ export const useAiStore = defineStore('ai', () => {
     return sanitizedMessages;
   };
 
+  const enabledAiTools = computed(() => config.value.enableBackgroundTools
+    ? aiTools
+    : aiTools.filter(tool => tool.function.name !== 'execute_command' && tool.function.name !== 'execute_command_batch'));
+
   const buildChatPayload = (context?: AiRunContext, extraMessages: AiChatMessage[] = []) => ({
     ...config.value,
     stream: true,
     messages: buildModelMessages(context, extraMessages),
-    tools: aiTools,
+    tools: enabledAiTools.value,
     toolChoice: 'auto',
   });
 
@@ -951,6 +1636,16 @@ export const useAiStore = defineStore('ai', () => {
     configMessage.value = response.data?.message || '流式输出测试通过。';
   };
 
+  const testToolCalling = async () => {
+    configMessage.value = '';
+    const response = await apiClient.post('/ai/config/test-tools', {
+      apiBaseUrl: config.value.apiBaseUrl,
+      apiKey: config.value.apiKey,
+      model: config.value.model,
+    });
+    configMessage.value = response.data?.message || '工具调用测试通过。';
+  };
+
   const fetchModels = async () => {
     isFetchingModels.value = true;
     modelFetchMessage.value = '';
@@ -1016,6 +1711,18 @@ export const useAiStore = defineStore('ai', () => {
     await maybeAutoCompact(context, 'beforeRequest');
 
     while (!context.runtime.stopRequested) {
+      if (context.runtime.pendingGuidance.length > 0) {
+        const guidance = context.runtime.pendingGuidance.splice(0);
+        guidance.forEach(content => context.memory.messages.push({ role: 'user', content }));
+        addActivity(context.runtime, `已应用 ${guidance.length} 条追加引导`, undefined, 'done');
+      }
+      if (context.runtime.modelRequestCount >= MAX_AGENT_MODEL_REQUESTS) {
+        context.runtime.errorMessage = `本轮已达到 ${MAX_AGENT_MODEL_REQUESTS} 次 AI 决策上限，已暂停以避免无限循环。`;
+        context.runtime.taskStatus = 'interrupted';
+        addActivity(context.runtime, '已达到本轮 AI 决策上限', context.runtime.errorMessage, 'error');
+        return;
+      }
+      context.runtime.modelRequestCount += 1;
       const controller = context.runtime.abortController;
       context.runtime.taskStatus = 'thinking';
       addActivity(context.runtime, '正在请求 AI 决定下一步操作');
@@ -1094,18 +1801,33 @@ export const useAiStore = defineStore('ai', () => {
       }
       context.runtime.continuationAvailable = false;
       if (toolCalls.length === 0) {
+        if (context.runtime.pendingGuidance.length > 0) continue;
         context.runtime.taskStatus = 'done';
         return;
       }
 
+      let toolBudgetExceeded = false;
       for (const toolCall of toolCalls) {
         if (context.runtime.stopRequested) break;
-        const result = await runTool(toolCall, context, options);
+        let result: unknown;
+        if (context.runtime.toolCallCount >= MAX_AGENT_TOOL_CALLS) {
+          toolBudgetExceeded = true;
+          result = { ok: false, error: `本轮已达到 ${MAX_AGENT_TOOL_CALLS} 次工具调用上限，未执行该工具。` };
+        } else {
+          context.runtime.toolCallCount += 1;
+          result = await runTool(toolCall, context, options);
+        }
         context.memory.messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
           content: stringifyToolResultForModel(result),
         });
+      }
+      if (toolBudgetExceeded) {
+        context.runtime.errorMessage = `本轮已达到 ${MAX_AGENT_TOOL_CALLS} 次工具调用上限，已暂停以避免重复操作。`;
+        context.runtime.taskStatus = 'interrupted';
+        addActivity(context.runtime, '已达到本轮工具调用上限', context.runtime.errorMessage, 'error');
+        return;
       }
 
       // Allow one more compaction if tool output re-inflated the request body.
@@ -1120,7 +1842,13 @@ export const useAiStore = defineStore('ai', () => {
     const lockedSession = getTargetSession(activeSessionId.value);
     const runSessionId = lockedSession?.sessionId || activeSessionId.value || 'global';
     const runtime = getRuntimeBySessionId(runSessionId);
-    if (!content || runtime.isRunning) return;
+    if (!content) return;
+    if (runtime.isRunning) {
+      runtime.pendingGuidance.push(content);
+      userInput.value = '';
+      addActivity(runtime, '已收到追加引导', '将在当前步骤结束后交给 AI');
+      return;
+    }
 
     runtime.errorMessage = '';
     runtime.continuationAvailable = false;
@@ -1136,6 +1864,10 @@ export const useAiStore = defineStore('ai', () => {
     runtime.abortController = new AbortController();
     runtime.activityEvents = [];
     runtime.autoCompactCount = 0;
+    runtime.pendingGuidance = [];
+    runtime.modelRequestCount = 0;
+    runtime.toolCallCount = 0;
+    runtime.commandCounts = {};
     addActivity(runtime, '正在理解你的请求');
 
     try {
@@ -1153,6 +1885,10 @@ export const useAiStore = defineStore('ai', () => {
         runtime.taskStatus = 'error';
       }
     } finally {
+      if (runtime.pendingGuidance.length > 0) {
+        sessionInputs.value[runSessionId] = runtime.pendingGuidance.join('\n');
+        runtime.pendingGuidance = [];
+      }
       runtime.isRunning = false;
       runtime.abortController = null;
       runtime.stopRequested = false;
@@ -1179,6 +1915,10 @@ export const useAiStore = defineStore('ai', () => {
     runtime.abortController = new AbortController();
     runtime.activityEvents = [];
     runtime.autoCompactCount = 0;
+    runtime.pendingGuidance = [];
+    runtime.modelRequestCount = 0;
+    runtime.toolCallCount = 0;
+    runtime.commandCounts = {};
     addActivity(runtime, '正在从中断位置继续生成');
     try {
       await runAgentLoop(context, options, true);
@@ -1190,6 +1930,10 @@ export const useAiStore = defineStore('ai', () => {
         runtime.taskStatus = 'error';
       }
     } finally {
+      if (runtime.pendingGuidance.length > 0) {
+        sessionInputs.value[runSessionId] = runtime.pendingGuidance.join('\n');
+        runtime.pendingGuidance = [];
+      }
       runtime.isRunning = false;
       runtime.abortController = null;
       runtime.stopRequested = false;
@@ -1390,10 +2134,12 @@ export const useAiStore = defineStore('ai', () => {
     activeSession,
     activeSessionId,
     canSend,
+    canQueueGuidance,
     hasActiveTerminal,
     saveConfig,
     testConfig,
     testStreaming,
+    testToolCalling,
     fetchModels,
     availableModels,
     isFetchingModels,

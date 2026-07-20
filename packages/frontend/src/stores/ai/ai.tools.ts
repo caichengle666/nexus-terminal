@@ -10,13 +10,31 @@ export const aiTools = [
     type: 'function',
     function: {
       name: 'get_terminal_output',
-      description: 'Read recent visible output from the target locked SSH terminal.',
+      description: 'Read recent visible output from the target locked SSH terminal immediately. Without afterCursor it returns a full snapshot; with a valid cursor it returns only changes and may omit an unchanged body. Use wait_for_terminal_output when a visible command may still be running.',
       parameters: {
         type: 'object',
+        additionalProperties: false,
         properties: {
-          sessionId: { type: 'string', description: 'Target terminal session ID. Defaults to the locked session for this AI run.' },
           maxLines: { type: 'number', description: 'Maximum lines to read. Default 800, maximum 3000.' },
           sinceLastInput: { type: 'boolean', description: 'When true, read only output produced after the last terminal_input call in this session.' },
+          afterCursor: { type: 'string', description: 'Optional cursor returned by a previous read. When valid, only changed output after that snapshot is returned.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'wait_for_terminal_output',
+      description: 'Wait for visible output on the target locked SSH terminal to change, settle, show a shell prompt, or time out. Pass afterCursor to receive only changes; without it the current snapshot is returned. Use after terminal_input instead of sending an empty Enter.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          timeoutMs: { type: 'number', description: 'Maximum wait in milliseconds. Default 15000, maximum 60000.' },
+          maxLines: { type: 'number', description: 'Maximum lines to return. Default 800, maximum 3000.' },
+          sinceLastInput: { type: 'boolean', description: 'Read only output after the last terminal_input. Default true.' },
+          afterCursor: { type: 'string', description: 'Optional cursor returned by a previous read or wait.' },
         },
       },
     },
@@ -25,16 +43,110 @@ export const aiTools = [
     type: 'function',
     function: {
       name: 'terminal_input',
-      description: 'Send text to the target locked SSH terminal immediately. Use pressEnter=true to submit a command.',
+      description: 'Send visible input to the target locked SSH terminal. Prefer this for ordinary commands on the current terminal so the user can observe every action. Also use it for interactive prompts or text that must appear in the shell.',
       parameters: {
         type: 'object',
+        additionalProperties: false,
         required: ['text'],
         properties: {
-          sessionId: { type: 'string', description: 'Target terminal session ID. Defaults to the locked session for this AI run.' },
           text: { type: 'string', description: 'Text or command to send to terminal.' },
           pressEnter: { type: 'boolean', description: 'Append Enter after text. Default false.' },
-          waitMs: { type: 'number', description: 'Milliseconds to wait before reading output after input. Default 900.' },
+          waitMs: { type: 'number', description: 'Maximum initial wait for visible output to settle. Default 3000, maximum 10000. Use wait_for_terminal_output for longer operations.' },
           reason: { type: 'string', description: 'Short reason why this input is needed.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'execute_command',
+      description: 'Execute one non-interactive command in a background SSH channel and return clean stdout, stderr, exit code, timeout and duration. The command is shown in the AI tool activity but not typed into the visible terminal. Use only when an exact exit status or clean machine-readable output is important; otherwise prefer terminal_input so the user can observe the action.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['command'],
+        properties: {
+          command: { type: 'string', maxLength: 32768, description: 'Non-interactive shell command to execute. Maximum 32KB.' },
+          timeoutMs: { type: 'number', description: 'Execution timeout in milliseconds. Default 30000, maximum 180000.' },
+          reason: { type: 'string', description: 'Short reason why this command is needed.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_terminal_key',
+      description: 'Send one explicit control key to the visible locked SSH terminal. Use for interactive input only; use wait_for_terminal_output to observe the result.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['key'],
+        properties: {
+          key: { type: 'string', enum: ['enter', 'ctrl_c', 'escape', 'tab'], description: 'Control key to send.' },
+          reason: { type: 'string', description: 'Short reason why this key is needed.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_remote_file',
+      description: 'Read a text file from the target locked SSH session through SFTP. This tool is read-only and returns at most 64KB of decoded text.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['path'],
+        properties: {
+          path: { type: 'string', maxLength: 4096, description: 'Absolute remote file path to read.' },
+          encoding: { type: 'string', maxLength: 64, description: 'Optional text encoding. Omit to use server-side detection.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_remote_directory',
+      description: 'List files and directories on the target locked SSH session through SFTP. This tool is read-only and returns at most 500 entries.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['path'],
+        properties: {
+          path: { type: 'string', maxLength: 4096, description: 'Absolute remote directory path to list.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_active_terminals',
+      description: 'List currently connected SSH terminal sessions. Use before a batch operation to obtain exact target session IDs.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'execute_command_batch',
+      description: 'Execute the same non-interactive command on explicitly selected connected SSH terminals. Use only when the user clearly requests a multi-VPS or batch operation. Always requires user confirmation.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['command', 'targetSessionIds'],
+        properties: {
+          command: { type: 'string', maxLength: 32768, description: 'Non-interactive shell command to execute on every selected target. Maximum 32KB.' },
+          targetSessionIds: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'string' }, description: 'Exact session IDs returned by list_active_terminals.' },
+          timeoutMs: { type: 'number', description: 'Per-terminal timeout in milliseconds. Default 30000, maximum 180000.' },
+          reason: { type: 'string', description: 'Short reason for the batch operation.' },
         },
       },
     },
@@ -107,9 +219,12 @@ export const truncateForModel = (content: string, maxLength = MAX_MODEL_MESSAGE_
 export const parseToolArgs = (toolCall: AiToolCall): Record<string, any> => {
   try {
     const parsed = JSON.parse(toolCall.function.arguments || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('arguments must be a JSON object');
+    }
+    return parsed;
+  } catch (error: any) {
+    throw new Error(`AI 返回的工具参数不是有效 JSON：${error?.message || '解析失败'}`);
   }
 };
 

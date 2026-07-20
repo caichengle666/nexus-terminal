@@ -267,3 +267,60 @@ export const testStreamingConfig = async (payload: AiConfigRequest) => {
   }
   return { supported: true, message: '流式输出测试通过。' };
 };
+
+export const testToolCallingConfig = async (payload: AiConfigRequest) => {
+  const stored = await readStoredConfig();
+  const apiBaseUrl = payload.apiBaseUrl || stored.apiBaseUrl;
+  const apiKey = payload.apiKey || decryptStoredApiKey(stored.encryptedApiKey);
+  const model = payload.model || stored.model;
+  if (!apiKey || !model) {
+    const error = new Error('AI API key and model are required.');
+    (error as any).status = 400;
+    throw error;
+  }
+
+  const endpoint = `${normalizeApiBaseUrl(apiBaseUrl)}/chat/completions`;
+  const response = await axios.post(endpoint, {
+    model,
+    messages: [{ role: 'user', content: 'Call nexus_tool_test with value OK. Do not answer with plain text.' }],
+    tools: [{
+      type: 'function',
+      function: {
+        name: 'nexus_tool_test',
+        description: 'Validate tool calling support without performing an external action.',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['value'],
+          properties: { value: { type: 'string' } },
+        },
+      },
+    }],
+    tool_choice: { type: 'function', function: { name: 'nexus_tool_test' } },
+    temperature: 0,
+    max_tokens: 64,
+  }, {
+    timeout: 30000,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  const toolCall = response.data?.choices?.[0]?.message?.tool_calls?.[0];
+  if (toolCall?.function?.name !== 'nexus_tool_test') {
+    const error = new Error('模型没有返回标准 tool_calls，可能不支持 OpenAI 兼容工具调用。');
+    (error as any).status = 422;
+    throw error;
+  }
+  try {
+    const args = JSON.parse(toolCall.function.arguments || '{}');
+    if (typeof args?.value !== 'string') throw new Error('missing value');
+  } catch {
+    const error = new Error('模型返回了工具调用，但 arguments 不是有效 JSON。');
+    (error as any).status = 422;
+    throw error;
+  }
+
+  return { supported: true, message: '工具调用测试通过，模型能返回有效的函数名和 JSON 参数。' };
+};

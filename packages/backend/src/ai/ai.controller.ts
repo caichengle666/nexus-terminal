@@ -56,6 +56,19 @@ export const testStreaming = async (req: Request, res: Response): Promise<void> 
   }
 };
 
+export const testToolCalling = async (req: Request, res: Response): Promise<void> => {
+  try {
+    res.status(200).json(await AiService.testToolCallingConfig(req.body || {}));
+  } catch (error: any) {
+    const status = error.status || error.response?.status || 500;
+    const message = error.response?.data?.error?.message
+      || error.response?.data?.message
+      || error.message
+      || 'AI tool calling test failed.';
+    res.status(status).json({ message });
+  }
+};
+
 export const chat = async (req: Request, res: Response): Promise<void> => {
   try {
     if (req.body?.stream === true) {
@@ -67,7 +80,12 @@ export const chat = async (req: Request, res: Response): Promise<void> => {
       res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
-      req.on('close', () => upstream.data.destroy?.());
+      res.on('close', () => {
+        if (!res.writableEnded) upstream.data.destroy?.();
+      });
+      upstream.data.on('error', (streamError: Error) => {
+        if (!res.destroyed) res.destroy(streamError);
+      });
       upstream.data.pipe(res);
       return;
     }

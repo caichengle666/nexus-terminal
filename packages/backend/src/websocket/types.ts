@@ -27,6 +27,14 @@ export interface ClientState { // 导出以便 Service 可以导入
     inputWindowStartedAt?: number;
     inputBytesInWindow?: number;
     isCleaningUp?: boolean;
+    activeExecCommands?: Map<string, {
+        channel: ClientChannel;
+        cancel: () => void;
+    }>;
+    pendingExecRequestIds?: Set<string>;
+    cancelledPendingExecRequestIds?: Set<string>;
+    reportedPendingExecRequestIds?: Set<string>;
+    pendingExecTimeouts?: Map<string, NodeJS.Timeout>;
     // suspendLogWritableStream?: NodeJS.WritableStream; // 移除，将直接使用 temporaryLogStorageService.writeToLog
 }
 
