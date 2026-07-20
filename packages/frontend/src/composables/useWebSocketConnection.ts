@@ -333,6 +333,7 @@ export function createWebSocketConnectionManager(
             return Promise.resolve(true);
         }
 
+        const shouldRequestBackendDisconnect = connectionStatus.value === 'connected';
         connectionStatus.value = 'disconnected';
         statusMessage.value = getStatusText('disconnected', { reason: '准备重新连接' });
         dispatchMessage('internal:reconnect-status', { phase: 'disconnecting' }, { type: 'internal:reconnect-status' });
@@ -340,14 +341,14 @@ export function createWebSocketConnectionManager(
         return new Promise<boolean>((resolve) => {
             let finished = false;
             let unregisterAck: () => void = () => undefined;
-            let ackTimeoutId: ReturnType<typeof setTimeout>;
+            let ackTimeoutId: ReturnType<typeof setTimeout> | null = null;
             let closeTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
             const finish = (success: boolean) => {
                 if (finished) return;
                 finished = true;
                 unregisterAck();
-                clearTimeout(ackTimeoutId);
+                if (ackTimeoutId) clearTimeout(ackTimeoutId);
                 if (closeTimeoutId) clearTimeout(closeTimeoutId);
                 resolve(success);
             };
@@ -378,6 +379,13 @@ export function createWebSocketConnectionManager(
                 closeTimeoutId = setTimeout(() => fail('旧终端连接未能正常关闭'), 5000);
                 oldWs.close(1000, '客户端请求重新连接');
             };
+
+            // The SSH shell may already be gone while its WebSocket remains open.
+            // In that state the backend has no session left to release.
+            if (!shouldRequestBackendDisconnect) {
+                connectAfterClose();
+                return;
+            }
 
             unregisterAck = onMessage('ssh:disconnect:ack', (payload) => {
                 if (!payload?.success) {

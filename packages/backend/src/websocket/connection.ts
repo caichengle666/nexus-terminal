@@ -106,7 +106,7 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
                                 if (ws.readyState === WebSocket.OPEN) {
                                     ws.send(JSON.stringify({
                                         type: 'ssh:disconnect:ack',
-                                        payload: { success: false, message: '未找到活动终端会话' }
+                                        payload: { success: true, alreadyReleased: true }
                                     }));
                                 }
                                 break;
