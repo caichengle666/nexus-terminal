@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAiStore, type AiTaskStatus, type AiToolRun } from '../stores/ai.store';
 import { useConfirmDialog } from '../composables/useConfirmDialog';
@@ -57,6 +57,34 @@ const activeModeOption = computed(() => modeOptions.find(option => option.value 
 const conversationMessages = computed(() => visibleMessages.value.filter(message => (
   message.role !== 'assistant' || !!message.content?.trim() || !message.tool_calls?.length
 )));
+const conversationScroller = ref<HTMLElement | null>(null);
+const shouldAutoFollow = ref(true);
+const scrollConversationToBottom = async () => {
+  await nextTick();
+  const scroller = conversationScroller.value;
+  if (scroller) scroller.scrollTop = scroller.scrollHeight;
+};
+const handleConversationScroll = () => {
+  const scroller = conversationScroller.value;
+  if (!scroller) return;
+  shouldAutoFollow.value = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 48;
+};
+
+watch(
+  () => [
+    conversationMessages.value.length,
+    conversationMessages.value.at(-1)?.content?.length || 0,
+    activeActivities.value.length,
+    errorMessage.value,
+  ],
+  () => {
+    if (shouldAutoFollow.value) void scrollConversationToBottom();
+  },
+);
+watch(activeSessionId, () => {
+  shouldAutoFollow.value = true;
+  void scrollConversationToBottom();
+});
 
 const selectRunMode = (mode: typeof runMode.value) => {
   runMode.value = mode;
@@ -68,7 +96,10 @@ const handleDocumentPointerDown = (event: PointerEvent) => {
   if (!modelMenuRef.value?.contains(event.target as Node)) modelMenuOpen.value = false;
 };
 
-onMounted(() => document.addEventListener('pointerdown', handleDocumentPointerDown));
+onMounted(() => {
+  document.addEventListener('pointerdown', handleDocumentPointerDown);
+  void scrollConversationToBottom();
+});
 onBeforeUnmount(() => document.removeEventListener('pointerdown', handleDocumentPointerDown));
 
 const sessionLabel = computed(() => activeSession.value?.connectionName || '没有活动终端');
@@ -340,23 +371,27 @@ const closeDrawer = () => {
   drawerPanel.value = null;
 };
 
-const sendMessage = () => aiStore.sendMessage({
-  confirmCommand: async ({ command, reason, riskReason, riskLevel, connectionName }: { command: string; reason: string; riskReason?: string; riskLevel: string; connectionName?: string }) => showConfirmDialog({
-    title: riskLevel === 'risky' ? '确认 AI 执行风险命令' : '确认 AI 执行命令',
-    message: [
-      `目标终端：${connectionName || sessionLabel.value}`,
-      '',
-      command,
-      '',
-      `AI 理由：${reason}`,
-      riskReason ? `风险提示：${riskReason}` : '',
-      '',
-      '确认后才会发送到当前终端。',
-    ].filter(Boolean).join('\n'),
-    confirmText: '执行',
-    cancelText: '取消',
-  }),
-});
+const sendMessage = () => {
+  shouldAutoFollow.value = true;
+  void scrollConversationToBottom();
+  return aiStore.sendMessage({
+    confirmCommand: async ({ command, reason, riskReason, riskLevel, connectionName }: { command: string; reason: string; riskReason?: string; riskLevel: string; connectionName?: string }) => showConfirmDialog({
+      title: riskLevel === 'risky' ? '确认 AI 执行风险命令' : '确认 AI 执行命令',
+      message: [
+        `目标终端：${connectionName || sessionLabel.value}`,
+        '',
+        command,
+        '',
+        `AI 理由：${reason}`,
+        riskReason ? `风险提示：${riskReason}` : '',
+        '',
+        '确认后才会发送到当前终端。',
+      ].filter(Boolean).join('\n'),
+      confirmText: '执行',
+      cancelText: '取消',
+    }),
+  });
+};
 
 const handleInputKeydown = (event: KeyboardEvent) => {
   if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
@@ -757,7 +792,7 @@ const deleteHistory = async () => {
       </div>
       <details v-if="latestToolRuns.length > 0" class="ai-tool-details group mt-1 rounded border border-border/50 bg-header/20 px-2 py-1">
         <summary class="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px]">
-          <span class="min-w-0 truncate text-text-secondary">工具调用 · 最近 {{ latestToolRuns.length }} 条</span>
+          <span class="min-w-0 truncate text-text-secondary">工具调用 · 全部 {{ latestToolRuns.length }} 条</span>
           <span class="flex-shrink-0 text-text-secondary">展开详情</span>
         </summary>
         <div class="mt-1 max-h-64 space-y-1 overflow-y-auto border-t border-border/50 pt-1">
@@ -833,7 +868,7 @@ const deleteHistory = async () => {
     </div>
 
     <div class="relative flex-1 min-h-0 overflow-hidden">
-      <div class="h-full space-y-3 overflow-auto p-3 text-sm">
+      <div ref="conversationScroller" class="h-full space-y-3 overflow-y-auto p-3 text-sm" @scroll="handleConversationScroll">
       <div v-if="visibleMessages.length === 0" class="rounded border border-dashed border-border p-3 text-sm text-text-secondary">
         让 AI 查看当前终端、输入命令、读取结果并继续处理。Enter 发送，Shift+Enter 换行。
         <div class="mt-3 flex flex-wrap gap-2">

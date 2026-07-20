@@ -9,8 +9,6 @@ import {
   DEFAULT_TERMINAL_SETTLE_MS,
   DEFAULT_TERMINAL_WAIT_MS,
   DEFAULT_AUTO_COMPACTS_PER_TASK,
-  MAX_AGENT_MODEL_REQUESTS,
-  MAX_AGENT_TOOL_CALLS,
   MAX_AUTO_COMPACTS_PER_TASK,
   MAX_BATCH_TERMINALS,
   MAX_CONFIGURABLE_AI_REQUEST_BYTES,
@@ -163,16 +161,12 @@ export const useAiStore = defineStore('ai', () => {
         continuationAvailable: false,
         autoCompactCount: 0,
         pendingGuidance: [],
-        modelRequestCount: 0,
-        toolCallCount: 0,
         commandCounts: {},
       };
     } else {
       const runtime = sessionRuntimes.value[key];
       if (typeof runtime.autoCompactCount !== 'number') runtime.autoCompactCount = 0;
       if (!Array.isArray(runtime.pendingGuidance)) runtime.pendingGuidance = [];
-      if (typeof runtime.modelRequestCount !== 'number') runtime.modelRequestCount = 0;
-      if (typeof runtime.toolCallCount !== 'number') runtime.toolCallCount = 0;
       if (!runtime.commandCounts || typeof runtime.commandCounts !== 'object') runtime.commandCounts = {};
     }
     return sessionRuntimes.value[key];
@@ -194,7 +188,7 @@ export const useAiStore = defineStore('ai', () => {
   const messages = computed(() => currentMemory.value.messages);
   const toolRuns = computed(() => currentMemory.value.toolRuns);
   const visibleMessages = computed(() => messages.value.filter(message => message.role !== 'tool'));
-  const latestToolRuns = computed(() => toolRuns.value.slice(-20).reverse());
+  const latestToolRuns = computed(() => toolRuns.value.slice().reverse());
   const activeActivities = computed(() => currentRuntime.value.activityEvents);
   const memorySummary = computed(() => currentMemory.value.summary);
   const isRunning = computed(() => currentRuntime.value.isRunning);
@@ -1716,13 +1710,6 @@ export const useAiStore = defineStore('ai', () => {
         guidance.forEach(content => context.memory.messages.push({ role: 'user', content }));
         addActivity(context.runtime, `已应用 ${guidance.length} 条追加引导`, undefined, 'done');
       }
-      if (context.runtime.modelRequestCount >= MAX_AGENT_MODEL_REQUESTS) {
-        context.runtime.errorMessage = `本轮已达到 ${MAX_AGENT_MODEL_REQUESTS} 次 AI 决策上限，已暂停以避免无限循环。`;
-        context.runtime.taskStatus = 'interrupted';
-        addActivity(context.runtime, '已达到本轮 AI 决策上限', context.runtime.errorMessage, 'error');
-        return;
-      }
-      context.runtime.modelRequestCount += 1;
       const controller = context.runtime.abortController;
       context.runtime.taskStatus = 'thinking';
       addActivity(context.runtime, '正在请求 AI 决定下一步操作');
@@ -1806,30 +1793,15 @@ export const useAiStore = defineStore('ai', () => {
         return;
       }
 
-      let toolBudgetExceeded = false;
       for (const toolCall of toolCalls) {
         if (context.runtime.stopRequested) break;
-        let result: unknown;
-        if (context.runtime.toolCallCount >= MAX_AGENT_TOOL_CALLS) {
-          toolBudgetExceeded = true;
-          result = { ok: false, error: `本轮已达到 ${MAX_AGENT_TOOL_CALLS} 次工具调用上限，未执行该工具。` };
-        } else {
-          context.runtime.toolCallCount += 1;
-          result = await runTool(toolCall, context, options);
-        }
+        const result = await runTool(toolCall, context, options);
         context.memory.messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
           content: stringifyToolResultForModel(result),
         });
       }
-      if (toolBudgetExceeded) {
-        context.runtime.errorMessage = `本轮已达到 ${MAX_AGENT_TOOL_CALLS} 次工具调用上限，已暂停以避免重复操作。`;
-        context.runtime.taskStatus = 'interrupted';
-        addActivity(context.runtime, '已达到本轮工具调用上限', context.runtime.errorMessage, 'error');
-        return;
-      }
-
       // Allow one more compaction if tool output re-inflated the request body.
       if (!context.runtime.stopRequested) {
         await maybeAutoCompact(context, 'afterTool');
@@ -1865,8 +1837,6 @@ export const useAiStore = defineStore('ai', () => {
     runtime.activityEvents = [];
     runtime.autoCompactCount = 0;
     runtime.pendingGuidance = [];
-    runtime.modelRequestCount = 0;
-    runtime.toolCallCount = 0;
     runtime.commandCounts = {};
     addActivity(runtime, '正在理解你的请求');
 
@@ -1916,8 +1886,6 @@ export const useAiStore = defineStore('ai', () => {
     runtime.activityEvents = [];
     runtime.autoCompactCount = 0;
     runtime.pendingGuidance = [];
-    runtime.modelRequestCount = 0;
-    runtime.toolCallCount = 0;
     runtime.commandCounts = {};
     addActivity(runtime, '正在从中断位置继续生成');
     try {

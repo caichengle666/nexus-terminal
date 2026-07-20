@@ -148,7 +148,5 @@ export type AiRuntimeState = {
   // Counts automatic size-based compactions within one user-message task.
   autoCompactCount: number;
   pendingGuidance: string[];
-  modelRequestCount: number;
-  toolCallCount: number;
   commandCounts: Record<string, number>;
 };
