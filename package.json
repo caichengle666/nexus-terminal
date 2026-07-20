@@ -59,9 +59,6 @@
     "path-to-regexp": "8.4.2",
     "rollup": "4.62.2",
     "tar-fs": "^2.1.5",
-    "vite-plugin-monaco-editor": {
-      "monaco-editor": "0.55.1"
-    },
     "vue": "3.5.40",
     "brace-expansion@1.1.11": "1.1.16",
     "diff@4.0.2": "4.0.4",
