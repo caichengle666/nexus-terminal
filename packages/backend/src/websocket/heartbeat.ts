@@ -8,13 +8,26 @@ export function initializeHeartbeat(wss: WebSocketServer): NodeJS.Timeout {
     const heartbeatInterval = setInterval(() => {
         wss.clients.forEach((ws: WebSocket) => {
             const extWs = ws as AuthenticatedWebSocket;
+            if (extWs.readyState !== WebSocket.OPEN) {
+                return;
+            }
             if (extWs.isAlive === false) {
                 console.log(`WebSocket 心跳检测：用户 ${extWs.username} (会话: ${extWs.sessionId}) 连接无响应，正在终止...`);
-                cleanupClientConnection(extWs.sessionId); // 使用会话 ID 清理
-                return extWs.terminate();
+                void cleanupClientConnection(extWs.sessionId).catch(error => {
+                    console.error(`WebSocket 心跳清理会话 ${extWs.sessionId} 失败:`, error);
+                });
+                extWs.terminate();
+                return;
             }
             extWs.isAlive = false;
-            extWs.ping(() => {});
+            try {
+                extWs.ping(() => {});
+            } catch (error) {
+                console.warn(`WebSocket 心跳发送失败 (会话: ${extWs.sessionId}):`, error);
+                void cleanupClientConnection(extWs.sessionId).catch(cleanupError => {
+                    console.error(`WebSocket 心跳失败后清理会话 ${extWs.sessionId} 失败:`, cleanupError);
+                });
+            }
         });
     }, HEARTBEAT_INTERVAL_MS);
 

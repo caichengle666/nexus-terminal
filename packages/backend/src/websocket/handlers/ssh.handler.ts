@@ -157,6 +157,16 @@ export async function handleSshConnect(
                         });
                     }
                 });
+                stream.stderr.on('error', (error: Error) => {
+                    console.error(`SSH: 会话 ${newSessionId} 的 Shell stderr 错误:`, error);
+                });
+                stream.on('error', (error: Error) => {
+                    console.error(`SSH: 会话 ${newSessionId} 的 Shell 通道错误:`, error);
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'ssh:error', payload: `Shell 通道错误: ${error.message}` }));
+                    }
+                    void cleanupOwnedSession();
+                });
                 stream.on('close', () => {
                     console.log(`SSH: 会话 ${newSessionId} 的 Shell 通道已关闭。`);
                     if (ws.readyState === WebSocket.OPEN) {

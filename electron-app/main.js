@@ -12,6 +12,7 @@ let mainWindow;
 let expressApp;
 let httpServer;
 let backendProcess;
+let backendRestartTimer = null;
 let frontendUrlForDownloads; // 用于IPC处理器访问前端URL
 let actualBackendUrlForFileDownloads; // 新增：用于文件下载的后端URL
 let tray = null;
@@ -327,37 +328,71 @@ async function createWindow() {
       return;
     }
 
-    console.log(`[Prod Mode] Starting backend service from ${backendEntryPath} using Node.js at ${nodeExecutablePath}...`);
-    backendProcess = spawn(nodeExecutablePath, [backendEntryPath], {
-      cwd: path.dirname(backendEntryPath),
-      stdio: ['pipe', 'pipe', 'pipe'], // 'inherit' for debugging, or 'pipe'
-      env: {
-        ...process.env, // 继承当前进程的环境变量
-        APP_BACKEND_DATA_PATH: backendDataPath,
-        PORT: String(PROD_BACKEND_PORT)
-      },
-    });
+    let backendRestartAttempts = 0;
+    const maxBackendRestartAttempts = 3;
 
-    const backendReadyPromise = new Promise((resolveBackend, rejectBackend) => {
+    const startBackendProcess = (isRestart = false) => new Promise((resolveBackend, rejectBackend) => {
+      console.log(`[Prod Mode] ${isRestart ? 'Restarting' : 'Starting'} backend service from ${backendEntryPath} using Node.js at ${nodeExecutablePath}...`);
+      const child = spawn(nodeExecutablePath, [backendEntryPath], {
+        cwd: path.dirname(backendEntryPath),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          APP_BACKEND_DATA_PATH: backendDataPath,
+          PORT: String(PROD_BACKEND_PORT)
+        },
+      });
+      backendProcess = child;
+
       const backendReadyString = "BACKEND_READY_SIGNAL"; // 重要提示: 请确保您的后端服务在就绪时打印此确切字符串!
       let backendLogs = ""; // 用于在超时或错误时记录日志
+      const appendBackendLog = (text) => {
+        backendLogs = (backendLogs + text).slice(-65536);
+      };
       let backendReadyResolved = false;
+      let startupFailureHandled = false;
       const readyTimeoutDuration = 60000; // 后端启动超时时间 (毫秒)，例如 60 秒
 
-      console.log(`[Prod Mode] Backend service process initiated (PID: ${backendProcess.pid}). Waiting for '${backendReadyString}' signal (max ${readyTimeoutDuration / 1000}s)...`);
+      console.log(`[Prod Mode] Backend service process initiated (PID: ${child.pid}). Waiting for '${backendReadyString}' signal (max ${readyTimeoutDuration / 1000}s)...`);
+
+      const scheduleRestart = () => {
+        if (isQuitting || backendRestartTimer) return;
+        backendRestartAttempts += 1;
+        if (backendRestartAttempts > maxBackendRestartAttempts) {
+          dialog.showErrorBox('后端服务已停止', '后端服务连续重启失败，请重新启动 Nexus Terminal。');
+          return;
+        }
+        const delay = backendRestartAttempts * 1000;
+        console.warn(`[Backend Watcher] Backend stopped unexpectedly. Restart attempt ${backendRestartAttempts}/${maxBackendRestartAttempts} in ${delay}ms.`);
+        backendRestartTimer = setTimeout(() => {
+          backendRestartTimer = null;
+          startBackendProcess(true)
+            .then(() => {
+              backendRestartAttempts = 0;
+              console.log('[Backend Watcher] Backend service restarted successfully.');
+            })
+            .catch(error => {
+              console.error('[Backend Watcher] Backend restart failed:', error);
+            });
+        }, delay);
+      };
 
       const readyTimeout = setTimeout(() => {
+        startupFailureHandled = true;
         const timeoutMessage = `[Backend Watcher] Timeout after ${readyTimeoutDuration / 1000}s waiting for backend ready signal ('${backendReadyString}').`;
         console.error(timeoutMessage + ` Review backend logs. Last logs captured by main process:\n${backendLogs}`);
-        dialog.showErrorBox("后端启动超时", `后端服务在 ${readyTimeoutDuration / 1000} 秒内未能启动。请检查应用日志。\n\n捕获到的日志片段:\n${backendLogs.substring(0, 500)}${backendLogs.length > 500 ? '...' : ''}`);
+        if (!isRestart) {
+          dialog.showErrorBox("后端启动超时", `后端服务在 ${readyTimeoutDuration / 1000} 秒内未能启动。请检查应用日志。\n\n捕获到的日志片段:\n${backendLogs.substring(0, 500)}${backendLogs.length > 500 ? '...' : ''}`);
+        }
         rejectBackend(new Error(`Timeout waiting for backend. Last logs: ${backendLogs.substring(0, 200)}...`));
-        // 根据需要，如果后端至关重要，可以在此处考虑 app.quit();
+        if (!child.killed) child.kill();
+        if (isRestart) scheduleRestart();
       }, readyTimeoutDuration);
 
-      backendProcess.stdout.on('data', (data) => {
+      child.stdout.on('data', (data) => {
         const output = data.toString();
         console.log(`[Backend STDOUT]: ${output.trim()}`);
-        backendLogs += output; // 累积所有 stdout 日志
+        appendBackendLog(output);
         if (output.includes(backendReadyString)) {
           clearTimeout(readyTimeout);
           backendReadyResolved = true;
@@ -366,38 +401,49 @@ async function createWindow() {
         }
       });
 
-      backendProcess.stderr.on('data', (data) => {
+      child.stderr.on('data', (data) => {
         const errorOutput = data.toString();
         console.error(`[Backend STDERR]: ${errorOutput.trim()}`);
-        backendLogs += `[STDERR] ${errorOutput}`; // 累积所有 stderr 日志
+        appendBackendLog(`[STDERR] ${errorOutput}`);
       });
 
-      backendProcess.on('close', (code) => {
+      child.on('close', (code) => {
         console.log(`[Backend Process] exited with code ${code}`);
-        // backendProcess = null; // 在 'before-quit' 中处理 backendProcess 的状态
-        if (isQuitting || backendReadyResolved) {
+        if (backendProcess === child) backendProcess = null;
+        if (isQuitting) {
           return;
         }
-        if (code !== 0) { // 如果后端在发出就绪信号前非正常退出
-          clearTimeout(readyTimeout); // 确保超时被清除
-          const errorMessage = `后端进程在发出就绪信号前意外退出，退出码: ${code}。`;
-          console.error(`[Backend Watcher] ${errorMessage}`);
-          backendLogs += `\n[SYSTEM] Backend process exited with code ${code}.\n`;
-          dialog.showErrorBox("后端错误", `${errorMessage}\n\n捕获到的日志片段:\n${backendLogs.substring(0, 500)}${backendLogs.length > 500 ? '...' : ''}`);
-          rejectBackend(new Error(errorMessage + ` Last logs: ${backendLogs.substring(0,200)}...`));
-          // 根据需要，app.quit();
+        if (backendReadyResolved) {
+          scheduleRestart();
+          return;
         }
-        // 如果 'close' 在就绪信号之后发生，Promise 应该已经解决。
+        if (startupFailureHandled) return;
+        startupFailureHandled = true;
+        clearTimeout(readyTimeout);
+        const errorMessage = `后端进程在发出就绪信号前意外退出，退出码: ${code}。`;
+        console.error(`[Backend Watcher] ${errorMessage}`);
+        appendBackendLog(`\n[SYSTEM] Backend process exited with code ${code}.\n`);
+        if (!isRestart) {
+          dialog.showErrorBox("后端错误", `${errorMessage}\n\n捕获到的日志片段:\n${backendLogs.substring(0, 500)}${backendLogs.length > 500 ? '...' : ''}`);
+        }
+        rejectBackend(new Error(errorMessage + ` Last logs: ${backendLogs.substring(0,200)}...`));
+        if (isRestart) scheduleRestart();
       });
       
-      backendProcess.on('error', (err) => {
+      child.on('error', (err) => {
+        if (startupFailureHandled) return;
+        startupFailureHandled = true;
         clearTimeout(readyTimeout); // 确保超时被清除
         console.error('[Backend Process] Failed to start:', err);
-        dialog.showErrorBox("后端启动失败", `启动后端进程失败: ${err.message}`);
+        if (!isRestart) {
+          dialog.showErrorBox("后端启动失败", `启动后端进程失败: ${err.message}`);
+        }
         rejectBackend(err);
-        app.quit(); // 关键错误，退出应用
+        if (isRestart) scheduleRestart();
       });
     });
+
+    const backendReadyPromise = startBackendProcess();
 
     // 启动 express 前端服务器
     expressApp = express();
@@ -627,6 +673,10 @@ app.on('window-all-closed', function () {
 app.on('before-quit', () => {
   isQuitting = true;
   console.log('Application is quitting...');
+  if (backendRestartTimer) {
+    clearTimeout(backendRestartTimer);
+    backendRestartTimer = null;
+  }
   // 1. 关闭前端 HTTP 服务器
   if (httpServer) {
     console.log('Closing frontend server...');
