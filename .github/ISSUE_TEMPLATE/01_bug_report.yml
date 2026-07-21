@@ -1,0 +1,66 @@
+name: 🐛 Bug 报告
+description: 提交 Bug 帮助改进项目
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你花时间报告问题！请尽量提供详细信息。
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清晰简洁地说明 Bug 的表现
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 重现该问题的具体步骤
+      placeholder: |
+        1. 前往 '...'
+        2. 点击 '...'
+        3. 看到错误
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+      description: 你期待应该发生什么？
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图
+      description: 如果可以，请附上截图辅助定位
+  - type: input
+    id: version
+    attributes:
+      label: 版本号
+      description: 你使用的 Nexus Terminal 版本
+      placeholder: 例如 0.9.20
+    validations:
+      required: true
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: 部署方式
+      options:
+        - Docker
+        - 桌面端 Windows
+        - 桌面端 macOS
+        - 源码构建
+      default: 0
+  - type: dropdown
+    id: browser
+    attributes:
+      label: 浏览器
+      options:
+        - Chrome
+        - Firefox
+        - Safari
+        - Edge
+        - 其他
+      default: 0
