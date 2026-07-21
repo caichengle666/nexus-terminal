@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 文档
+    url: https://github.com/caichengle666/nexus-terminal#readme
+    about: 使用前先看 README
+  - name: 💬 Discussions
+    url: https://github.com/caichengle666/nexus-terminal/discussions
+    about: 讨论功能、想法、求助
