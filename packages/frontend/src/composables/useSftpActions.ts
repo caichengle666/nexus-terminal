@@ -617,7 +617,7 @@ export function createSftpActionsManager(
    // --- Message Handlers ---
 
     const onSftpReaddirSuccess = (payload: MessagePayload, message: WebSocketMessage) => {
-        const fileListPayload = payload as FileListItem[];
+        const fileListPayload = (payload as FileListItem[]).filter(item => !/^\.nexus-upload-[a-z0-9_-]+\.part$/i.test(item.filename) && !/\.part-upload-\d+-[a-z0-9]+$/i.test(item.filename));
         const path = message.path; // e.g., /root
 
         if (!path) {

@@ -30,6 +30,7 @@ const {
   historySyncWarning,
   memorySummary,
   compression,
+  contextRequestBytes,
   compactTriggerPercent,
   maxRequestKb,
   maxAutoCompactsPerTask,
@@ -47,6 +48,10 @@ const modeMenuOpen = ref(false);
 const modeMenuRef = ref<HTMLElement | null>(null);
 const modelMenuOpen = ref(false);
 const modelMenuRef = ref<HTMLElement | null>(null);
+const moreMenuOpen = ref(false);
+const moreMenuRef = ref<HTMLElement | null>(null);
+const contextExpanded = ref(false);
+const toolRenderLimit = ref(20);
 const importFileInput = ref<HTMLInputElement | null>(null);
 const modeOptions = [
   { value: 'readOnly', label: '只读', description: '仅查看，不执行命令' },
@@ -83,6 +88,7 @@ watch(
 );
 watch(activeSessionId, () => {
   shouldAutoFollow.value = true;
+  toolRenderLimit.value = 20;
   void scrollConversationToBottom();
 });
 
@@ -94,25 +100,67 @@ const selectRunMode = (mode: typeof runMode.value) => {
 const handleDocumentPointerDown = (event: PointerEvent) => {
   if (!modeMenuRef.value?.contains(event.target as Node)) modeMenuOpen.value = false;
   if (!modelMenuRef.value?.contains(event.target as Node)) modelMenuOpen.value = false;
+  if (!moreMenuRef.value?.contains(event.target as Node)) moreMenuOpen.value = false;
+};
+
+const closePopupMenus = () => {
+  modeMenuOpen.value = false;
+  modelMenuOpen.value = false;
+  moreMenuOpen.value = false;
+};
+
+const focusFirstPopupItem = (container: HTMLElement | null) => {
+  void nextTick(() => container?.querySelector<HTMLButtonElement>('[role="menu"] button, [role="listbox"] button')?.focus());
+};
+
+watch(activeSessionId, closePopupMenus);
+
+const handleDocumentKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') closePopupMenus();
+};
+
+const handlePopupMenuKeydown = (event: KeyboardEvent) => {
+  const menu = event.currentTarget as HTMLElement;
+  const buttons = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closePopupMenus();
+    menu.parentElement?.querySelector<HTMLButtonElement>(':scope > button')?.focus();
+    return;
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || buttons.length === 0) return;
+  event.preventDefault();
+  const currentIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const nextIndex = event.key === 'Home'
+    ? 0
+    : event.key === 'End'
+      ? buttons.length - 1
+      : event.key === 'ArrowDown'
+        ? (currentIndex + 1 + buttons.length) % buttons.length
+        : (currentIndex - 1 + buttons.length) % buttons.length;
+  buttons[nextIndex]?.focus();
 };
 
 onMounted(() => {
   document.addEventListener('pointerdown', handleDocumentPointerDown);
+  document.addEventListener('keydown', handleDocumentKeydown);
   void scrollConversationToBottom();
 });
-onBeforeUnmount(() => document.removeEventListener('pointerdown', handleDocumentPointerDown));
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handleDocumentPointerDown);
+  document.removeEventListener('keydown', handleDocumentKeydown);
+});
 
 const sessionLabel = computed(() => activeSession.value?.connectionName || '没有活动终端');
+const contextLimitBytes = computed(() => maxRequestKb.value * 1024);
+const contextUsagePercent = computed(() => contextLimitBytes.value > 0
+  ? Math.min(100, Math.round((contextRequestBytes.value / contextLimitBytes.value) * 100))
+  : 0);
 const hasMemorySummary = computed(() => !!memorySummary.value.trim());
 const formatBytes = (bytes?: number) => {
   if (!bytes) return '0 KB';
   return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`;
 };
-const summaryModeLabel = computed(() => {
-  if (compression.value?.summaryMode === 'ai') return 'AI 摘要';
-  if (compression.value?.summaryMode === 'pending') return 'AI 摘要生成中';
-  return '本地摘要';
-});
 const drawerPanel = ref<DrawerPanel>(null);
 const isDrawerOpen = computed(() => drawerPanel.value !== null);
 const textareaInput = ref<HTMLTextAreaElement | null>(null);
@@ -136,13 +184,16 @@ const timelineItems = computed(() => latestToolRuns.value
     duration: formatToolDuration(run),
     failed: run.status === 'error',
   })));
+const renderedToolRuns = computed(() => latestToolRuns.value.slice(0, toolRenderLimit.value));
+const hasMoreToolRuns = computed(() => toolRenderLimit.value < latestToolRuns.value.length);
+const loadMoreToolRuns = () => {
+  toolRenderLimit.value = Math.min(toolRenderLimit.value + 20, latestToolRuns.value.length);
+};
 
 const quickTasks = [
-  '查看当前终端报错并给出修复方案',
-  '检查当前服务状态并定位异常',
-  '分析当前目录项目如何启动和编译',
-  '读取最近输出，继续完成上一步任务',
-  '列出当前已连接的 VPS，比较它们的系统版本和运行时间',
+  { label: '检查服务异常', prompt: '检查当前服务状态并定位异常' },
+  { label: '分析终端报错', prompt: '查看当前终端报错并给出修复方案' },
+  { label: '读取输出并继续', prompt: '读取最近输出，继续完成上一步任务' },
 ];
 
 const formatToolName = (name: string) => {
@@ -671,14 +722,32 @@ const deleteHistory = async () => {
 <template>
   <div class="ai-terminal-assistant flex h-full min-h-0 flex-col bg-background text-foreground">
     <input ref="importFileInput" type="file" accept=".json,application/json" class="hidden" @change="importSessionFile" />
-    <div class="flex items-center justify-between border-b border-border px-3 py-2">
-      <div class="min-w-0">
-        <div class="text-sm font-semibold">AI 终端助手</div>
-        <div class="truncate text-xs text-text-secondary">{{ sessionLabel }}</div>
+    <div class="ai-assistant-header flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+      <div class="ai-header-main flex min-w-0 items-center gap-2.5">
+        <div class="ai-header-title flex-shrink-0 text-sm font-semibold">AI 终端助手</div>
+        <span class="ai-header-divider h-3 w-px flex-shrink-0 bg-border" />
+        <div class="ai-header-session min-w-0 truncate text-xs text-text-secondary" :title="sessionLabel">{{ sessionLabel }}</div>
+        <div class="ai-header-status flex min-w-0 items-center gap-1.5 text-xs text-text-secondary">
+          <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="isRunning ? 'animate-pulse bg-primary' : taskStatus === 'error' ? 'bg-error' : 'bg-success'" />
+          <span class="truncate">{{ formatTaskStatus(taskStatus) }}</span>
+        </div>
       </div>
-      <div class="flex items-center gap-1">
-        <button class="rounded px-2 py-1 text-xs hover:bg-hover" @click="showConfig = !showConfig">配置</button>
-        <button class="rounded px-2 py-1 text-xs text-error hover:bg-error/10" @click="deleteHistory">删除历史</button>
+      <div class="flex flex-shrink-0 items-center gap-1">
+        <button type="button" class="flex h-7 w-7 items-center justify-center rounded hover:bg-hover" title="AI 设置" aria-label="AI 设置" @click="showConfig = !showConfig">
+          <i class="fas fa-cog text-xs text-text-secondary" aria-hidden="true" />
+        </button>
+        <div ref="moreMenuRef" class="relative">
+          <button type="button" class="flex h-7 w-7 items-center justify-center rounded hover:bg-hover" title="更多操作" aria-label="更多操作" :aria-expanded="moreMenuOpen" @click="moreMenuOpen = !moreMenuOpen" @keydown.down.prevent="moreMenuOpen = true; focusFirstPopupItem(moreMenuRef)">
+            <i class="fas fa-ellipsis-v text-xs text-text-secondary" aria-hidden="true" />
+          </button>
+          <div v-if="moreMenuOpen" role="menu" class="absolute right-0 top-full z-40 mt-1 w-44 overflow-hidden rounded border border-border bg-background py-1 text-xs shadow-xl" @keydown="handlePopupMenuKeydown">
+            <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="openDrawer('context'); moreMenuOpen = false">上下文与记忆</button>
+            <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="exportJson(); moreMenuOpen = false">导出会话</button>
+            <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="openImportDialog(); moreMenuOpen = false">导入会话</button>
+            <div class="my-1 border-t border-border" />
+            <button role="menuitem" class="block w-full px-3 py-2 text-left text-error hover:bg-error/10" @click="deleteHistory(); moreMenuOpen = false">删除历史</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -712,11 +781,12 @@ const deleteHistory = async () => {
             :aria-expanded="modelMenuOpen"
             aria-haspopup="listbox"
             @click="modelMenuOpen = !modelMenuOpen"
+            @keydown.down.prevent="modelMenuOpen = true; focusFirstPopupItem(modelMenuRef)"
           >
             <span class="truncate">从已获取模型中选择{{ config.model ? `：${config.model}` : '' }}</span>
             <i class="fas ml-2 text-[10px] text-text-secondary" :class="modelMenuOpen ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
           </button>
-          <div v-if="modelMenuOpen" role="listbox" class="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-auto rounded border border-border bg-background py-1 shadow-xl">
+          <div v-if="modelMenuOpen" role="listbox" class="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-auto rounded border border-border bg-background py-1 shadow-xl" @keydown="handlePopupMenuKeydown">
             <button
               v-for="model in availableModels"
               :key="model"
@@ -779,15 +849,30 @@ const deleteHistory = async () => {
     <div class="border-b border-border px-3 py-1.5 text-xs">
       <div v-if="storageWarning" class="mb-1 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning">{{ storageWarning }}</div>
       <div v-if="historySyncWarning" class="mb-1 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning">{{ historySyncWarning }}</div>
-      <div class="flex items-center justify-between gap-2">
-        <div class="flex min-w-0 items-center gap-2">
-          <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="isRunning ? 'animate-pulse bg-primary' : taskStatus === 'error' ? 'bg-error' : 'bg-success'" />
-          <span class="truncate text-text-secondary">{{ formatTaskStatus(taskStatus) }}</span>
-          <span v-if="timelineItems.length > 0" class="truncate text-[11px] text-text-secondary/80">· 最近：{{ timelineItems[0].title }}</span>
-        </div>
-        <div class="flex flex-shrink-0 items-center gap-1">
-          <button class="rounded px-2 py-1 text-text-secondary hover:bg-hover hover:text-foreground" @click="openDrawer('context')">上下文</button>
-          <button class="rounded border border-border/60 bg-header/30 px-2 py-1 text-text-secondary hover:bg-hover hover:text-foreground" @click="compactContext">压缩</button>
+      <button type="button" class="flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left text-text-secondary hover:bg-hover" :aria-expanded="contextExpanded" @click="contextExpanded = !contextExpanded">
+        <span class="truncate">上下文 {{ contextUsagePercent }}% · {{ formatBytes(contextRequestBytes) }} / {{ maxRequestKb }}KB</span>
+        <span class="flex min-w-0 items-center gap-2">
+          <span v-if="timelineItems.length > 0" class="hidden truncate text-[11px] text-text-secondary/80 sm:inline">最近：{{ timelineItems[0].title }}</span>
+          <i class="fas text-[10px]" :class="contextExpanded ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
+        </span>
+      </button>
+      <div v-if="contextExpanded" class="mt-1 grid gap-2 rounded border border-border/60 bg-header/20 p-2 sm:grid-cols-3">
+        <label title="越低越早压缩上下文">
+          <span class="mb-1 flex justify-between gap-2"><span>自动压缩阈值</span><strong class="text-foreground">{{ compactTriggerPercent }}%</strong></span>
+          <input v-model.number="config.compactTriggerPercent" type="range" min="1" max="80" class="w-full accent-primary" aria-label="自动压缩阈值" />
+        </label>
+        <label title="允许的最大 AI 请求大小">
+          <span class="mb-1 flex justify-between gap-2"><span>请求上限</span><strong class="text-foreground">{{ maxRequestKb }}KB</strong></span>
+          <input v-model.number="config.maxRequestKb" type="range" min="64" max="1024" step="16" class="w-full accent-primary" aria-label="AI 请求大小上限" />
+        </label>
+        <label title="同一轮任务最多自动压缩次数">
+          <span class="mb-1 flex justify-between gap-2"><span>本轮压缩次数</span><strong class="text-foreground">{{ maxAutoCompactsPerTask }} 次</strong></span>
+          <input v-model.number="config.maxAutoCompactsPerTask" type="range" min="1" max="5" step="1" class="w-full accent-primary" aria-label="每轮任务最多自动压缩次数" />
+        </label>
+        <div class="flex items-center justify-between gap-2 sm:col-span-3">
+          <span v-if="compression" class="truncate text-[11px] text-text-secondary">上次：{{ formatBytes(compression.beforeBytes) }} → {{ formatBytes(compression.afterBytes) }} · 处理 {{ compression.compactedCount }} 条</span>
+          <span v-else class="text-[11px] text-text-secondary">尚未压缩</span>
+          <button class="flex-shrink-0 rounded border border-border px-2 py-1 text-foreground hover:bg-hover" @click.stop="compactContext">手动压缩</button>
         </div>
       </div>
       <details v-if="latestToolRuns.length > 0" class="ai-tool-details group mt-1 rounded border border-border/50 bg-header/20 px-2 py-1">
@@ -796,7 +881,7 @@ const deleteHistory = async () => {
           <span class="flex-shrink-0 text-text-secondary">展开详情</span>
         </summary>
         <div class="mt-1 max-h-64 space-y-1 overflow-y-auto border-t border-border/50 pt-1">
-          <details v-for="run in latestToolRuns" :key="run.id" class="rounded border border-border/40 bg-background/60 px-2 py-1.5 text-[11px]">
+          <details v-for="run in renderedToolRuns" :key="run.id" class="rounded border border-border/40 bg-background/60 px-2 py-1.5 text-[11px]">
             <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
               <span class="min-w-0 truncate font-medium text-foreground">{{ formatToolName(run.name) }} · {{ formatToolStatus(run.status) }}</span>
               <span class="flex-shrink-0 text-text-secondary">{{ formatToolDuration(run) }}</span>
@@ -810,79 +895,15 @@ const deleteHistory = async () => {
               <div v-if="run.error" class="mt-1 break-words text-error">失败：{{ run.error }}</div>
             </div>
           </details>
+          <button v-if="hasMoreToolRuns" type="button" class="w-full rounded border border-border/60 px-2 py-1.5 text-center text-[11px] text-text-secondary hover:bg-hover hover:text-foreground" @click="loadMoreToolRuns">
+            加载更多（已显示 {{ renderedToolRuns.length }} / {{ latestToolRuns.length }}）
+          </button>
         </div>
       </details>
-      <div class="ai-compression-details group mt-2 rounded border border-border/50 bg-header/20 px-2 py-1.5 text-[11px] text-text-secondary">
-        <div class="flex items-center justify-between gap-2">
-          <label class="group flex min-w-0 items-center gap-2" title="越低越早压缩上下文">
-            <span class="flex-shrink-0">自动压缩阈值</span>
-            <input
-              v-model.number="config.compactTriggerPercent"
-              type="range"
-              min="1"
-              max="80"
-              class="w-0 min-w-0 flex-none accent-primary opacity-0 transition-all group-hover:w-24 group-hover:opacity-100 group-focus-within:w-24 group-focus-within:opacity-100"
-              aria-label="自动压缩阈值"
-            />
-          </label>
-          <span class="flex-shrink-0 font-medium text-foreground">{{ compactTriggerPercent }}%</span>
-        </div>
-        <div class="mt-1 flex items-center justify-between gap-2 text-[10px] text-text-secondary/80">
-          <label class="group flex min-w-0 flex-1 items-center gap-2" title="允许的最大 AI 请求大小">
-            <span class="flex-shrink-0">请求上限</span>
-            <input
-              v-model.number="config.maxRequestKb"
-              type="range"
-              min="64"
-              max="1024"
-              step="16"
-              class="w-0 min-w-0 flex-none accent-primary opacity-0 transition-all group-hover:w-24 group-hover:opacity-100 group-focus-within:w-24 group-focus-within:opacity-100"
-              aria-label="AI 请求大小上限"
-            />
-          </label>
-          <span class="flex-shrink-0 font-medium text-foreground">{{ maxRequestKb }}KB</span>
-        </div>
-        <div class="mt-1 flex items-center justify-between gap-2 text-[10px] text-text-secondary/80">
-          <label class="group flex min-w-0 flex-1 items-center gap-2" title="同一条用户消息触发的整轮任务里，最多自动压缩几次">
-            <span class="flex-shrink-0">本轮最多压缩</span>
-            <input
-              v-model.number="config.maxAutoCompactsPerTask"
-              type="range"
-              min="1"
-              max="5"
-              step="1"
-              class="w-0 min-w-0 flex-none accent-primary opacity-0 transition-all group-hover:w-24 group-hover:opacity-100 group-focus-within:w-24 group-focus-within:opacity-100"
-              aria-label="每轮任务最多自动压缩次数"
-            />
-          </label>
-          <span class="flex-shrink-0 font-medium text-foreground">{{ maxAutoCompactsPerTask }} 次</span>
-        </div>
-        <div v-if="compression" class="ai-compression-stats mt-1 grid max-h-0 grid-cols-2 gap-x-3 gap-y-0.5 overflow-hidden opacity-0 transition-all duration-200 group-hover:max-h-24 group-hover:opacity-100 group-focus-within:max-h-24 group-focus-within:opacity-100">
-          <span>上次压缩前：{{ formatBytes(compression.beforeBytes) }}</span>
-          <span>压缩后：{{ formatBytes(compression.afterBytes) }}</span>
-          <span>处理：{{ compression.compactedCount }} 条</span>
-          <span>保留：{{ compression.retainedCount }} 条</span>
-          <span class="col-span-2">摘要：{{ summaryModeLabel }} · {{ new Date(compression.at).toLocaleString() }}</span>
-        </div>
-      </div>
     </div>
 
     <div class="relative flex-1 min-h-0 overflow-hidden">
       <div ref="conversationScroller" class="h-full space-y-3 overflow-y-auto p-3 text-sm" @scroll="handleConversationScroll">
-      <div v-if="visibleMessages.length === 0" class="rounded border border-dashed border-border p-3 text-sm text-text-secondary">
-        让 AI 查看当前终端、输入命令、读取结果并继续处理。Enter 发送，Shift+Enter 换行。
-        <div class="mt-3 flex flex-wrap gap-2">
-          <button
-            v-for="task in quickTasks"
-            :key="task"
-            class="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-hover"
-            @click="useQuickTask(task)"
-          >
-            {{ task }}
-          </button>
-        </div>
-      </div>
-
       <div
         v-for="(message, index) in conversationMessages"
         :key="index"
@@ -996,8 +1017,6 @@ const deleteHistory = async () => {
 
         <div v-if="drawerPanel === 'context'" class="flex-1 overflow-auto p-3 text-xs">
           <div class="mb-3 flex flex-wrap gap-2">
-            <button class="rounded bg-primary px-3 py-1.5 text-white" @click="compactContext">压缩上下文</button>
-            <button class="rounded border border-error/40 px-3 py-1.5 text-error hover:bg-error/10" @click="deleteHistory">删除历史</button>
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportJson">导出 JSON</button>
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportMarkdown">导出 Markdown</button>
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="openImportDialog">导入 JSON</button>
@@ -1016,18 +1035,39 @@ const deleteHistory = async () => {
     </div>
 
     <div class="border-t border-primary/40 bg-header/20 p-2.5 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
-      <textarea
-        ref="textareaInput"
-        v-model="userInput"
-        class="mb-1.5 h-16 w-full resize-none rounded border border-primary/50 bg-input px-2.5 py-2 text-sm text-foreground outline-none transition placeholder:text-text-secondary/70 focus:border-primary focus:ring-2 focus:ring-primary/30"
-        :placeholder="isRunning ? '输入补充要求，发送后将在当前步骤结束时应用' : '例如：查看当前报错，直接输入排查命令并修复'"
-        @keydown="handleInputKeydown"
-      />
-      <div class="mb-1.5 flex items-center justify-between gap-2 text-xs">
-        <div class="flex min-w-0 items-center gap-1.5">
-          <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="hasActiveTerminal ? 'bg-success' : 'bg-error'" />
-          <span class="truncate font-medium text-foreground">{{ sessionLabel }}</span>
+      <div class="mb-1.5 flex items-stretch gap-2">
+        <textarea
+          ref="textareaInput"
+          v-model="userInput"
+          class="h-16 min-w-0 flex-1 resize-none rounded border border-primary/50 bg-input px-2.5 py-2 text-sm text-foreground outline-none transition placeholder:text-text-secondary/70 focus:border-primary focus:ring-2 focus:ring-primary/30"
+          :placeholder="isRunning ? '输入补充要求，发送后将在当前步骤结束时应用' : '例如：查看当前报错，直接输入排查命令并修复'"
+          @keydown="handleInputKeydown"
+        />
+        <button
+          v-if="!isRunning"
+          class="w-20 flex-shrink-0 rounded bg-primary px-3 text-sm font-medium text-white disabled:opacity-60"
+          :disabled="!canSend"
+          @click="sendMessage"
+        >
+          发送
+        </button>
+        <div v-else class="flex w-20 flex-shrink-0 flex-col gap-1.5">
+          <button class="min-h-0 flex-1 rounded bg-primary px-2 text-xs font-medium text-white disabled:opacity-50" :disabled="!canQueueGuidance" @click="sendMessage">追加引导</button>
+          <button class="min-h-0 flex-1 rounded bg-error px-2 text-xs font-medium text-white" @click="stopAi">停止 AI</button>
         </div>
+      </div>
+      <div v-if="visibleMessages.length === 0 && !isRunning" class="mb-2 flex max-h-16 flex-wrap gap-1.5 overflow-y-auto" aria-label="任务示例">
+        <button
+          v-for="task in quickTasks"
+          :key="task.label"
+          type="button"
+          class="rounded border border-border/70 bg-background/40 px-2 py-1 text-[11px] text-text-secondary transition hover:border-primary/50 hover:bg-hover hover:text-foreground"
+          @click="useQuickTask(task.prompt)"
+        >
+          {{ task.label }}
+        </button>
+      </div>
+      <div class="flex items-center justify-end gap-2 text-xs">
         <div class="flex flex-shrink-0 items-center gap-2">
           <label class="flex items-center gap-1.5 text-text-secondary" title="允许 AI 使用不会显示在终端中的后台命令和批量命令工具">
             <input v-model="config.enableBackgroundTools" type="checkbox" class="accent-primary" :disabled="isRunning" />
@@ -1040,6 +1080,7 @@ const deleteHistory = async () => {
             :aria-expanded="modeMenuOpen"
             aria-haspopup="menu"
             @click="modeMenuOpen = !modeMenuOpen"
+            @keydown.down.prevent="modeMenuOpen = true; focusFirstPopupItem(modeMenuRef)"
           >
             <span class="text-text-secondary">模式</span>
             <span class="font-medium">{{ activeModeOption.label }}</span>
@@ -1049,6 +1090,7 @@ const deleteHistory = async () => {
             v-if="modeMenuOpen"
             role="menu"
             class="absolute bottom-full right-0 z-30 mb-1 w-44 overflow-hidden rounded border border-border bg-background py-1 shadow-xl"
+            @keydown="handlePopupMenuKeydown"
           >
             <button
               v-for="option in modeOptions"
@@ -1067,55 +1109,54 @@ const deleteHistory = async () => {
               </span>
             </button>
           </div>
+          </div>
+          <button
+            class="flex h-7 w-7 items-center justify-center rounded border border-error/40 text-error hover:bg-error/10 disabled:opacity-40"
+            :disabled="!hasActiveTerminal"
+            title="向终端发送 Ctrl+C"
+            aria-label="向终端发送 Ctrl+C"
+            @click="interruptTerminal"
+          >
+            <i class="fas fa-stop text-[10px]" aria-hidden="true" />
+          </button>
         </div>
-        </div>
       </div>
-      <div class="mb-1.5 flex items-center justify-between gap-2 text-[11px] text-text-secondary">
-        <span>{{ isRunning ? 'Enter 追加引导 · 当前步骤结束后生效' : 'Enter 发送 · Shift+Enter 换行' }}</span>
-        <span :class="isRunning ? 'text-primary' : 'text-text-secondary'">AI {{ isRunning ? '运行中' : '空闲' }}</span>
-      </div>
-      <div class="grid grid-cols-2 gap-2">
-        <button
-          v-if="!isRunning"
-          class="rounded bg-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-          :disabled="!canSend"
-          @click="sendMessage"
-        >
-          发送
-        </button>
-        <button
-          v-else
-          class="rounded bg-error px-3 py-2 text-sm font-medium text-white"
-          @click="stopAi"
-        >
-          停止 AI
-        </button>
-        <button
-          v-if="isRunning"
-          class="rounded border border-primary/60 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
-          :disabled="!canQueueGuidance"
-          @click="sendMessage"
-        >
-          追加引导
-        </button>
-        <button
-          class="rounded border border-border px-3 py-2 text-sm font-medium hover:bg-hover disabled:opacity-60"
-          :class="isRunning ? 'col-span-2' : ''"
-          :disabled="!hasActiveTerminal"
-          @click="interruptTerminal"
-        >
-          Ctrl+C 终端
-        </button>
-      </div>
+      <div class="mt-1 text-[11px] text-text-secondary">{{ isRunning ? 'Enter 追加引导 · 当前步骤结束后生效' : 'Enter 发送 · Shift+Enter 换行' }}</div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.ai-tool-details[open] .ai-tool-details-body,
-.ai-compression-details:focus-within .ai-compression-stats {
-  max-height: 12rem;
-  padding-top: 0.25rem;
-  opacity: 1;
+.ai-terminal-assistant {
+  container-type: inline-size;
+}
+
+@container (max-width: 420px) {
+  .ai-assistant-header {
+    align-items: flex-start;
+  }
+
+  .ai-header-main {
+    flex-wrap: wrap;
+    column-gap: 0.5rem;
+    row-gap: 0.2rem;
+  }
+
+  .ai-header-title {
+    flex-basis: 100%;
+  }
+
+  .ai-header-divider {
+    display: none;
+  }
+
+  .ai-header-session {
+    max-width: 58%;
+  }
+
+  .ai-header-status {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+  }
 }
 </style>

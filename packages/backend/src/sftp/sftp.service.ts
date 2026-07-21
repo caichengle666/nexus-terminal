@@ -1505,14 +1505,16 @@ export class SftpService {
             return;
         }
 
-        const targetDirectory = pathModule.dirname(remotePath).replace(/\\/g, '/');
-        const tempPath = `${remotePath}.part-${uploadId}`;
+        const normalizedRemotePath = remotePath.replace(/\\/g, '/');
+        const targetDirectory = pathModule.posix.dirname(normalizedRemotePath);
+        const safeUploadId = uploadId.replace(/[^a-zA-Z0-9_-]/g, '_') || `upload-${Date.now()}`;
+        const tempPath = pathModule.posix.join(targetDirectory, `.nexus-${safeUploadId}.part`);
 
         try {
             await this.ensureDirectoryExists(state.sftp, targetDirectory);
             const stream = state.sftp.createWriteStream(tempPath, { flags: 'w' });
             const uploadState: ActiveUpload = {
-                remotePath,
+                remotePath: normalizedRemotePath,
                 tempPath,
                 totalSize,
                 bytesWritten: 0,

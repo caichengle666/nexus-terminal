@@ -2091,6 +2091,7 @@ export const useAiStore = defineStore('ai', () => {
     storageWarning,
     memorySummary,
     compression: computed(() => currentMemory.value.compression),
+    contextRequestBytes: computed(() => estimateMemoryRequestBytes(currentMemory.value)),
     compactTriggerPercent: computed(() => Math.min(
       MAX_COMPACT_TRIGGER_PERCENT,
       Math.max(MIN_COMPACT_TRIGGER_PERCENT, Number(config.value.compactTriggerPercent) || 80),
