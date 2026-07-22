@@ -147,6 +147,7 @@ async function createWindow() {
     y: lastWindowState.y, // 如果保存了 y，则恢复
     frame: false,
     show: false, // 创建时不显示窗口
+    backgroundColor: '#101216',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -155,6 +156,15 @@ async function createWindow() {
   });
   mainWindow.setAlwaysOnTop(isAlwaysOnTop);
   createTray();
+
+  // 先显示前端内置的启动画面，避免等待后端和本地 HTTP 服务时出现白屏。
+  const startupPage = app.isPackaged
+    ? path.join(process.resourcesPath, 'packages/frontend/dist/index.html')
+    : path.join(__dirname, '..', 'packages/frontend/dist/index.html');
+  mainWindow.loadFile(startupPage).catch((error) => {
+    console.warn(`[Startup] Failed to load startup screen: ${error.message}`);
+  });
+  mainWindow.show();
 
   let frontendUrl;
 
@@ -500,12 +510,8 @@ async function createWindow() {
       }
       console.log(`[Prod Mode] Attempting to load URL: ${frontendUrl}`);
       mainWindow.loadURL(frontendUrl);
-      // 生产启动后直接进入系统托盘，不占用任务栏；点击托盘图标再显示主窗口。
-      hideMainWindowToTray();
-      // 如果需要，可以在页面加载完成后再显示
-      // mainWindow.once('ready-to-show', () => {
-      //   mainWindow.show();
-      // });
+      mainWindow.show();
+      mainWindow.focus();
     } catch (error) {
       console.error('[Main Process] Error waiting for services to start:', error);
       dialog.showErrorBox("应用启动错误", `一个或多个服务启动失败: ${error.message}。请检查日志获取详细信息。`);

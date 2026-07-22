@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { reactive, ref, onMounted } from 'vue'; // computed 不再直接使用，移除
+import { computed, reactive, ref, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from 'vue-i18n';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { useAuthStore } from '../stores/auth.store';
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha';
 import VueRecaptcha from 'vue3-recaptcha2'; // 使用默认导入
+import { uiThemePresets } from '../features/appearance/config/default-themes';
 
 const { t } = useI18n();
 const authStore = useAuthStore();
@@ -23,6 +24,30 @@ const captchaToken = ref<string | null>(null); //  Store CAPTCHA token
 const captchaError = ref<string | null>(null); //  Store CAPTCHA specific error
 const hcaptchaWidget = ref<InstanceType<typeof VueHcaptcha> | null>(null); //  Ref for hCaptcha component instance
 const recaptchaWidget = ref<InstanceType<typeof VueRecaptcha> | null>(null); // 更新 Ref 类型以匹配新导入
+
+const loginThemeStorageKey = 'nexus-terminal-login-theme';
+const loginThemeKey = ref('default');
+const activeLoginTheme = computed(() => uiThemePresets.find(theme => theme.key === loginThemeKey.value) ?? uiThemePresets[0]);
+const isDarkLoginTheme = computed(() => activeLoginTheme.value.mode === 'dark');
+const recaptchaTheme = computed(() => isDarkLoginTheme.value ? 'dark' : 'light');
+
+const applyLoginTheme = (themeKey: string) => {
+  const theme = uiThemePresets.find(preset => preset.key === themeKey) ?? uiThemePresets[0];
+  loginThemeKey.value = theme.key;
+  for (const [name, value] of Object.entries(theme.theme)) {
+    document.documentElement.style.setProperty(name, value);
+  }
+  try {
+    localStorage.setItem(loginThemeStorageKey, theme.key);
+  } catch {
+    // 隐私模式或禁用存储时，主题仍保持当前页面有效。
+  }
+};
+
+const toggleLoginTheme = () => {
+  const nextTheme = isDarkLoginTheme.value ? uiThemePresets.find(theme => theme.mode === 'light') : uiThemePresets.find(theme => theme.mode === 'dark');
+  applyLoginTheme(nextTheme?.key ?? 'default');
+};
 
 // --- reCAPTCHA v3 Initialization ---
 // const recaptchaInstance = useReCaptcha(); // 移除 v3 实例，因为我们将使用 v2 组件
@@ -91,6 +116,12 @@ const handleSubmit = async () => {
 
  // Fetch CAPTCHA config and check passkey availability on component mount
 onMounted(async () => {
+  try {
+    const savedTheme = localStorage.getItem(loginThemeStorageKey);
+    applyLoginTheme(savedTheme ?? 'default');
+  } catch {
+    applyLoginTheme('default');
+  }
   // console.log('[LoginView] Component mounted, calling fetchCaptchaConfig and checkHasPasskeysConfigured...');
   authStore.fetchCaptchaConfig();
   // Check if passkeys are available for login (uses the new public endpoint)
@@ -147,11 +178,17 @@ const handlePasskeyLogin = async () => {
 </script>
 <template>
   <!-- Page Container -->
-  <div class="flex items-center justify-center min-h-screen bg-background p-4">
+  <div class="relative flex items-center justify-center min-h-screen bg-background text-foreground p-4 transition-colors duration-200">
+    <button type="button" @click="toggleLoginTheme"
+            class="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-header text-foreground shadow-sm transition-colors hover:bg-nav-active-bg focus:outline-none focus:ring-2 focus:ring-primary/50"
+            :aria-label="isDarkLoginTheme ? '切换到亮色模式' : '切换到暗色模式'"
+            :title="isDarkLoginTheme ? '切换到亮色模式' : '切换到暗色模式'">
+      <i :class="isDarkLoginTheme ? 'fas fa-sun' : 'fas fa-moon'" aria-hidden="true"></i>
+    </button>
     <!-- Login Card -->
-    <div class="flex w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden bg-background border border-border/20">
+    <div class="flex w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden bg-background border border-border/50 transition-colors duration-200">
       <!-- Left Panel (Brand) - Hidden on small screens -->
-      <div class="hidden md:flex w-2/5 bg-gradient-to-br from-primary to-primary-dark flex-col items-center justify-center p-10 text-white relative">
+      <div class="hidden md:flex w-2/5 bg-gradient-to-br from-button to-button-hover flex-col items-center justify-center p-10 text-button-text relative">
          <!-- Subtle pattern or overlay could go here -->
          <div class="z-10 text-center">
            <img src="../assets/logo.png" alt="Project Logo" class="h-20 w-auto mb-5 mx-auto">
@@ -174,17 +211,17 @@ const handlePasskeyLogin = async () => {
             <div>
               <label for="username" class="block text-sm font-medium text-text-secondary mb-1">{{ t('login.username') }}</label>
               <input type="text" id="username" v-model="credentials.username" required :disabled="isLoading"
-                     class="w-full px-4 py-3 border border-border/50 rounded-lg bg-input text-foreground text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition duration-150 ease-in-out disabled:bg-gray-100 disabled:cursor-not-allowed" />
+                     class="w-full px-4 py-3 border border-border/50 rounded-lg bg-input text-foreground text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition duration-150 ease-in-out disabled:bg-header/50 disabled:cursor-not-allowed" />
             </div>
             <div>
               <label for="password" class="block text-sm font-medium text-text-secondary mb-1">{{ t('login.password') }}</label>
               <input type="password" id="password" v-model="credentials.password" required :disabled="isLoading"
-                     class="w-full px-4 py-3 border border-border/50 rounded-lg bg-input text-foreground text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition duration-150 ease-in-out disabled:bg-gray-100 disabled:cursor-not-allowed" />
+                     class="w-full px-4 py-3 border border-border/50 rounded-lg bg-input text-foreground text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition duration-150 ease-in-out disabled:bg-header/50 disabled:cursor-not-allowed" />
             </div>
             <!-- Remember Me Checkbox -->
             <div class="flex items-center">
               <input type="checkbox" id="rememberMe" v-model="rememberMe" :disabled="isLoading"
-                     class="w-4 h-4 mr-2 accent-primary rounded border-gray-300 focus:ring-primary disabled:cursor-not-allowed" />
+                     class="w-4 h-4 mr-2 accent-primary rounded border-border focus:ring-primary disabled:cursor-not-allowed" />
               <label for="rememberMe" class="text-sm text-text-secondary cursor-pointer">{{ t('login.rememberMe', '记住我') }}</label>
             </div>
           </div>
@@ -193,7 +230,7 @@ const handlePasskeyLogin = async () => {
           <div v-if="loginRequires2FA">
             <label for="twoFactorToken" class="block text-sm font-medium text-text-secondary mb-1">{{ t('login.twoFactorPrompt') }}</label>
             <input type="text" id="twoFactorToken" v-model="twoFactorToken" required :disabled="isLoading" pattern="\d{6}" title="请输入 6 位数字验证码"
-                   class="w-full px-4 py-3 border border-border/50 rounded-lg bg-input text-foreground text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition duration-150 ease-in-out disabled:bg-gray-100 disabled:cursor-not-allowed" />
+                   class="w-full px-4 py-3 border border-border/50 rounded-lg bg-input text-foreground text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition duration-150 ease-in-out disabled:bg-header/50 disabled:cursor-not-allowed" />
          </div>
 
          <!-- CAPTCHA Area -->
@@ -220,7 +257,7 @@ const handlePasskeyLogin = async () => {
                  @verify="handleCaptchaVerified"
                  @expire="handleCaptchaExpired"
                  @fail="handleCaptchaError"
-                 theme="light"
+                 :theme="recaptchaTheme"
                />
                <!-- 注意: 根据 vue3-recaptcha2 文档调整事件名 @expire, @fail -->
                <!-- 注意: publicCaptchaConfig 需要包含 recaptchaSiteKey -->
@@ -238,14 +275,14 @@ const handlePasskeyLogin = async () => {
          </div>
 
           <button type="submit" :disabled="isLoading"
-                  class="w-full py-3 px-4 bg-primary text-white border-none rounded-lg text-base font-semibold cursor-pointer shadow-md transition-colors duration-200 ease-in-out hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:bg-gray-400 disabled:cursor-not-allowed disabled:opacity-70">
+                  class="w-full py-3 px-4 bg-button text-button-text border-none rounded-lg text-base font-semibold cursor-pointer shadow-md transition-colors duration-200 ease-in-out hover:bg-button-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:bg-header disabled:cursor-not-allowed disabled:opacity-70">
             {{ isLoading ? t('login.loggingIn') : (loginRequires2FA ? t('login.verifyButton') : t('login.loginButton')) }}
           </button>
  
           <!-- Passkey Login Button -->
           <div v-if="hasPasskeysAvailable" class="mt-4 text-center">
            <button type="button" @click="handlePasskeyLogin" :disabled="isLoading"
-                   class="w-full py-3 px-4 bg-secondary text-black border-none rounded-lg text-base font-semibold cursor-pointer shadow-md transition-colors duration-200 ease-in-out hover:bg-secondary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary disabled:bg-gray-400 disabled:cursor-not-allowed disabled:opacity-70 flex items-center justify-center">
+                   class="w-full py-3 px-4 bg-header text-foreground border border-border rounded-lg text-base font-semibold cursor-pointer shadow-md transition-colors duration-200 ease-in-out hover:bg-nav-active-bg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:bg-header disabled:cursor-not-allowed disabled:opacity-70 flex items-center justify-center">
               <i class="fas fa-key mr-2"></i>
               <span>{{ isLoading ? t('login.loggingIn') : t('login.loginWithPasskey') }}</span>
            </button>
