@@ -5,6 +5,12 @@ import i18n, { setLocale, defaultLng, availableLocales } from '../i18n';
 import type { PaneName } from './layout.store';
 import { useAuthStore } from './auth.store';
 import type { ConnectionInfo } from './connections.store';
+import {
+  defaultMobileToolbarItems,
+  parseMobileToolbarItems,
+  sanitizeMobileToolbarItems,
+  type MobileToolbarModuleId,
+} from '../features/mobile-toolbar/mobile-toolbar';
 
 export type SortField = keyof Pick<ConnectionInfo, 'created_at' | 'last_connected_at' | 'updated_at' | 'name' | 'type'>;
 export type SortOrder = 'asc' | 'desc';
@@ -65,6 +71,7 @@ interface SettingsState {
   showStatusMonitorIpAddress?: string; // 'true' or 'false' - 状态监视器显示IP地址
   quickCommandRowSizeMultiplier?: string; // +++ 快捷命令列表行大小乘数 (e.g., '1.0') +++
   quickCommandsCompactMode?: string; // +++ 快捷指令视图紧凑模式 (e.g., 'false') +++
+  mobileToolbarItems?: string; // 移动端底部工具栏模块顺序
   [key: string]: string | undefined;
 }
 
@@ -121,6 +128,9 @@ export const useSettingsStore = defineStore('settings', () => {
       // +++  showPopupFileManager 默认值 (改为 false) +++
       if (settings.value.showPopupFileManager === undefined) {
           settings.value.showPopupFileManager = 'false'; // 默认禁用弹窗文件管理器
+      }
+      if (settings.value.mobileToolbarItems === undefined) {
+          settings.value.mobileToolbarItems = JSON.stringify(defaultMobileToolbarItems);
       }
       if (settings.value.shareFileEditorTabs === undefined) {
           settings.value.shareFileEditorTabs = 'true';
@@ -435,7 +445,8 @@ export const useSettingsStore = defineStore('settings', () => {
         'terminalEnableRightClickPaste',
         'showStatusMonitorIpAddress',
         'quickCommandRowSizeMultiplier',
-        'quickCommandsCompactMode'
+        'quickCommandsCompactMode',
+        'mobileToolbarItems'
       ];
       if (!allowedKeys.includes(key)) {
           console.error(`[SettingsStore] 尝试更新不允许的设置键: ${key}`);
@@ -544,7 +555,8 @@ export const useSettingsStore = defineStore('settings', () => {
         'terminalEnableRightClickPaste',
         'showStatusMonitorIpAddress',
         'quickCommandRowSizeMultiplier',
-        'quickCommandsCompactMode'
+        'quickCommandsCompactMode',
+        'mobileToolbarItems'
       ];
       const filteredUpdates: Partial<SettingsState> = {};
       let languageUpdate: string | undefined = undefined;
@@ -732,6 +744,11 @@ export const useSettingsStore = defineStore('settings', () => {
       }
   }
 
+  async function updateMobileToolbarItems(items: MobileToolbarModuleId[]) {
+      const sanitizedItems = sanitizeMobileToolbarItems(items);
+      await updateSetting('mobileToolbarItems', JSON.stringify(sanitizedItems));
+  }
+
 
   // 移除外观相关 actions: saveCustomThemes, resetCustomThemes, toggleStyleCustomizer
 
@@ -888,6 +905,10 @@ export const useSettingsStore = defineStore('settings', () => {
   const quickCommandsCompactModeBoolean = computed(() => {
     return settings.value.quickCommandsCompactMode === 'true';
   });
+
+  const mobileToolbarItems = computed<MobileToolbarModuleId[]>(() => {
+    return parseMobileToolbarItems(settings.value.mobileToolbarItems);
+  });
   
  return {
     settings, // 只包含通用设置
@@ -928,6 +949,8 @@ export const useSettingsStore = defineStore('settings', () => {
     dashboardSortBy,
     dashboardSortOrder,
     saveDashboardSortPreference,
+    mobileToolbarItems,
+    updateMobileToolbarItems,
     //  Expose tag visibility getters
     showConnectionTagsBoolean,
     showQuickCommandTagsBoolean,

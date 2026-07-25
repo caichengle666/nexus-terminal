@@ -11,12 +11,15 @@ import QuickCommandsModal from './QuickCommandsModal.vue';
 import SuspendedSshSessionsModal from './SuspendedSshSessionsModal.vue'; 
 import { useFileEditorStore } from '../stores/fileEditor.store'; 
 import { useWorkspaceEventEmitter } from '../composables/workspaceEvents';
+import { useAiStore } from '../stores/ai.store';
+import MobileToolbarConfigurator from './MobileToolbarConfigurator.vue';
+import { mobileToolbarModules, type MobileToolbarModuleId } from '../features/mobile-toolbar/mobile-toolbar';
 
 
 defineOptions({ inheritAttrs: false });
 
 const emitWorkspaceEvent = useWorkspaceEventEmitter(); // +++ 获取事件发射器 +++
-const emit = defineEmits(['toggle-virtual-keyboard']);
+const emit = defineEmits(['toggle-virtual-keyboard', 'open-mobile-ai']);
 
 const { t } = useI18n();
 const focusSwitcherStore = useFocusSwitcherStore();
@@ -25,9 +28,10 @@ const quickCommandsStore = useQuickCommandsStore();
 const commandHistoryStore = useCommandHistoryStore();
 const sessionStore = useSessionStore(); // +++ 初始化 Session Store +++
 const fileEditorStore = useFileEditorStore(); // +++ Initialize File Editor Store +++
+const aiStore = useAiStore();
 
 // Get reactive setting from store
-const { commandInputSyncTarget, showPopupFileManagerBoolean, showPopupFileEditorBoolean } = storeToRefs(settingsStore); // +++ Import showPopupFileEditorBoolean +++
+const { commandInputSyncTarget, showPopupFileManagerBoolean, showPopupFileEditorBoolean, mobileToolbarItems } = storeToRefs(settingsStore); // +++ Import showPopupFileEditorBoolean +++
 // Get reactive state and actions from quick commands store
 const { selectedIndex: quickCommandsSelectedIndex, flatVisibleCommands: quickCommandsFiltered } = storeToRefs(quickCommandsStore);
 const { resetSelection: resetQuickCommandsSelection } = quickCommandsStore;
@@ -50,6 +54,7 @@ const isSearching = ref(false);
 const searchTerm = ref('');
 const showQuickCommands = ref(false); // +++ Add state for modal visibility +++
 const showSuspendedSshSessionsModal = ref(false); // +++ Add state for suspended SSH sessions modal +++
+const showMobileToolbarConfigurator = ref(false);
 // *** 移除本地的搜索结果 ref ***
 // const searchResultCount = ref(0);
 // const currentSearchResultIndex = ref(0);
@@ -67,6 +72,21 @@ const currentSessionCommandInput = computed({
     }
   }
 });
+
+const mobileToolbarModuleById = new Map(mobileToolbarModules.map(module => [module.id, module]));
+const currentAiRuntime = computed(() => activeSessionId.value ? aiStore.sessionRuntimes[activeSessionId.value] : undefined);
+const isCurrentAiRunning = computed(() => !!currentAiRuntime.value?.isRunning);
+const hasCurrentAiError = computed(() => currentAiRuntime.value?.taskStatus === 'error' || !!currentAiRuntime.value?.errorMessage);
+
+const handleMobileToolbarModule = (moduleId: MobileToolbarModuleId) => {
+  if (moduleId === 'clearTerminal') emitWorkspaceEvent('terminal:clear');
+  else if (moduleId === 'quickCommands') openQuickCommandsModal();
+  else if (moduleId === 'aiAssistant') emit('open-mobile-ai');
+  else if (moduleId === 'suspendedSessions') openSuspendedSshSessionsModal();
+  else if (moduleId === 'virtualKeyboard') emit('toggle-virtual-keyboard');
+  else if (moduleId === 'fileManager') openFileManagerModal();
+  else if (moduleId === 'fileEditor') openFileEditorModal();
+};
 
 const sendCommand = () => {
   const command = currentSessionCommandInput.value; // 使用计算属性获取值
@@ -332,7 +352,50 @@ const handleQuickCommandExecute = (command: string) => {
 
 <template>
   <div :class="$attrs.class" class="flex items-center py-1.5 bg-background"> <!-- Bind $attrs.class, removed px-2 and gap-1 -->
-    <div class="flex-grow flex items-center bg-transparent relative gap-1 px-2 w-full"> <!-- Added px-2 here, ensure full width -->
+    <template v-if="props.isMobile">
+      <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2">
+        <template v-for="moduleId in mobileToolbarItems" :key="moduleId">
+          <input
+            v-if="moduleId === 'commandInput'"
+            ref="commandInputRef"
+            v-model="currentSessionCommandInput"
+            type="text"
+            :placeholder="t('commandInputBar.placeholder')"
+            class="h-8 min-w-[150px] flex-1 rounded-lg border border-border/50 bg-input px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/50"
+            data-focus-id="commandInput"
+            @keydown="handleCommandInputKeydown"
+            @blur="handleCommandInputBlur"
+          />
+          <button
+            v-else
+            type="button"
+            class="relative flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border/50 text-text-secondary transition-colors hover:bg-border hover:text-foreground"
+            :class="moduleId === 'aiAssistant' && isCurrentAiRunning ? 'border-primary/60 bg-primary/10 text-primary' : ''"
+            :title="mobileToolbarModuleById.get(moduleId)?.label"
+            :aria-label="mobileToolbarModuleById.get(moduleId)?.label"
+            @click="handleMobileToolbarModule(moduleId)"
+          >
+            <i :class="[mobileToolbarModuleById.get(moduleId)?.icon, 'text-base']" aria-hidden="true" />
+            <span
+              v-if="moduleId === 'aiAssistant' && (isCurrentAiRunning || hasCurrentAiError)"
+              class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full"
+              :class="hasCurrentAiError ? 'bg-error' : 'animate-pulse bg-primary'"
+            />
+          </button>
+        </template>
+      </div>
+      <button
+        type="button"
+        class="mr-2 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border/50 text-text-secondary transition-colors hover:bg-border hover:text-foreground"
+        title="配置底部工具栏"
+        aria-label="配置底部工具栏"
+        @click="showMobileToolbarConfigurator = true"
+      >
+        <i class="fas fa-sliders-h text-sm" aria-hidden="true" />
+      </button>
+    </template>
+
+    <div v-else class="flex-grow flex items-center bg-transparent relative gap-1 px-2 w-full"> <!-- Added px-2 here, ensure full width -->
       <!-- Clear Terminal Button -->
       <button
         @click="emitWorkspaceEvent('terminal:clear')"
@@ -473,6 +536,10 @@ const handleQuickCommandExecute = (command: string) => {
   <SuspendedSshSessionsModal
     :is-visible="showSuspendedSshSessionsModal"
     @close="closeSuspendedSshSessionsModal"
+  />
+  <MobileToolbarConfigurator
+    :visible="showMobileToolbarConfigurator"
+    @close="showMobileToolbarConfigurator = false"
   />
   <!-- File Manager Modal is now handled by a listener for 'fileManager:openModalRequest' event -->
 </template>

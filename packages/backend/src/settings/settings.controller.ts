@@ -94,12 +94,34 @@ export const settingsController = {
           'terminalScrollbackLimit', // 终端回滚行数键
           'fileManagerShowDeleteConfirmation', // 文件管理器删除确认键
           'terminalEnableRightClickPaste', // 终端右键粘贴键
-          'showStatusMonitorIpAddress' // 添加状态监视器IP显示键 (与服务层和前端统一)
+          'showStatusMonitorIpAddress', // 添加状态监视器IP显示键 (与服务层和前端统一)
+          'mobileToolbarItems'
       ];
       const filteredSettings: Record<string, string> = {};
       for (const key in settingsToUpdate) {
           if (allowedSettingsKeys.includes(key)) {
-              filteredSettings[key] = settingsToUpdate[key];
+              if (key === 'mobileToolbarItems') {
+                  const validModules = new Set([
+                      'clearTerminal', 'quickCommands', 'commandInput', 'aiAssistant',
+                      'suspendedSessions', 'virtualKeyboard', 'fileManager', 'fileEditor'
+                  ]);
+                  try {
+                      const parsed = JSON.parse(settingsToUpdate[key]);
+                      if (!Array.isArray(parsed) || parsed.length > validModules.size) throw new Error();
+                      const uniqueItems = [...new Set(parsed)];
+                      if (
+                          uniqueItems.length !== parsed.length ||
+                          !uniqueItems.includes('commandInput') ||
+                          !uniqueItems.every(item => typeof item === 'string' && validModules.has(item))
+                      ) throw new Error();
+                      filteredSettings[key] = JSON.stringify(uniqueItems);
+                  } catch {
+                      res.status(400).json({ message: '无效的移动端工具栏配置' });
+                      return;
+                  }
+              } else {
+                  filteredSettings[key] = settingsToUpdate[key];
+              }
           }
       }
 

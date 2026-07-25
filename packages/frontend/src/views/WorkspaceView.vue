@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, computed, ref, shallowRef, type PropType } from 'vue';
+import { onMounted, onBeforeUnmount, computed, defineAsyncComponent, ref, shallowRef, type PropType } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { storeToRefs } from 'pinia';
 import { useLayoutStore, type LayoutNode } from '../stores/layout.store'; // +++ Import LayoutNode +++
@@ -26,6 +26,8 @@ import {
   type WorkspaceEventPayloads
 } from '../composables/workspaceEvents';
 import type { WebSocketDependencies } from '../composables/useSftpActions'; 
+
+const AiTerminalAssistant = defineAsyncComponent(() => import('../components/AiTerminalAssistant.vue'));
 
 // --- Setup ---
 const { t } = useI18n();
@@ -82,6 +84,17 @@ const showLayoutConfigurator = ref(false); // 控制布局配置器可见性
 const currentSearchTerm = ref(''); // 当前搜索的关键词
 const mobileTerminalRef = ref<InstanceType<typeof Terminal> | null>(null);
 const isVirtualKeyboardVisible = ref(false); 
+const showMobileAiAssistant = ref(false);
+const hasMountedMobileAiAssistant = ref(false);
+
+const openMobileAiAssistant = () => {
+  hasMountedMobileAiAssistant.value = true;
+  showMobileAiAssistant.value = true;
+};
+
+const closeMobileAiAssistant = () => {
+  showMobileAiAssistant.value = false;
+};
 
 // --- 文件管理器模态框状态 ---
 const showFileManagerModal = ref(false);
@@ -767,6 +780,7 @@ const closeFileManagerModal = () => {
         @clear-terminal="handleClearTerminal"
         :is-virtual-keyboard-visible="isVirtualKeyboardVisible"
         @toggle-virtual-keyboard="toggleVirtualKeyboard"
+        @open-mobile-ai="openMobileAiAssistant"
       />
       <!-- +++ Use v-show for VirtualKeyboard and bind visibility +++ -->
       <VirtualKeyboard
@@ -774,6 +788,17 @@ const closeFileManagerModal = () => {
         class="mobile-virtual-keyboard"
         @send-key="handleVirtualKeyPress"
       />
+      <div
+        v-if="hasMountedMobileAiAssistant"
+        v-show="showMobileAiAssistant"
+        class="fixed inset-0 z-[160] flex min-h-0 flex-col bg-background pb-[env(safe-area-inset-bottom)] text-foreground"
+      >
+        <AiTerminalAssistant
+          mobile-overlay
+          class="min-h-0 flex-1"
+          @close-mobile-overlay="closeMobileAiAssistant"
+        />
+      </div>
     </template>
 
     <!-- Modals 保持不变，应在布局之外 -->

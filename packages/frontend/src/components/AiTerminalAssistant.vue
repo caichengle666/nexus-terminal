@@ -6,6 +6,11 @@ import { useConfirmDialog } from '../composables/useConfirmDialog';
 import nexusAiAvatar from '../assets/nexus-ai-avatar.jpg';
 import { MAX_IMPORT_FILE_BYTES } from '../stores/ai/ai.constants';
 
+withDefaults(defineProps<{ mobileOverlay?: boolean }>(), {
+  mobileOverlay: false,
+});
+const emit = defineEmits<{ (event: 'close-mobile-overlay'): void }>();
+
 const aiStore = useAiStore();
 const { showConfirmDialog } = useConfirmDialog();
 type DrawerPanel = 'context' | null;
@@ -724,6 +729,16 @@ const deleteHistory = async () => {
     <input ref="importFileInput" type="file" accept=".json,application/json" class="hidden" @change="importSessionFile" />
     <div class="ai-assistant-header flex items-center justify-between gap-3 border-b border-border px-3 py-2">
       <div class="ai-header-main flex min-w-0 items-center gap-2.5">
+        <button
+          v-if="mobileOverlay"
+          type="button"
+          class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded hover:bg-hover"
+          title="返回终端"
+          aria-label="返回终端"
+          @click="emit('close-mobile-overlay')"
+        >
+          <i class="fas fa-arrow-left text-sm text-text-secondary" aria-hidden="true" />
+        </button>
         <div class="ai-header-title flex-shrink-0 text-sm font-semibold">AI 终端助手</div>
         <span class="ai-header-divider h-3 w-px flex-shrink-0 bg-border" />
         <div class="ai-header-session min-w-0 truncate text-xs text-text-secondary" :title="sessionLabel">{{ sessionLabel }}</div>
