@@ -18,6 +18,7 @@ import FocusSwitcherConfigurator from './components/FocusSwitcherConfigurator.vu
 import RemoteDesktopModal from './components/RemoteDesktopModal.vue';
 import VncModal from './components/VncModal.vue';
 import ConfirmDialog from './components/common/ConfirmDialog.vue';
+import MobileAppHeader from './components/MobileAppHeader.vue';
 import { useDialogStore } from './stores/dialog.store';
 
 const { t } = useI18n();
@@ -35,7 +36,7 @@ const { showPopupFileEditorBoolean } = storeToRefs(settingsStore);
 const { isStyleCustomizerVisible } = storeToRefs(appearanceStore);
 const { isLayoutVisible, isHeaderVisible } = storeToRefs(layoutStore); // 添加 isHeaderVisible
 const { isConfiguratorVisible: isFocusSwitcherVisible } = storeToRefs(focusSwitcherStore);
-const { isRdpModalOpen, rdpConnectionInfo, isVncModalOpen, vncConnectionInfo } = storeToRefs(sessionStore); // +++ 获取 RDP 和 VNC 状态 +++
+const { activeSession, isRdpModalOpen, rdpConnectionInfo, isVncModalOpen, vncConnectionInfo } = storeToRefs(sessionStore); // +++ 获取 RDP 和 VNC 状态 +++
 const { isMobile } = useDeviceDetection();
 
 const route = useRoute();
@@ -112,6 +113,20 @@ onUnmounted(() => {
 
 // *** 计算属性，判断是否在 workspace 路由 ***
 const isWorkspaceRoute = computed(() => route.path === '/workspace');
+const mobilePageTitle = computed(() => {
+  const routeName = String(route.name || '');
+  if (routeName === 'Dashboard') return t('nav.dashboard');
+  if (routeName === 'Workspace') return t('nav.terminal');
+  if (routeName === 'Connections') return t('nav.connections');
+  if (routeName === 'Proxies') return t('nav.proxies');
+  if (routeName === 'Notifications') return t('nav.notifications');
+  if (routeName === 'AuditLogs') return t('nav.auditLogs');
+  if (routeName === 'Settings') return t('nav.settings');
+  if (routeName === 'Login') return t('nav.login');
+  return t('appName');
+});
+const mobileSessionName = computed(() => isWorkspaceRoute.value ? activeSession.value?.connectionName || '' : '');
+const mobileConnectionStatus = computed(() => activeSession.value?.wsManager.connectionStatus.value || 'disconnected');
 
 watch(route, () => {
   updateUnderline();
@@ -301,8 +316,8 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
 <template>
   
   <div id="app-container">
-    <div v-if="isWorkspaceRoute && !isHeaderVisible" class="electron-drag-strip"></div>
-    <div v-if="isWorkspaceRoute && !isHeaderVisible" class="window-control-group floating-window-controls">
+    <div v-if="!isMobile && isWorkspaceRoute && !isHeaderVisible" class="electron-drag-strip"></div>
+    <div v-if="!isMobile && isWorkspaceRoute && !isHeaderVisible" class="window-control-group floating-window-controls">
       <button class="window-control-button" type="button" title="最小化" @click="minimizeWindow">
         <span class="window-control-icon minimize-icon"></span>
       </button>
@@ -324,7 +339,16 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
     </div>
     <!-- *** 修改 v-if 条件以使用 isHeaderVisible *** -->
     <!-- Header with Tailwind classes using theme variables -->
-    <header v-if="!isWorkspaceRoute || isHeaderVisible" class="electron-titlebar sticky top-0 z-10 flex items-center h-14 pl-3 pr-0 bg-header border-b border-border shadow-sm"> <!-- 减少左侧内边距 -->
+    <MobileAppHeader
+      v-if="isMobile && (!isWorkspaceRoute || isHeaderVisible)"
+      :page-title="mobilePageTitle"
+      :session-name="mobileSessionName"
+      :connection-status="mobileConnectionStatus"
+      :is-authenticated="isAuthenticated"
+      @customize-style="openStyleCustomizer"
+      @logout="handleLogout"
+    />
+    <header v-else-if="!isWorkspaceRoute || isHeaderVisible" class="electron-titlebar sticky top-0 z-10 flex items-center h-14 pl-3 pr-0 bg-header border-b border-border shadow-sm"> <!-- 减少左侧内边距 -->
       <!-- Nav with Tailwind classes -->
       <nav ref="navRef" class="flex items-center justify-between flex-1 min-w-0 relative pr-2"> <!-- Added relative positioning for underline -->
         <!-- Left navigation links with Tailwind classes using theme variables -->
