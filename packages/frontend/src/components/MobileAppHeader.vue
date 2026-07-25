@@ -11,15 +11,18 @@ const props = withDefaults(defineProps<{
   sessionName?: string;
   connectionStatus?: ConnectionStatus;
   isAuthenticated?: boolean;
+  canInstallPwa?: boolean;
 }>(), {
   sessionName: '',
   connectionStatus: 'disconnected',
   isAuthenticated: false,
+  canInstallPwa: false,
 });
 
 const emit = defineEmits<{
   (event: 'customize-style'): void;
   (event: 'logout'): void;
+  (event: 'install-pwa'): void;
 }>();
 
 const { t } = useI18n();
@@ -109,6 +112,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
       </RouterLink>
 
       <div class="my-1 border-t border-border" />
+      <button
+        v-if="canInstallPwa"
+        type="button"
+        role="menuitem"
+        class="flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-hover"
+        @click="emit('install-pwa'); closeMenu()"
+      >
+        <i class="fas fa-download w-5 text-center text-text-secondary" aria-hidden="true" />
+        <span>{{ t('pwa.install') }}</span>
+      </button>
       <button type="button" role="menuitem" class="flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-hover" @click="emit('customize-style'); closeMenu()">
         <i class="fas fa-paint-brush w-5 text-center text-text-secondary" aria-hidden="true" />
         <span>{{ t('nav.customizeStyle') }}</span>

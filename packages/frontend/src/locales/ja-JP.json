@@ -14,6 +14,15 @@
     "settings": "Settings",
     "customizeStyle": "Customize Style"
   },
+  "pwa": {
+    "install": "アプリをインストール",
+    "updateAvailable": "新しいバージョンを利用できます",
+    "updateNow": "今すぐ更新",
+    "later": "後で",
+    "iosInstallTitle": "ホーム画面に追加",
+    "iosInstallDescription": "Safari の共有メニューを開き、「ホーム画面に追加」を選択してください。",
+    "close": "閉じる"
+  },
   "styleCustomizer": {
     "title": "Appearance Customizer",
     "uiStyles": "UI Styles",

@@ -99,14 +99,32 @@ app.use(i18n); // 使用 i18n
     }
     app.mount('#app');
   }
-// --- PWA Service Worker Registration ---
+  // --- PWA Service Worker Registration ---
   if ('serviceWorker' in navigator) {
+    const hadActiveServiceWorker = Boolean(navigator.serviceWorker.controller);
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'PWA_UPDATE_READY') {
+        window.dispatchEvent(new CustomEvent('pwa-update-available'));
+      }
+    });
+
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').then(registration => {
-        console.log('SW registered: ', registration);
-      }).catch(registrationError => {
-        console.log('SW registration failed: ', registrationError);
-      });
+      navigator.serviceWorker.register('/sw.js')
+        .then(registration => {
+          console.log('SW registered: ', registration);
+          registration.addEventListener('updatefound', () => {
+            const installingWorker = registration.installing;
+            installingWorker?.addEventListener('statechange', () => {
+              if (installingWorker.state === 'activated' && hadActiveServiceWorker) {
+                window.dispatchEvent(new CustomEvent('pwa-update-available'));
+              }
+            });
+          });
+          void registration.update();
+        })
+        .catch(registrationError => {
+          console.log('SW registration failed: ', registrationError);
+        });
     });
   }
 })();

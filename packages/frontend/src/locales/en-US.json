@@ -14,6 +14,15 @@
     "settings": "Settings",
     "customizeStyle": "Customize Style"
   },
+  "pwa": {
+    "install": "Install App",
+    "updateAvailable": "A new version is ready",
+    "updateNow": "Update now",
+    "later": "Later",
+    "iosInstallTitle": "Add to Home Screen",
+    "iosInstallDescription": "Open the Share menu in Safari, then choose Add to Home Screen.",
+    "close": "Close"
+  },
   "styleCustomizer": {
     "title": "Appearance Customizer",
     "uiStyles": "UI Styles",

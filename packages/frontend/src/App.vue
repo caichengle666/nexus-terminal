@@ -21,6 +21,11 @@ import ConfirmDialog from './components/common/ConfirmDialog.vue';
 import MobileAppHeader from './components/MobileAppHeader.vue';
 import { useDialogStore } from './stores/dialog.store';
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
 const { t } = useI18n();
 const authStore = useAuthStore();
 const settingsStore = useSettingsStore();
@@ -50,6 +55,16 @@ const lastFocusedIdBySwitcher = ref<string | null>(null);
 const isAltPressed = ref(false); // 跟踪 Alt 键是否按下
 const altShortcutKey = ref<string | null>(null);
 const isAlwaysOnTop = ref(false);
+const installPrompt = ref<BeforeInstallPromptEvent | null>(null);
+const pwaUpdateAvailable = ref(false);
+const showIosInstallHelp = ref(false);
+const isIosDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || (
+  navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+);
+const isStandalonePwa = ref(
+  window.matchMedia('(display-mode: standalone)').matches ||
+  Boolean((navigator as Navigator & { standalone?: boolean }).standalone),
+);
 let removeAlwaysOnTopListener: (() => void) | undefined;
 // --- 移除 shortcutTriggeredInKeyDown 标志 ---
 
@@ -78,14 +93,9 @@ onMounted(() => {
   window.addEventListener('keydown', handleAltKeyDown); // +++ 监听 keydown 设置状态 +++
   window.addEventListener('keyup', handleGlobalKeyUp);   // +++ 监听 keyup 执行切换 +++
   
-  // PWA Install Prompt
-  window.addEventListener('beforeinstallprompt', (e) => {
-    console.log('[App.vue] beforeinstallprompt event fired. Browser will handle install prompt.');
-  });
-
-  window.addEventListener('appinstalled', () => {
-    console.log('[App.vue] PWA was installed');
-  });
+  window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
+  window.addEventListener('appinstalled', handleAppInstalled);
+  window.addEventListener('pwa-update-available', handlePwaUpdateAvailable);
   
   // +++ 加载 Header 可见性状态 +++
   layoutStore.loadHeaderVisibility();
@@ -107,6 +117,9 @@ watch(isAuthenticated, (loggedIn) => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleAltKeyDown); // +++ 移除 keydown 监听 +++
   window.removeEventListener('keyup', handleGlobalKeyUp);   // +++ 移除 keyup 监听 +++
+  window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
+  window.removeEventListener('appinstalled', handleAppInstalled);
+  window.removeEventListener('pwa-update-available', handlePwaUpdateAvailable);
   removeAlwaysOnTopListener?.();
 });
 
@@ -136,6 +149,38 @@ watch(route, () => {
 const handleLogout = () => {
   authStore.logout();
 };
+
+const handleBeforeInstallPrompt = (event: Event) => {
+  event.preventDefault();
+  installPrompt.value = event as BeforeInstallPromptEvent;
+};
+
+const handleAppInstalled = () => {
+  installPrompt.value = null;
+  isStandalonePwa.value = true;
+};
+
+const handlePwaUpdateAvailable = () => {
+  pwaUpdateAvailable.value = true;
+};
+
+const installPwa = async () => {
+  if (!installPrompt.value) {
+    if (isIosDevice) showIosInstallHelp.value = true;
+    return;
+  }
+  await installPrompt.value.prompt();
+  await installPrompt.value.userChoice;
+  installPrompt.value = null;
+};
+
+const reloadPwa = () => {
+  window.location.reload();
+};
+
+const canInstallPwa = computed(() => (
+  (Boolean(installPrompt.value) || isIosDevice) && !isStandalonePwa.value && !getElectronApi()
+));
 
 const minimizeWindow = () => {
   getElectronApi()?.minimizeWindow?.();
@@ -316,6 +361,31 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
 <template>
   
   <div id="app-container">
+    <div
+      v-if="pwaUpdateAvailable"
+      class="fixed left-1/2 top-[max(0.75rem,env(safe-area-inset-top))] z-[220] flex -translate-x-1/2 items-center gap-3 rounded border border-primary/40 bg-background px-3 py-2 text-sm text-foreground shadow-2xl"
+      role="status"
+    >
+      <span class="whitespace-nowrap">{{ t('pwa.updateAvailable') }}</span>
+      <button type="button" class="rounded bg-primary px-2.5 py-1 text-xs font-medium text-white" @click="reloadPwa">{{ t('pwa.updateNow') }}</button>
+      <button type="button" class="flex h-7 w-7 items-center justify-center rounded text-text-secondary hover:bg-hover" :aria-label="t('pwa.later')" @click="pwaUpdateAvailable = false">
+        <i class="fas fa-times" aria-hidden="true" />
+      </button>
+    </div>
+    <div v-if="showIosInstallHelp" class="fixed inset-0 z-[230] flex items-end bg-black/40" @click.self="showIosInstallHelp = false">
+      <section class="w-full rounded-t-lg border-t border-border bg-background px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 text-foreground shadow-2xl" role="dialog" aria-modal="true" :aria-label="t('pwa.iosInstallTitle')">
+        <div class="flex items-start gap-3">
+          <i class="fas fa-share-square mt-1 text-xl text-primary" aria-hidden="true" />
+          <div class="min-w-0 flex-1">
+            <h2 class="text-base font-semibold">{{ t('pwa.iosInstallTitle') }}</h2>
+            <p class="mt-1 text-sm leading-relaxed text-text-secondary">{{ t('pwa.iosInstallDescription') }}</p>
+          </div>
+          <button type="button" class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded hover:bg-hover" :aria-label="t('pwa.close')" @click="showIosInstallHelp = false">
+            <i class="fas fa-times" aria-hidden="true" />
+          </button>
+        </div>
+      </section>
+    </div>
     <div v-if="!isMobile && isWorkspaceRoute && !isHeaderVisible" class="electron-drag-strip"></div>
     <div v-if="!isMobile && isWorkspaceRoute && !isHeaderVisible" class="window-control-group floating-window-controls">
       <button class="window-control-button" type="button" title="最小化" @click="minimizeWindow">
@@ -345,7 +415,9 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
       :session-name="mobileSessionName"
       :connection-status="mobileConnectionStatus"
       :is-authenticated="isAuthenticated"
+      :can-install-pwa="canInstallPwa"
       @customize-style="openStyleCustomizer"
+      @install-pwa="installPwa"
       @logout="handleLogout"
     />
     <header v-else-if="!isWorkspaceRoute || isHeaderVisible" class="electron-titlebar sticky top-0 z-10 flex items-center h-14 pl-3 pr-0 bg-header border-b border-border shadow-sm"> <!-- 减少左侧内边距 -->
@@ -371,7 +443,9 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
               <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"/>
             </svg>
           </a>
-          <!-- PWA Install Button - REMOVED FROM HERE -->
+          <button v-if="canInstallPwa" type="button" class="px-2 py-2 rounded-md text-lg text-icon hover:text-icon-hover hover:bg-nav-active-bg" :title="t('pwa.install')" :aria-label="t('pwa.install')" @click="installPwa">
+            <i class="fas fa-download" aria-hidden="true"></i>
+          </button>
           <a href="#" @click.prevent="openStyleCustomizer" :title="t('nav.customizeStyle')" class="px-2 py-2 rounded-md text-lg text-icon hover:text-icon-hover hover:bg-nav-active-bg hover:no-underline transition duration-150 ease-in-out"><i class="fas fa-paint-brush"></i></a>
           <RouterLink v-if="!isAuthenticated" to="/login" class="px-3 py-2 rounded-md text-sm font-medium text-secondary hover:text-link-hover hover:bg-nav-active-bg hover:no-underline transition duration-150 ease-in-out whitespace-nowrap">{{ t('nav.login') }}</RouterLink>
           <a href="#" v-if="isAuthenticated" @click.prevent="handleLogout" class="px-3 py-2 rounded-md text-sm font-medium text-secondary hover:text-link-hover hover:bg-nav-active-bg hover:no-underline transition duration-150 ease-in-out whitespace-nowrap">{{ t('nav.logout') }}</a>
