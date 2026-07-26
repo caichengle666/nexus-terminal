@@ -8,6 +8,7 @@ import type { WebSocketDependencies } from './useSftpActions';
 const UPLOAD_CHUNK_SIZE = 65536; // 64KB; base64 后仍适合移动网络与代理传输
 const UPLOAD_READY_TIMEOUT_MS = 10000;
 const UPLOAD_CHUNK_ACK_TIMEOUT_MS = 30000;
+const UPLOAD_FINALIZE_TIMEOUT_MS = 60000;
 const MAX_UPLOAD_START_ATTEMPTS = 2;
 
 const generateUploadId = (): string => {
@@ -351,7 +352,7 @@ export function useFileUploader(
         } else {
             uploadTimeouts.set(uploadId, setTimeout(() => {
                 failUpload(uploadId, '服务器完成文件写入超时，请检查远端目录后重试');
-            }, UPLOAD_CHUNK_ACK_TIMEOUT_MS));
+            }, UPLOAD_FINALIZE_TIMEOUT_MS));
         }
     };
 

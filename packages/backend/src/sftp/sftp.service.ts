@@ -58,6 +58,8 @@ const previousNetStats = new Map<string, { rx: number, tx: number, timestamp: nu
 const MAX_UPLOAD_CHUNK_BYTES = 524288; // 512KB
 const UPLOAD_READY_TIMEOUT_MS = 8000;
 const UPLOAD_WRITE_TIMEOUT_MS = 30000;
+const UPLOAD_CLOSE_TIMEOUT_MS = 20000;
+const UPLOAD_FINALIZE_TIMEOUT_MS = 20000;
 
 // Interface for tracking active uploads
 interface ActiveUpload {
@@ -1535,7 +1537,7 @@ export class SftpService {
                     )),
                 ]);
             }
-            const stream = state.sftp.createWriteStream(tempPath, { flags: 'w' });
+            const stream = state.sftp.createWriteStream(tempPath, { flags: 'w', autoClose: false });
             await new Promise<void>((resolve, reject) => {
                 let settled = false;
                 const finish = (error?: Error) => {
@@ -1674,12 +1676,14 @@ export class SftpService {
 
             if (isComplete && !uploadState.isFinalizing) {
                 uploadState.isFinalizing = true;
-                uploadState.stream.end((endErr: Error | undefined) => {
-                    if (endErr) {
-                        this.sendUploadError(uploadId, `结束写入流时出错: ${endErr.message}`);
-                        this.cancelUploadInternal(uploadId, `Stream end error: ${endErr.message}`);
-                        return;
-                    }
+                const closeTimeoutId = setTimeout(() => {
+                    if (!this.activeUploads.has(uploadId)) return;
+                    this.sendUploadError(uploadId, `关闭远端临时文件超时（${UPLOAD_CLOSE_TIMEOUT_MS / 1000} 秒）`);
+                    this.cancelUploadInternal(uploadId, 'Stream close timeout');
+                }, UPLOAD_CLOSE_TIMEOUT_MS);
+                uploadState.stream.close(() => {
+                    clearTimeout(closeTimeoutId);
+                    if (!this.activeUploads.has(uploadId)) return;
                     this.finalizeUpload(uploadId);
                 });
             }
@@ -1707,20 +1711,38 @@ export class SftpService {
             return;
         }
 
+        let settled = false;
+        const finish = () => {
+            if (settled) return false;
+            settled = true;
+            clearTimeout(timeoutId);
+            return true;
+        };
+        const timeoutId = setTimeout(() => {
+            if (!finish() || !this.activeUploads.has(uploadId)) return;
+            this.sendUploadError(uploadId, `完成远端文件写入超时（${UPLOAD_FINALIZE_TIMEOUT_MS / 1000} 秒）`);
+            this.cancelUploadInternal(uploadId, 'Upload finalization timeout');
+        }, UPLOAD_FINALIZE_TIMEOUT_MS);
+
         this.renameUploadTempFile(state.sftp, uploadState.tempPath, uploadState.remotePath, (renameErr) => {
+            if (settled || !this.activeUploads.has(uploadId)) return;
             if (renameErr) {
+                finish();
                 this.sendUploadError(uploadId, `移动临时文件失败: ${renameErr.message}`);
                 this.cancelUploadInternal(uploadId, `Rename failed: ${renameErr.message}`);
                 return;
             }
 
             state.sftp!.lstat(uploadState.remotePath, (statErr, stats) => {
+                if (settled || !this.activeUploads.has(uploadId)) return;
                 if (statErr) {
+                    finish();
                     this.sendUploadError(uploadId, `获取最终文件状态失败: ${statErr.message}`);
                     this.activeUploads.delete(uploadId);
                     return;
                 }
                 if (stats.size < uploadState.totalSize) {
+                    finish();
                     this.sendUploadError(uploadId, `最终文件大小 (${stats.size}) 小于预期 (${uploadState.totalSize})`);
                     this.activeUploads.delete(uploadId);
                     return;
@@ -1738,6 +1760,7 @@ export class SftpService {
                 if (state.ws.readyState === WebSocket.OPEN) {
                     state.ws.send(JSON.stringify({ type: 'sftp:upload:success', payload: finalStatsPayload, uploadId, path: uploadState.remotePath }));
                 }
+                finish();
                 this.activeUploads.delete(uploadId);
             });
         });
