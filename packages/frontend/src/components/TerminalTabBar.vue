@@ -451,7 +451,9 @@ onBeforeUnmount(() => {
   <!-- +++ 使用 :class 绑定来条件化样式，包括高度 (修正 props 引用) +++ -->
   <div :class="['flex bg-header border border-border overflow-hidden',
                { 'rounded-t-md mx-2 mt-2': !props.isMobile }, // Desktop margins/rounding - Use props.isMobile
-               props.isMobile ? 'h-8' : 'h-10' // Mobile height h-8, Desktop h-10 - Use props.isMobile
+               props.isMobile
+                 ? (isHeaderVisible ? 'h-8' : 'h-[calc(2rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]')
+                 : 'h-10'
               ]">
     <div class="flex items-center overflow-x-auto flex-shrink min-w-0 h-full"> <!-- Ensure inner div has h-full -->
       <draggable
