@@ -89,6 +89,7 @@ const {
     uploads,
     startFileUpload,
     cancelUpload,
+    dismissUpload,
 } = useFileUploader(
     computed(() => props.sessionId),
     // 传递 manager 的 currentPath 和 fileList ref
@@ -2009,7 +2010,7 @@ const handleOpenEditorClick = () => {
      </div>
 
      <!-- 使用 FileUploadPopup 组件 -->
-     <FileUploadPopup :uploads="uploads" @cancel-upload="cancelUpload" />
+     <FileUploadPopup :uploads="uploads" @cancel-upload="cancelUpload" @dismiss-upload="dismissUpload" />
 
     <FileManagerContextMenu
       ref="contextMenuRef"

@@ -9,6 +9,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'cancel-upload', uploadId: string): void; // 定义取消上传事件
+  (e: 'dismiss-upload', uploadId: string): void;
 }>();
 
 const { t } = useI18n();
@@ -23,12 +24,15 @@ const hasVisibleUploads = computed(() => {
 // 计算显示的上传列表（可以过滤掉已完成/取消的，或者全部显示）
 // 这里选择全部显示，让用户能看到最终状态
 const uploadList = computed(() => Object.values(props.uploads).filter(upload => {
-  const isEffectivelySuccess = upload.status === 'success' || (upload.status === 'uploading' && upload.progress === 100);
-  return !isEffectivelySuccess && upload.status !== 'cancelled';
+  return upload.status !== 'success' && upload.status !== 'cancelled';
 }));
 
 const handleCancel = (uploadId: string) => {
   emit('cancel-upload', uploadId);
+};
+
+const handleDismiss = (uploadId: string) => {
+  emit('dismiss-upload', uploadId);
 };
 </script>
 
@@ -39,13 +43,16 @@ const handleCancel = (uploadId: string) => {
     <ul class="list-none p-0 m-0">
       <li v-for="upload in uploadList" :key="upload.id" class="mb-1.5 text-xs flex items-center flex-wrap gap-2">
         <span class="flex-grow truncate" :title="upload.filename">{{ upload.filename }} ({{ t(`fileManager.uploadStatus.${upload.status}`) }})</span>
-        <progress v-if="(upload.status === 'uploading' && upload.progress < 100) || upload.status === 'pending'" :value="upload.progress" max="100" class="w-20 h-2 flex-shrink-0 [&::-webkit-progress-bar]:rounded-lg [&::-webkit-progress-value]:rounded-lg [&::-webkit-progress-bar]:bg-gray-300 [&::-webkit-progress-value]:bg-blue-600 [&::-moz-progress-bar]:bg-blue-600"></progress>
-        <span v-if="upload.status === 'uploading' && upload.progress < 100" class="text-xs flex-shrink-0"> {{ upload.progress }}%</span>
+        <progress v-if="upload.status === 'uploading' || upload.status === 'pending'" :value="upload.progress" max="100" class="w-20 h-2 flex-shrink-0 [&::-webkit-progress-bar]:rounded-lg [&::-webkit-progress-value]:rounded-lg [&::-webkit-progress-bar]:bg-gray-300 [&::-webkit-progress-value]:bg-blue-600 [&::-moz-progress-bar]:bg-blue-600"></progress>
+        <span v-if="upload.status === 'uploading'" class="text-xs flex-shrink-0"> {{ upload.progress }}%</span>
         <span v-if="upload.status === 'error'" class="text-red-600 basis-full text-xs"> {{ t('fileManager.errors.generic') }}: {{ upload.error }}</span>
-        <span v-if="upload.status === 'success' || (upload.status === 'uploading' && upload.progress === 100)" class="text-green-600"> ✅</span>
+        <span v-if="upload.status === 'success'" class="text-green-600"> ✅</span>
         <span v-if="upload.status === 'cancelled'" class="text-red-600"> ❌ {{ t('fileManager.uploadStatus.cancelled') }}</span>
         <!-- 只有在可取消状态时显示取消按钮 -->
         <button v-if="['pending', 'uploading', 'paused'].includes(upload.status)" @click="handleCancel(upload.id)" class="ml-auto px-1.5 py-0.5 text-xs bg-red-100 border border-red-300 text-red-700 cursor-pointer rounded hover:bg-red-200 flex-shrink-0">{{ t('fileManager.actions.cancel') }}</button>
+        <button v-else-if="upload.status === 'error'" @click="handleDismiss(upload.id)" aria-label="关闭上传错误" title="关闭" class="ml-auto w-6 h-6 text-text-secondary hover:text-foreground flex items-center justify-center flex-shrink-0">
+          <i class="fas fa-times"></i>
+        </button>
       </li>
     </ul>
   </div>

@@ -56,6 +56,8 @@ interface NetworkStats {
 const DEFAULT_POLLING_INTERVAL = 1000;
 const previousNetStats = new Map<string, { rx: number, tx: number, timestamp: number }>();
 const MAX_UPLOAD_CHUNK_BYTES = 524288; // 512KB
+const UPLOAD_READY_TIMEOUT_MS = 8000;
+const UPLOAD_WRITE_TIMEOUT_MS = 30000;
 
 // Interface for tracking active uploads
 interface ActiveUpload {
@@ -1497,7 +1499,20 @@ export class SftpService {
             return;
         }
         if (this.activeUploads.has(uploadId)) {
-            state.ws.send(JSON.stringify({ type: 'sftp:upload:error', uploadId, payload: { uploadId, message: 'Upload already started' } }));
+            const existingUpload = this.activeUploads.get(uploadId)!;
+            if (existingUpload.sessionId !== sessionId || existingUpload.remotePath !== remotePath.replace(/\\/g, '/')) {
+                state.ws.send(JSON.stringify({ type: 'sftp:upload:error', uploadId, payload: { uploadId, message: '上传 ID 与现有任务不匹配' } }));
+                return;
+            }
+            state.ws.send(JSON.stringify({
+                type: 'sftp:upload:ready',
+                uploadId,
+                payload: {
+                    uploadId,
+                    nextChunkIndex: existingUpload.nextChunkIndex,
+                    bytesWritten: existingUpload.bytesWritten,
+                }
+            }));
             return;
         }
         if (!Number.isFinite(totalSize) || totalSize < 0) {
@@ -1511,8 +1526,36 @@ export class SftpService {
         const tempPath = pathModule.posix.join(targetDirectory, `.nexus-${safeUploadId}.part`);
 
         try {
-            await this.ensureDirectoryExists(state.sftp, targetDirectory);
+            if (relativePath) {
+                await Promise.race([
+                    this.ensureDirectoryExists(state.sftp, targetDirectory),
+                    new Promise<never>((_, reject) => setTimeout(
+                        () => reject(new Error(`准备上传目录超时（${UPLOAD_READY_TIMEOUT_MS / 1000} 秒）`)),
+                        UPLOAD_READY_TIMEOUT_MS
+                    )),
+                ]);
+            }
             const stream = state.sftp.createWriteStream(tempPath, { flags: 'w' });
+            await new Promise<void>((resolve, reject) => {
+                let settled = false;
+                const finish = (error?: Error) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timeoutId);
+                    stream.removeListener('open', handleOpen);
+                    stream.removeListener('error', handleError);
+                    if (error) reject(error);
+                    else resolve();
+                };
+                const handleOpen = () => finish();
+                const handleError = (error: Error) => finish(error);
+                const timeoutId = setTimeout(() => {
+                    stream.destroy();
+                    finish(new Error(`打开远端临时文件超时（${UPLOAD_READY_TIMEOUT_MS / 1000} 秒）`));
+                }, UPLOAD_READY_TIMEOUT_MS);
+                stream.once('open', handleOpen);
+                stream.once('error', handleError);
+            });
             const uploadState: ActiveUpload = {
                 remotePath: normalizedRemotePath,
                 tempPath,
@@ -1526,6 +1569,7 @@ export class SftpService {
                 drainPromise: null,
             };
             this.activeUploads.set(uploadId, uploadState);
+            console.log(`[SFTP Upload ${uploadId}] Ready: ${tempPath}`);
 
             stream.on('error', (err: Error) => {
                 console.error(`[SFTP Upload ${uploadId}] WriteStream error for ${tempPath}:`, err);
@@ -1573,9 +1617,20 @@ export class SftpService {
             }
 
             await new Promise<void>((resolve, reject) => {
-                const writeOk = uploadState.stream.write(chunkBuffer, (err) => {
-                    if (err) reject(err);
+                let settled = false;
+                let timeoutId: ReturnType<typeof setTimeout>;
+                const finish = (error?: Error | null) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timeoutId);
+                    if (error) reject(error);
                     else resolve();
+                };
+                timeoutId = setTimeout(() => {
+                    finish(new Error(`写入分片超时（${UPLOAD_WRITE_TIMEOUT_MS / 1000} 秒）`));
+                }, UPLOAD_WRITE_TIMEOUT_MS);
+                const writeOk = uploadState.stream.write(chunkBuffer, (err) => {
+                    finish(err);
                 });
                 if (!writeOk && !uploadState.drainPromise) {
                     uploadState.drainPromise = new Promise<void>(drainResolve => {
