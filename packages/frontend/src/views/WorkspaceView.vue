@@ -791,7 +791,7 @@ const closeFileManagerModal = () => {
       <div
         v-if="hasMountedMobileAiAssistant"
         v-show="showMobileAiAssistant"
-        class="fixed inset-0 z-[160] flex min-h-0 flex-col bg-background pb-[env(safe-area-inset-bottom)] text-foreground"
+        class="fixed inset-0 z-[160] flex min-h-0 flex-col bg-background pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-foreground"
       >
         <AiTerminalAssistant
           mobile-overlay
