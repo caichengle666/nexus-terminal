@@ -488,7 +488,7 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
     <UINotificationDisplay />
 
     <!-- 根据设置条件渲染全局文件编辑器弹窗 -->
-    <FileEditorOverlay v-if="showPopupFileEditorBoolean" :is-mobile="isMobile" />
+    <FileEditorOverlay v-if="showPopupFileEditorBoolean || isMobile" :is-mobile="isMobile" />
 
     <!-- 条件渲染样式自定义器，使用 store 的状态和方法 -->
     <StyleCustomizer v-if="isStyleCustomizerVisible" @close="closeStyleCustomizer" />

@@ -408,7 +408,7 @@ const handleItemAction = (item: FileListItem) => {
           return;
         }
 
-        if (settingsStore.showPopupFileEditorBoolean) {
+        if (props.isMobile || settingsStore.showPopupFileEditorBoolean) {
           fileEditorStore.triggerPopup(realPath, props.sessionId);
         }
         if (shareFileEditorTabsBoolean.value) {
@@ -421,7 +421,7 @@ const handleItemAction = (item: FileListItem) => {
         // Fallback: attempt to open as file, or display an error
         const targetFilename = realPath.substring(realPath.lastIndexOf('/') + 1) || originalLinkItem.filename;
         const fileInfo: FileInfo = { name: targetFilename, fullPath: realPath };
-        if (settingsStore.showPopupFileEditorBoolean) {
+        if (props.isMobile || settingsStore.showPopupFileEditorBoolean) {
           fileEditorStore.triggerPopup(realPath, props.sessionId);
         }
         if (shareFileEditorTabsBoolean.value) {
@@ -504,7 +504,7 @@ const handleItemAction = (item: FileListItem) => {
     const filePath = itemPath; // itemPath is already calculated
     const fileInfo: FileInfo = { name: item.filename, fullPath: filePath };
 
-    if (settingsStore.showPopupFileEditorBoolean) {
+    if (props.isMobile || settingsStore.showPopupFileEditorBoolean) {
       fileEditorStore.triggerPopup(filePath, props.sessionId);
     }
 

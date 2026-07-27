@@ -470,7 +470,7 @@ const stopResize = () => {
 
 // 监听 popupTrigger 的变化来显示弹窗
 watch(popupTrigger, () => {
-    if (!showPopupFileEditorBoolean.value || !popupFileInfo.value) {
+    if ((!props.isMobile && !showPopupFileEditorBoolean.value) || !popupFileInfo.value) {
         console.log('[FileEditorOverlay] Popup trigger changed, but overlay is disabled or file info is missing.');
         isVisible.value = false;
         return;
@@ -502,7 +502,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- 使用本地 isVisible 控制显示 (App.vue 中已有 v-if="showPopupFileEditorBoolean") -->
+  <!-- 使用本地 isVisible 控制显示 -->
   <div v-if="isVisible" class="editor-overlay-backdrop" @click.self="handleCloseContainer"> <!-- 恢复点击背景关闭 -->
     <!-- 编辑器弹窗/容器，应用动态样式 -->
     <div class="editor-popup" :style="popupStyle">
