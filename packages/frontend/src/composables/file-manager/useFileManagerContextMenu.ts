@@ -293,13 +293,6 @@ export function useFileManagerContextMenu(options: UseFileManagerContextMenuOpti
                  contextMenuPosition.value = { x: finalX, y: finalY };
             }
 
-            // Add global listener to hide menu *after* positioning
-            document.removeEventListener('click', hideContextMenu, { capture: true });
-            document.addEventListener('click', hideContextMenu, { capture: true, once: true });
-        } else {
-             // Fallback listener if measurement fails
-             document.removeEventListener('click', hideContextMenu, { capture: true });
-             document.addEventListener('click', hideContextMenu, { capture: true, once: true });
         }
     });
   };
@@ -309,7 +302,6 @@ export function useFileManagerContextMenu(options: UseFileManagerContextMenuOpti
     contextMenuVisible.value = false;
     contextMenuItems.value = [];
     contextTargetItem.value = null; // 清理目标项
-    document.removeEventListener('click', hideContextMenu, { capture: true });
   };
 
   // 返回需要暴露的状态和方法

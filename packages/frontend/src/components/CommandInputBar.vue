@@ -361,7 +361,7 @@ const handleQuickCommandExecute = (command: string) => {
             v-model="currentSessionCommandInput"
             type="text"
             :placeholder="t('commandInputBar.placeholder')"
-            class="h-8 min-w-[150px] flex-1 rounded-lg border border-border/50 bg-input px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/50"
+            class="h-10 min-w-[150px] flex-1 rounded-lg border border-border/50 bg-input px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/50"
             data-focus-id="commandInput"
             @keydown="handleCommandInputKeydown"
             @blur="handleCommandInputBlur"
@@ -369,7 +369,7 @@ const handleQuickCommandExecute = (command: string) => {
           <button
             v-else
             type="button"
-            class="relative flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border/50 text-text-secondary transition-colors hover:bg-border hover:text-foreground"
+            class="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-border/50 text-text-secondary transition-colors hover:bg-border hover:text-foreground"
             :class="moduleId === 'aiAssistant' && isCurrentAiRunning ? 'border-primary/60 bg-primary/10 text-primary' : ''"
             :title="mobileToolbarModuleById.get(moduleId)?.label"
             :aria-label="mobileToolbarModuleById.get(moduleId)?.label"
@@ -386,7 +386,7 @@ const handleQuickCommandExecute = (command: string) => {
       </div>
       <button
         type="button"
-        class="mr-2 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border/50 text-text-secondary transition-colors hover:bg-border hover:text-foreground"
+        class="mr-2 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-border/50 text-text-secondary transition-colors hover:bg-border hover:text-foreground"
         title="配置底部工具栏"
         aria-label="配置底部工具栏"
         @click="showMobileToolbarConfigurator = true"

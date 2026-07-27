@@ -388,10 +388,22 @@ const handleDragStart = (event: DragEvent) => {
 let touchTimeout: number | null = null;
 const touchDuration = 800; // 长按时间阈值，单位毫秒
 let touchedSessionId: string | null = null;
+let touchStartPosition: { x: number; y: number } | null = null;
+
+const cancelTouchHold = () => {
+  if (touchTimeout) {
+    clearTimeout(touchTimeout);
+    touchTimeout = null;
+  }
+  touchedSessionId = null;
+  touchStartPosition = null;
+};
 
 const handleTouchStart = (event: TouchEvent, sessionId: string) => {
   if (props.isMobile) {
+    const touch = event.touches[0];
     touchedSessionId = sessionId;
+    touchStartPosition = touch ? { x: touch.clientX, y: touch.clientY } : null;
     if (touchTimeout) {
       clearTimeout(touchTimeout);
     }
@@ -411,13 +423,15 @@ const handleTouchStart = (event: TouchEvent, sessionId: string) => {
   }
 };
 
-const handleTouchEnd = (event: TouchEvent) => {
-  if (touchTimeout) {
-    clearTimeout(touchTimeout);
-    touchTimeout = null;
+const handleTouchMove = (event: TouchEvent) => {
+  const touch = event.touches[0];
+  if (!touch || !touchStartPosition) return;
+  if (Math.abs(touch.clientX - touchStartPosition.x) > 10 || Math.abs(touch.clientY - touchStartPosition.y) > 10) {
+    cancelTouchHold();
   }
-  touchedSessionId = null;
 };
+
+const handleTouchEnd = () => cancelTouchHold();
  // 处理鼠标滚轮事件以支持水平滚动
 const handleWheel: EventListener = (event: Event) => {
   const wheelEvent = event as WheelEvent;
@@ -439,6 +453,7 @@ onMounted(() => {
 
 // 在组件卸载时移除滚轮事件监听
 onBeforeUnmount(() => {
+  cancelTouchHold();
   const tabContainer = document.querySelector('.overflow-x-auto');
   if (tabContainer) {
     tabContainer.removeEventListener('wheel', handleWheel as EventListener);
@@ -452,7 +467,7 @@ onBeforeUnmount(() => {
   <div :class="['flex bg-header border border-border overflow-hidden',
                { 'rounded-t-md mx-2 mt-2': !props.isMobile }, // Desktop margins/rounding - Use props.isMobile
                props.isMobile
-                 ? (isHeaderVisible ? 'h-8' : 'h-[calc(2rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]')
+                 ? (isHeaderVisible ? 'h-11' : 'h-[calc(2.75rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]')
                  : 'h-10'
               ]">
     <div class="flex items-center overflow-x-auto flex-shrink min-w-0 h-full"> <!-- Ensure inner div has h-full -->
@@ -470,12 +485,15 @@ onBeforeUnmount(() => {
         <template #item="{ element: session }">
           <li
             :key="session.sessionId"
-            :class="['flex items-center px-3 h-full cursor-pointer border-r border-border transition-colors duration-150 relative group',
+            :class="['flex items-center h-full cursor-pointer border-r border-border transition-colors duration-150 relative group',
+                     props.isMobile ? 'px-2' : 'px-3',
                      session.sessionId === activeSessionId ? 'bg-background text-foreground' : 'bg-header text-text-secondary hover:bg-border']"
             @click="activateSession(session.sessionId)"
             @contextmenu.prevent="showContextMenu($event, session.sessionId)"
             @touchstart="handleTouchStart($event, session.sessionId)"
-            @touchend="handleTouchEnd($event)"
+            @touchmove="handleTouchMove($event)"
+            @touchend="handleTouchEnd()"
+            @touchcancel="handleTouchEnd()"
             @dragstart="handleDragStart"
             :title="session.connectionName"
         >
@@ -490,13 +508,13 @@ onBeforeUnmount(() => {
             <span class="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse"></span>
             AI
           </span>
-          <button class="ml-2 p-0.5 rounded-full text-text-secondary hover:bg-border hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                  :class="{'text-foreground hover:bg-header': session.sessionId === activeSessionId}"
+          <button v-show="!props.isMobile || session.sessionId === activeSessionId" class="ml-1 flex items-center justify-center rounded text-text-secondary hover:bg-border hover:text-foreground transition-opacity duration-150"
+                  :class="[{'text-foreground hover:bg-header': session.sessionId === activeSessionId}, props.isMobile ? 'h-9 w-9 opacity-100' : 'p-0.5 opacity-0 group-hover:opacity-100']"
                   @click="reconnectSession($event, session.sessionId)" :title="$t('common.reconnect', '重新连接')">
             <i class="fas fa-rotate-right text-xs"></i>
           </button>
-          <button class="ml-2 p-0.5 rounded-full text-text-secondary hover:bg-border hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                  :class="{'text-foreground hover:bg-header': session.sessionId === activeSessionId}"
+          <button v-show="!props.isMobile || session.sessionId === activeSessionId" class="ml-1 flex items-center justify-center rounded text-text-secondary hover:bg-border hover:text-foreground transition-opacity duration-150"
+                  :class="[{'text-foreground hover:bg-header': session.sessionId === activeSessionId}, props.isMobile ? 'h-9 w-9 opacity-100' : 'p-0.5 opacity-0 group-hover:opacity-100']"
                   @click="closeSession($event, session.sessionId)" :title="$t('tabs.closeTabTooltip')">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />

@@ -101,7 +101,7 @@ const popupStyle = computed(() => {
     if (props.isMobile) {
         return {
             width: '100vw',
-            height: '100vh',
+            height: '100dvh',
             maxWidth: '100%',
             maxHeight: '100%',
             borderRadius: '0',
@@ -651,10 +651,13 @@ onBeforeUnmount(() => {
 @media (max-width: 768px) {
   .editor-popup {
     width: 100vw;
-    height: 100vh;
+    height: 100dvh;
     max-width: 100%;
     max-height: 100%;
     border-radius: 0;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 
@@ -662,10 +665,13 @@ onBeforeUnmount(() => {
 @media (orientation: landscape) and (max-width: 1024px) {
   .editor-popup {
     width: 100vw;
-    height: 100vh;
+    height: 100dvh;
     max-width: 100%;
     max-height: 100%;
     border-radius: 0;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 

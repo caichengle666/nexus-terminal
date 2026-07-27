@@ -732,7 +732,8 @@ const deleteHistory = async () => {
         <button
           v-if="mobileOverlay"
           type="button"
-          class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded hover:bg-hover"
+          class="flex flex-shrink-0 items-center justify-center rounded hover:bg-hover"
+          :class="mobileOverlay ? 'h-10 w-10' : 'h-8 w-8'"
           title="返回终端"
           aria-label="返回终端"
           @click="emit('close-mobile-overlay')"
@@ -748,11 +749,11 @@ const deleteHistory = async () => {
         </div>
       </div>
       <div class="flex flex-shrink-0 items-center gap-1">
-        <button type="button" class="flex h-7 w-7 items-center justify-center rounded hover:bg-hover" title="AI 设置" aria-label="AI 设置" @click="showConfig = !showConfig">
+        <button type="button" class="flex items-center justify-center rounded hover:bg-hover" :class="mobileOverlay ? 'h-10 w-10' : 'h-7 w-7'" title="AI 设置" aria-label="AI 设置" @click="showConfig = !showConfig">
           <i class="fas fa-cog text-xs text-text-secondary" aria-hidden="true" />
         </button>
         <div ref="moreMenuRef" class="relative">
-          <button type="button" class="flex h-7 w-7 items-center justify-center rounded hover:bg-hover" title="更多操作" aria-label="更多操作" :aria-expanded="moreMenuOpen" @click="moreMenuOpen = !moreMenuOpen" @keydown.down.prevent="moreMenuOpen = true; focusFirstPopupItem(moreMenuRef)">
+          <button type="button" class="flex items-center justify-center rounded hover:bg-hover" :class="mobileOverlay ? 'h-10 w-10' : 'h-7 w-7'" title="更多操作" aria-label="更多操作" :aria-expanded="moreMenuOpen" @click="moreMenuOpen = !moreMenuOpen" @keydown.down.prevent="moreMenuOpen = true; focusFirstPopupItem(moreMenuRef)">
             <i class="fas fa-ellipsis-v text-xs text-text-secondary" aria-hidden="true" />
           </button>
           <div v-if="moreMenuOpen" role="menu" class="absolute right-0 top-full z-40 mt-1 w-44 overflow-hidden rounded border border-border bg-background py-1 text-xs shadow-xl" @keydown="handlePopupMenuKeydown">
@@ -766,7 +767,11 @@ const deleteHistory = async () => {
       </div>
     </div>
 
-    <div v-if="showConfig" class="space-y-2 border-b border-border p-3 text-xs">
+    <div
+      v-if="showConfig"
+      class="space-y-2 border-b border-border p-3 text-xs"
+      :class="mobileOverlay ? 'max-h-[55dvh] flex-shrink-0 overflow-y-auto overscroll-contain' : ''"
+    >
       <label class="block">
         <span class="mb-1 block text-text-secondary">API Base URL</span>
         <input v-model="config.apiBaseUrl" class="w-full rounded border border-border bg-input px-2 py-1" placeholder="https://api.openai.com/v1" />

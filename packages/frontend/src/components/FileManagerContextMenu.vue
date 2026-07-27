@@ -133,7 +133,7 @@ onUnmounted(() => {
 const emit = defineEmits(['item-click', 'close-request']); // 添加 close-request
 
 const handleItemClick = (item: ContextMenuItem) => {
-  if (item.action) {
+  if (!item.disabled && item.action) {
     item.action(); // 只有当 action 存在时才执行
     emit('close-request'); // <-- 发出关闭请求
   }
@@ -221,11 +221,12 @@ onUnmounted(() => {
   <div
     ref="contextMenuRef"
     v-if="isVisible"
-    class="fixed bg-background border border-border shadow-lg rounded-md z-[1002] min-w-[150px]"
-    :style="{ top: `${computedRenderPosition.y}px`, left: `${computedRenderPosition.x}px` }"
+    class="file-manager-context-menu fixed z-[1002] border border-border bg-background shadow-2xl"
+    :class="isMobile ? 'is-mobile inset-x-0 bottom-0 max-h-[70dvh] rounded-t-lg border-x-0 border-b-0' : 'min-w-[150px] rounded-md'"
+    :style="isMobile ? undefined : { top: `${computedRenderPosition.y}px`, left: `${computedRenderPosition.x}px` }"
     @click.stop
   >
-    <ul class="list-none p-1 m-0">
+    <ul class="m-0 list-none overflow-y-auto p-1" :class="isMobile ? 'max-h-[70dvh] pb-[max(0.5rem,env(safe-area-inset-bottom))]' : ''">
       <template v-for="(menuItem, index) in items" :key="index">
         <li v-if="menuItem.separator" class="border-t border-border/50 my-1 mx-1"></li>
         <!-- 如果是移动设备且有子菜单，则平铺子菜单 -->
@@ -235,8 +236,8 @@ onUnmounted(() => {
             :key="`${index}-${subIndex}`"
             @click.stop="handleItemClick(subItem)"
             :class="[
-              'px-4 py-1.5 cursor-pointer text-foreground text-sm flex items-center transition-colors duration-150 rounded mx-1',
-              'hover:bg-primary/10 hover:text-primary'
+              'menu-action-item px-4 py-1.5 text-sm flex items-center transition-colors duration-150 rounded mx-1',
+              subItem.disabled ? 'cursor-not-allowed text-text-secondary opacity-50' : 'cursor-pointer text-foreground hover:bg-primary/10 hover:text-primary'
             ]"
           >
             {{ subItem.label }}
@@ -259,8 +260,8 @@ onUnmounted(() => {
           v-else-if="!menuItem.submenu"
           @click.stop="handleItemClick(menuItem)"
           :class="[
-            'px-4 py-1.5 cursor-pointer text-foreground text-sm flex items-center transition-colors duration-150 rounded mx-1',
-            'hover:bg-primary/10 hover:text-primary'
+            'menu-action-item px-4 py-1.5 text-sm flex items-center transition-colors duration-150 rounded mx-1',
+            menuItem.disabled ? 'cursor-not-allowed text-text-secondary opacity-50' : 'cursor-pointer text-foreground hover:bg-primary/10 hover:text-primary'
           ]"
         >
           {{ menuItem.label }}
@@ -326,3 +327,11 @@ onUnmounted(() => {
     @send="handleFilesSent"
   />
 </template>
+
+<style scoped>
+.file-manager-context-menu.is-mobile .menu-action-item {
+  min-height: 44px;
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+}
+</style>

@@ -1661,7 +1661,7 @@ const handleOpenEditorClick = () => {
             <div class="flex items-center flex-shrink-0"> <!-- Removed mr-auto -->
               <!-- CD 到终端按钮 -->
               <button
-                class="flex items-center justify-center w-7 h-7 text-text-secondary rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-black/10 hover:enabled:text-foreground"
+                class="file-manager-touch-target flex items-center justify-center w-7 h-7 text-text-secondary rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-black/10 hover:enabled:text-foreground"
                 @click.stop="sendCdCommandToTerminal"
                 :disabled="!currentSftpManager || !props.wsDeps.isConnected.value || isEditingPath"
                 :title="t('fileManager.actions.cdToTerminal', 'Change terminal directory to current path')"
@@ -1670,7 +1670,7 @@ const handleOpenEditorClick = () => {
               </button>
               <!-- 刷新按钮 -->
               <button
-                class="flex items-center justify-center w-7 h-7 text-text-secondary rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-black/10 hover:enabled:text-foreground"
+                class="file-manager-touch-target flex items-center justify-center w-7 h-7 text-text-secondary rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-black/10 hover:enabled:text-foreground"
                 @click.stop="currentSftpManager?.loadDirectory(currentSftpManager?.currentPath?.value ?? '/', true)"
                 :disabled="!currentSftpManager || !props.wsDeps.isConnected.value || isEditingPath"
                 :title="t('fileManager.actions.refresh')"
@@ -1678,7 +1678,7 @@ const handleOpenEditorClick = () => {
                 <i class="fas fa-sync-alt text-base"></i>
               </button>
               <button
-                class="flex items-center justify-center w-7 h-7 text-text-secondary rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-black/10 hover:enabled:text-foreground"
+                class="file-manager-touch-target flex items-center justify-center w-7 h-7 text-text-secondary rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-black/10 hover:enabled:text-foreground"
                 @click.stop="handleItemClick($event, { filename: '..', longname: '..', attrs: { isDirectory: true, isFile: false, isSymbolicLink: false, size: 0, uid: 0, gid: 0, mode: 0, atime: 0, mtime: 0 } })"
                 :disabled="!currentSftpManager || !props.wsDeps.isConnected.value || currentSftpManager?.currentPath?.value === '/' || isEditingPath"
                 :title="t('fileManager.actions.parentDirectory')"
@@ -1689,7 +1689,7 @@ const handleOpenEditorClick = () => {
              <div class="flex items-center flex-shrink-0">
                  <button
                      v-if="!isSearchActive"
-                     class="flex items-center justify-center w-7 h-7 text-text-secondary rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-black/10 hover:enabled:text-foreground"
+                     class="file-manager-touch-target flex items-center justify-center w-7 h-7 text-text-secondary rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-black/10 hover:enabled:text-foreground"
                      @click.stop="activateSearch"
                      :disabled="!currentSftpManager || !props.wsDeps.isConnected.value"
                      :title="t('fileManager.searchPlaceholder')"
@@ -1719,7 +1719,7 @@ const handleOpenEditorClick = () => {
               <!-- Favorite Paths Button -->
               <button
                   ref="favoritePathsButtonRef"
-                  class="flex items-center justify-center w-7 h-7 text-text-secondary rounded transition-colors duration-200 hover:enabled:bg-black/10 hover:enabled:text-foreground"
+                  class="file-manager-touch-target flex items-center justify-center w-7 h-7 text-text-secondary rounded transition-colors duration-200 hover:enabled:bg-black/10 hover:enabled:text-foreground"
                   @click="toggleFavoritePathsModal"
               >
                   <i class="fas fa-star text-base"></i>
@@ -1781,7 +1781,7 @@ const handleOpenEditorClick = () => {
               @click="openPopupEditor"
               :disabled="!currentSftpManager || !props.wsDeps.isConnected.value"
               :title="t('fileManager.actions.openEditor', 'Open Popup Editor')"
-              class="flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded text-foreground text-xs transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-header hover:enabled:border-primary hover:enabled:text-primary"
+              class="file-manager-touch-target flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded text-foreground text-xs transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-header hover:enabled:border-primary hover:enabled:text-primary"
               :class="{ 'px-1.5': props.isMobile }"
             >
               <i class="far fa-edit text-sm"></i> <!-- 使用编辑图标 -->
@@ -1792,7 +1792,7 @@ const handleOpenEditorClick = () => {
               @click="triggerFileUpload"
               :disabled="!currentSftpManager || !props.wsDeps.isConnected.value"
               :title="t('fileManager.actions.uploadFile')"
-              class="flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded text-foreground text-xs transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-header hover:enabled:border-primary hover:enabled:text-primary"
+              class="file-manager-touch-target flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded text-foreground text-xs transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-header hover:enabled:border-primary hover:enabled:text-primary"
               :class="{ 'px-1.5': props.isMobile }"
             >
               <i class="fas fa-upload text-sm"></i>
@@ -1802,7 +1802,7 @@ const handleOpenEditorClick = () => {
               @click="handleNewFolderContextMenuClick"
               :disabled="!currentSftpManager || !props.wsDeps.isConnected.value"
               :title="t('fileManager.actions.newFolder')"
-              class="flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded text-foreground text-xs transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-header hover:enabled:border-primary hover:enabled:text-primary"
+              class="file-manager-touch-target flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded text-foreground text-xs transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-header hover:enabled:border-primary hover:enabled:text-primary"
               :class="{ 'px-1.5': props.isMobile }"
             >
               <i class="fas fa-folder-plus text-sm"></i>
@@ -1812,7 +1812,7 @@ const handleOpenEditorClick = () => {
               @click="handleNewFileContextMenuClick"
               :disabled="!currentSftpManager || !props.wsDeps.isConnected.value"
               :title="t('fileManager.actions.newFile')"
-              class="flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded text-foreground text-xs transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-header hover:enabled:border-primary hover:enabled:text-primary"
+              class="file-manager-touch-target flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded text-foreground text-xs transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-header hover:enabled:border-primary hover:enabled:text-primary"
               :class="{ 'px-1.5': props.isMobile }"
             >
               <i class="far fa-file-alt text-sm"></i>
@@ -1823,7 +1823,7 @@ const handleOpenEditorClick = () => {
               v-if="props.isMobile"
               @click="toggleMultiSelectMode"
               :title="isMultiSelectMode ? t('fileManager.actions.exitMultiSelect', 'Exit Multi-Select Mode') : t('fileManager.actions.multiSelect', 'Enter Multi-Select Mode')"
-              class="flex items-center gap-1 px-1.5 py-1 bg-background border border-border rounded text-foreground text-xs transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              class="file-manager-touch-target flex items-center gap-1 px-1.5 py-1 bg-background border border-border rounded text-foreground text-xs transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               :class="{
                 'hover:bg-header hover:border-primary hover:text-primary': !isMultiSelectMode,
                 'bg-primary text-white border-primary': isMultiSelectMode
@@ -1865,11 +1865,11 @@ const handleOpenEditorClick = () => {
         <!-- File Table -->
         <table ref="tableRef" class="w-full border-collapse table-fixed border-border rounded" :class="{'pointer-events-none': showExternalDropOverlay}" @contextmenu.prevent>
             <colgroup>
-                 <col :style="{ width: `${colWidths.type}px` }">
-                <col :style="{ width: `${colWidths.name}px` }">
-                <col :style="{ width: `${colWidths.size}px` }">
-                <col :style="{ width: `${colWidths.permissions}px` }">
-                <col :style="{ width: `${colWidths.modified}px` }">
+                <col :style="{ width: props.isMobile ? '44px' : `${colWidths.type}px` }">
+                <col :style="{ width: props.isMobile ? 'auto' : `${colWidths.name}px` }">
+                <col v-if="!props.isMobile" :style="{ width: `${colWidths.size}px` }">
+                <col v-if="!props.isMobile" :style="{ width: `${colWidths.permissions}px` }">
+                <col v-if="!props.isMobile" :style="{ width: `${colWidths.modified}px` }">
            </colgroup>
           <thead class="sticky top-0 z-10 bg-header">
             <tr>
@@ -1892,6 +1892,7 @@ const handleOpenEditorClick = () => {
                 <span class="absolute top-0 right-[-3px] w-1.5 h-full cursor-col-resize z-20 hover:bg-primary/20" @mousedown.prevent="startResize($event, 1)" @click.stop></span>
               </th>
               <th
+                v-if="!props.isMobile"
                 @click="handleSort('size')"
                 class="relative px-2 py-1 border-b-2 border-border text-left text-xs font-medium text-text-secondary uppercase tracking-wider cursor-pointer select-none hover:bg-black/5"
                 :style="{ padding: `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))` }"
@@ -1901,6 +1902,7 @@ const handleOpenEditorClick = () => {
                 <span class="absolute top-0 right-[-3px] w-1.5 h-full cursor-col-resize z-20 hover:bg-primary/20" @mousedown.prevent="startResize($event, 2)" @click.stop></span>
               </th>
               <th
+                v-if="!props.isMobile"
                 class="relative px-2 py-1 border-b-2 border-border text-left text-xs font-medium text-text-secondary uppercase tracking-wider select-none"
                 :style="{ padding: `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))` }"
               >
@@ -1908,6 +1910,7 @@ const handleOpenEditorClick = () => {
                 <span class="absolute top-0 right-[-3px] w-1.5 h-full cursor-col-resize z-20 hover:bg-primary/20" @mousedown.prevent="startResize($event, 3)" @click.stop></span>
               </th>
               <th
+                v-if="!props.isMobile"
                 @click="handleSort('mtime')"
                 class="relative px-2 py-1 border-b-2 border-border text-left text-xs font-medium text-text-secondary uppercase tracking-wider cursor-pointer select-none hover:bg-black/5"
                 :style="{ padding: `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))` }"
@@ -1922,7 +1925,7 @@ const handleOpenEditorClick = () => {
           <!-- Loading State -->
           <tbody v-if="!currentSftpManager || currentSftpManager.isLoading.value">
               <tr>
-                  <td :colspan="5" class="px-4 py-6 text-center text-text-secondary italic">
+                  <td :colspan="props.isMobile ? 2 : 5" class="px-4 py-6 text-center text-text-secondary italic">
                     {{ t('fileManager.loading') }}
                   </td>
               </tr>
@@ -1931,7 +1934,7 @@ const handleOpenEditorClick = () => {
           <!-- Empty Directory State -->
           <tbody v-else-if="filteredFileList.length === 0">
                <tr>
-                   <td :colspan="5" class="px-4 py-6 text-center text-text-secondary italic">
+                   <td :colspan="props.isMobile ? 2 : 5" class="px-4 py-6 text-center text-text-secondary italic">
                      {{ searchQuery ? t('fileManager.noSearchResults') : t('fileManager.emptyDirectory') }}
                    </td>
                </tr>
@@ -1958,9 +1961,9 @@ const handleOpenEditorClick = () => {
                 <i class="fas fa-level-up-alt text-primary" :style="{ fontSize: `calc(1.1em * max(0.85, var(--row-size-multiplier) * 0.5 + 0.5))` }"></i>
               </td>
               <td class="border-b border-border align-middle" :style="{ padding: `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))`, fontSize: `calc(0.8rem * max(0.85, var(--row-size-multiplier) * 0.5 + 0.5))` }">..</td>
-              <td class="border-b border-border align-middle"></td>
-              <td class="border-b border-border align-middle"></td>
-              <td class="border-b border-border align-middle"></td>
+              <td v-if="!props.isMobile" class="border-b border-border align-middle"></td>
+              <td v-if="!props.isMobile" class="border-b border-border align-middle"></td>
+              <td v-if="!props.isMobile" class="border-b border-border align-middle"></td>
             </tr>
             <!-- File Entries -->
             <tr v-for="(item, index) in filteredFileList"
@@ -1993,14 +1996,27 @@ const handleOpenEditorClick = () => {
                 ]"
                 :style="{ fontSize: `calc(1.1em * max(0.85, var(--row-size-multiplier) * 0.5 + 0.5))` }"></i>
               </td>
-              <td class="border-b border-border truncate align-middle" :class="{'font-medium': item.attrs.isDirectory}" :style="{ padding: `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))`, fontSize: `calc(0.8rem * max(0.85, var(--row-size-multiplier) * 0.5 + 0.5))` }">{{ item.filename }}</td>
-              <td class="border-b border-border truncate align-middle" :class="[
+              <td class="border-b border-border align-middle" :class="{'font-medium': item.attrs.isDirectory}" :style="{ padding: props.isMobile ? '0 0.25rem 0 0.5rem' : `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))`, fontSize: `calc(0.8rem * max(0.85, var(--row-size-multiplier) * 0.5 + 0.5))` }">
+                <div class="flex min-w-0 items-center gap-1">
+                  <span class="min-w-0 flex-1 truncate">{{ item.filename }}</span>
+                  <button
+                    v-if="props.isMobile"
+                    type="button"
+                    class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded text-text-secondary hover:bg-hover hover:text-foreground"
+                    :aria-label="`${item.filename} ${t('common.actions', '操作')}`"
+                    @click.stop="showContextMenu($event, item)"
+                  >
+                    <i class="fas fa-ellipsis-v" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </td>
+              <td v-if="!props.isMobile" class="border-b border-border truncate align-middle" :class="[
                 selectedItems.has(item.filename) || (index + (currentSftpManager?.currentPath.value !== '/' ? 1 : 0) === selectedIndex) ? 'text-white' : 'text-text-secondary'
               ]" :style="{ padding: `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))`, fontSize: `calc(0.72rem * max(0.85, var(--row-size-multiplier) * 0.5 + 0.5))` }">{{ item.attrs.isFile ? formatSize(item.attrs.size) : '' }}</td> 
-              <td class="border-b border-border truncate font-mono align-middle" :class="[
+              <td v-if="!props.isMobile" class="border-b border-border truncate font-mono align-middle" :class="[
                 selectedItems.has(item.filename) || (index + (currentSftpManager?.currentPath.value !== '/' ? 1 : 0) === selectedIndex) ? 'text-white' : 'text-text-secondary'
               ]" :style="{ padding: `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))`, fontSize: `calc(0.72rem * max(0.85, var(--row-size-multiplier) * 0.5 + 0.5))` }">{{ formatMode(item.attrs.mode) }}</td>
-              <td class="border-b border-border truncate align-middle" :class="[
+              <td v-if="!props.isMobile" class="border-b border-border truncate align-middle" :class="[
                 selectedItems.has(item.filename) || (index + (currentSftpManager?.currentPath.value !== '/' ? 1 : 0) === selectedIndex) ? 'text-white' : 'text-text-secondary'
               ]" :style="{ padding: `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))`, fontSize: `calc(0.72rem * max(0.85, var(--row-size-multiplier) * 0.5 + 0.5))` }">{{ new Date(item.attrs.mtime).toLocaleString() }}</td> 
             </tr>
@@ -2041,7 +2057,13 @@ const handleOpenEditorClick = () => {
 </template>
 
 <style scoped>
-/* Scoped styles removed for Tailwind CSS refactoring */
+@media (pointer: coarse) {
+  .file-manager-touch-target {
+    min-width: 40px;
+    min-height: 40px;
+    justify-content: center;
+  }
+}
 </style>
 
 

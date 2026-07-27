@@ -265,4 +265,18 @@ onBeforeUnmount(() => {
     flex-grow: 1; /* 占据剩余空间 */
     /* 可以添加样式 */
 }
+
+@media (pointer: coarse) {
+  .tab-item {
+    min-height: 44px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .close-tab-btn {
+    min-width: 36px;
+    height: 36px;
+    padding: 0;
+  }
+}
 </style>

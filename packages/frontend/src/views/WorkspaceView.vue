@@ -819,11 +819,23 @@ const closeFileManagerModal = () => {
     <!-- VNC Modal is now rendered in App.vue -->
 
     <!-- FileManager Modal Container -->
-    <div v-show="showFileManagerModal && currentFileManagerSessionId && fileManagerPropsMap.get(currentFileManagerSessionId)" class="fixed inset-0 flex items-center justify-center z-50 p-4" :style="{ backgroundColor: 'var(--overlay-bg-color)' }" @click.self="closeFileManagerModal">
-      <div class="bg-background rounded-lg shadow-xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden border border-border">
-        <div class="flex justify-between items-center p-3 border-b border-border flex-shrink-0 bg-header">
-          <h2 class="text-lg font-semibold text-foreground">{{ t('fileManager.modalTitle', '文件管理器') }} ({{ currentFileManagerSessionId ? (sessionStore.sessions.get(currentFileManagerSessionId)?.connectionName || currentFileManagerSessionId) : '未知会话' }})</h2>
-          <button @click="closeFileManagerModal" class="text-text-secondary hover:text-foreground transition-colors">
+    <div
+      v-show="showFileManagerModal && currentFileManagerSessionId && fileManagerPropsMap.get(currentFileManagerSessionId)"
+      class="fixed inset-0 z-50 flex"
+      :class="isMobile ? 'items-stretch p-0' : 'items-center justify-center p-4'"
+      :style="{ backgroundColor: 'var(--overlay-bg-color)' }"
+      @click.self="closeFileManagerModal"
+    >
+      <div
+        class="flex w-full flex-col overflow-hidden bg-background shadow-xl"
+        :class="isMobile ? 'h-full rounded-none border-0' : 'h-[85vh] max-w-4xl rounded-lg border border-border'"
+      >
+        <div
+          class="flex flex-shrink-0 items-center justify-between gap-2 border-b border-border bg-header px-3 py-2"
+          :class="isMobile ? 'pt-[max(0.5rem,env(safe-area-inset-top))]' : ''"
+        >
+          <h2 class="min-w-0 truncate font-semibold text-foreground" :class="isMobile ? 'text-sm' : 'text-lg'">{{ t('fileManager.modalTitle', '文件管理器') }} ({{ currentFileManagerSessionId ? (sessionStore.sessions.get(currentFileManagerSessionId)?.connectionName || currentFileManagerSessionId) : '未知会话' }})</h2>
+          <button @click="closeFileManagerModal" class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-hover hover:text-foreground" :aria-label="t('common.close', '关闭')">
             <i class="fas fa-times text-xl"></i>
           </button>
         </div>
@@ -852,15 +864,13 @@ const closeFileManagerModal = () => {
   display: flex;
   background-color: transparent;
   flex-direction: column;
-  height: 100dvh; /* 使用动态视口高度 */
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
-  transition: height 0.3s ease; /* 可选：添加过渡效果 */
 }
 
-/* 当 Header 可见时，调整高度 */
 .workspace-view.with-header {
-  /* 假设 Header 高度为 55px (根据 App.vue CSS) */
-  height: calc(100dvh - 55px); /* 使用动态视口高度计算 */
+  height: 100%;
 }
 
 .main-content-area {
@@ -928,8 +938,8 @@ const closeFileManagerModal = () => {
 
 .mobile-command-bar {
   flex-shrink: 0; /* Prevent command bar from shrinking */
-  /* Add specific styles if needed, e.g., border-top */
   border-top: 1px solid var(--border-color, #ccc);
+  padding-bottom: max(0.375rem, env(safe-area-inset-bottom));
 }
 
 .mobile-virtual-keyboard {
