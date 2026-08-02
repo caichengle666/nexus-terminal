@@ -360,7 +360,7 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
 
 <template>
   
-  <div id="app-container">
+  <div id="app-container" :class="{ 'h-dvh': isWorkspaceRoute }">
     <div
       v-if="pwaUpdateAvailable"
       class="fixed left-1/2 top-[max(0.75rem,env(safe-area-inset-top))] z-[220] flex -translate-x-1/2 items-center gap-3 rounded border border-primary/40 bg-background px-3 py-2 text-sm text-foreground shadow-2xl"
