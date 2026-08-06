@@ -1,6 +1,12 @@
 import { Request, Response } from 'express';
 import * as AiService from './ai.service';
 
+const resolveAiErrorStatus = (error: any): number => {
+  const upstreamStatus = Number(error.response?.status);
+  if (upstreamStatus === 401 || upstreamStatus === 403) return 502;
+  return upstreamStatus || Number(error.status) || 500;
+};
+
 export const getConfig = async (_req: Request, res: Response): Promise<void> => {
   try {
     res.status(200).json(await AiService.getConfig());
@@ -21,7 +27,7 @@ export const testConfig = async (req: Request, res: Response): Promise<void> => 
   try {
     res.status(200).json(await AiService.testConfig(req.body || {}));
   } catch (error: any) {
-    const status = error.status || error.response?.status || 500;
+    const status = resolveAiErrorStatus(error);
     const message = error.response?.data?.error?.message
       || error.response?.data?.message
       || error.message
@@ -34,7 +40,7 @@ export const listModels = async (req: Request, res: Response): Promise<void> => 
   try {
     res.status(200).json(await AiService.listModels(req.body || {}));
   } catch (error: any) {
-    const status = error.status || error.response?.status || 500;
+    const status = resolveAiErrorStatus(error);
     const message = error.response?.data?.error?.message
       || error.response?.data?.message
       || error.message
@@ -47,7 +53,7 @@ export const testStreaming = async (req: Request, res: Response): Promise<void> 
   try {
     res.status(200).json(await AiService.testStreamingConfig(req.body || {}));
   } catch (error: any) {
-    const status = error.status || error.response?.status || 500;
+    const status = resolveAiErrorStatus(error);
     const message = error.response?.data?.error?.message
       || error.response?.data?.message
       || error.message
@@ -60,7 +66,7 @@ export const testToolCalling = async (req: Request, res: Response): Promise<void
   try {
     res.status(200).json(await AiService.testToolCallingConfig(req.body || {}));
   } catch (error: any) {
-    const status = error.status || error.response?.status || 500;
+    const status = resolveAiErrorStatus(error);
     const message = error.response?.data?.error?.message
       || error.response?.data?.message
       || error.message
@@ -92,7 +98,7 @@ export const chat = async (req: Request, res: Response): Promise<void> => {
     const response = await AiService.forwardChatCompletion(req.body || {});
     res.status(response.status).json(response.data);
   } catch (error: any) {
-    const status = error.status || error.response?.status || 500;
+    const status = resolveAiErrorStatus(error);
     const message = error.response?.data?.error?.message
       || error.response?.data?.message
       || error.message
