@@ -58,6 +58,12 @@ export type AiActivityEvent = {
   createdAt: number;
 };
 
+export type AiPromptProposal = {
+  prompt: string;
+  reason: string;
+  createdAt: number;
+};
+
 export type RiskConfirmation = {
   command: string;
   reason: string;
@@ -149,4 +155,5 @@ export type AiRuntimeState = {
   autoCompactCount: number;
   pendingGuidance: string[];
   commandCounts: Record<string, number>;
+  pendingPromptProposal?: AiPromptProposal;
 };

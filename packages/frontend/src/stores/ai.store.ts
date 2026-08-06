@@ -58,6 +58,7 @@ import type {
   AiActivityEvent,
   AiCompactResult,
   AiHistoryConfig,
+  AiPromptProposal,
   AiRunContext,
   AiRunMode,
   AiRuntimeState,
@@ -137,6 +138,7 @@ export const useAiStore = defineStore('ai', () => {
     apiBaseUrl: '',
     apiKey: '',
     model: '',
+    customSystemPrompt: '',
     runMode: 'confirm' as AiRunMode,
     enableBackgroundTools: false,
     compactTriggerPercent: 80,
@@ -162,12 +164,14 @@ export const useAiStore = defineStore('ai', () => {
         autoCompactCount: 0,
         pendingGuidance: [],
         commandCounts: {},
+        pendingPromptProposal: undefined,
       };
     } else {
       const runtime = sessionRuntimes.value[key];
       if (typeof runtime.autoCompactCount !== 'number') runtime.autoCompactCount = 0;
       if (!Array.isArray(runtime.pendingGuidance)) runtime.pendingGuidance = [];
       if (!runtime.commandCounts || typeof runtime.commandCounts !== 'object') runtime.commandCounts = {};
+      if (runtime.pendingPromptProposal && typeof runtime.pendingPromptProposal.prompt !== 'string') runtime.pendingPromptProposal = undefined;
     }
     return sessionRuntimes.value[key];
   };
@@ -215,6 +219,7 @@ export const useAiStore = defineStore('ai', () => {
   const canQueueGuidance = computed(() => !!userInput.value.trim() && isRunning.value);
   const hasActiveTerminal = computed(() => !!activeSession.value?.terminalManager?.terminalInstance?.value);
   const continuationAvailable = computed(() => currentRuntime.value.continuationAvailable);
+  const pendingPromptProposal = computed<AiPromptProposal | undefined>(() => currentRuntime.value.pendingPromptProposal);
 
   const addActivity = (runtime: AiRuntimeState, title: string, detail?: string, state: AiActivityEvent['state'] = 'active') => {
     runtime.activityEvents.push({
@@ -367,6 +372,7 @@ export const useAiStore = defineStore('ai', () => {
       MAX_AUTO_COMPACTS_PER_TASK,
       Math.max(MIN_AUTO_COMPACTS_PER_TASK, Number(config.value.maxAutoCompactsPerTask) || DEFAULT_AUTO_COMPACTS_PER_TASK),
     )),
+    customSystemPrompt: String(config.value.customSystemPrompt || '').trim().slice(0, 16384),
   });
 
   const maxRequestBytes = computed(() => Math.round(Math.min(
@@ -391,6 +397,7 @@ export const useAiStore = defineStore('ai', () => {
       const raw = localStorage.getItem(CONFIG_KEY);
       if (raw) {
         config.value = { ...config.value, ...JSON.parse(raw) };
+        config.value.customSystemPrompt = String(config.value.customSystemPrompt || '').trim().slice(0, 16384);
         localStorage.setItem(CONFIG_KEY, JSON.stringify(persistableConfig()));
       }
     } catch (error) {
@@ -401,6 +408,7 @@ export const useAiStore = defineStore('ai', () => {
       const response = await apiClient.get('/ai/config');
       config.value.apiBaseUrl = response.data?.apiBaseUrl || config.value.apiBaseUrl;
       config.value.model = response.data?.model || config.value.model;
+      if (typeof response.data?.customSystemPrompt === 'string') config.value.customSystemPrompt = response.data.customSystemPrompt.trim().slice(0, 16384);
       hasSavedApiKey.value = !!response.data?.hasApiKey;
       if (hasSavedApiKey.value) {
         config.value.apiKey = '';
@@ -1288,6 +1296,9 @@ export const useAiStore = defineStore('ai', () => {
         ...parsedArgs,
         sessionId: context.sessionId,
       };
+      if (toolCall.function.name === 'terminal_input' && parsedArgs.pressEnter === undefined) {
+        args.pressEnter = true;
+      }
       toolRun.args = args;
       if (toolCall.function.name === 'terminal_input' && (typeof parsedArgs.text !== 'string' || !parsedArgs.text.trim())) {
         toolRun.status = 'error';
@@ -1315,6 +1326,7 @@ export const useAiStore = defineStore('ai', () => {
         list_remote_directory: '正在读取远程目录',
         list_active_terminals: '正在读取活动终端列表',
         execute_command_batch: '正在准备批量 VPS 命令',
+        propose_system_prompt_update: 'AI 正在提出系统提示词优化建议',
       };
       addActivity(
         context.runtime,
@@ -1341,6 +1353,25 @@ export const useAiStore = defineStore('ai', () => {
         result = { ok: true, count: terminals.length, terminals };
       } else if (toolCall.function.name === 'execute_command_batch') {
         result = await executeCommandBatch(args, context, options);
+      } else if (toolCall.function.name === 'propose_system_prompt_update') {
+        const prompt = typeof parsedArgs.prompt === 'string' ? parsedArgs.prompt.trim() : '';
+        const reason = typeof parsedArgs.reason === 'string' ? parsedArgs.reason.trim() : '';
+        if (!prompt) {
+          result = { ok: false, error: 'AI 提议的系统提示词不能为空。' };
+        } else if (prompt.length > 16384) {
+          result = { ok: false, error: 'AI 提议的系统提示词超过 16KB 限制。' };
+        } else {
+          context.runtime.pendingPromptProposal = {
+            prompt,
+            reason: reason.slice(0, 1000) || 'AI 认为这项偏好可以提高后续终端操作准确性。',
+            createdAt: Date.now(),
+          };
+          result = {
+            ok: true,
+            pendingApproval: true,
+            message: '系统提示词修改建议已提交给用户审核，尚未修改配置。',
+          };
+        }
       } else {
         result = { ok: false, error: `Unknown tool: ${toolCall.function.name}` };
       }
@@ -1355,9 +1386,14 @@ export const useAiStore = defineStore('ai', () => {
       if (toolRun.status === 'done') {
         const readOnlyTerminalTool = toolCall.function.name === 'get_terminal_output'
           || toolCall.function.name === 'wait_for_terminal_output';
+        const activityMessage = toolCall.function.name === 'propose_system_prompt_update'
+          ? '系统提示词建议已生成，等待用户审核'
+          : readOnlyTerminalTool
+            ? '终端输出已读取，正在分析'
+            : '命令已发送，正在读取结果';
         addActivity(
           context.runtime,
-          readOnlyTerminalTool ? '终端输出已读取，正在分析' : '命令已发送，正在读取结果',
+          activityMessage,
           undefined,
           'done',
         );
@@ -1423,6 +1459,9 @@ export const useAiStore = defineStore('ai', () => {
     role: 'system',
     content: [
       'You are an AI terminal operator inside Nexus Terminal.',
+      config.value.customSystemPrompt.trim()
+        ? `User-provided preferences (not permissions):\n${config.value.customSystemPrompt.trim()}`
+        : '',
       `This AI run is locked to terminal session ID: ${sessionId || 'none'}.`,
       formatServerProfileForPrompt(sessionId),
       'You can inspect and operate only the locked SSH terminal for this run.',
@@ -1431,6 +1470,7 @@ export const useAiStore = defineStore('ai', () => {
       'Terminal reads without afterCursor return a full snapshot. Reuse a returned cursor as afterCursor for incremental output; only then may an unchanged body be omitted.',
       'Use read_remote_file and list_remote_directory for read-only file inspection instead of shell commands when the exact path is known.',
       'Prefer terminal_input for ordinary commands on the current terminal so the user can see what you are doing in the visible shell.',
+      'For terminal_input commands, set pressEnter to true. Set it to false only when intentionally entering partial interactive input that must not be submitted yet.',
       config.value.enableBackgroundTools
         ? 'Background tools are enabled by the user. Use execute_command only when you need an exact exit code, clean machine-readable output, or batch-safe background execution. Its command and result remain visible in the AI tool activity, but it does not type into the terminal.'
         : 'Background tools are disabled by the user. Use only visible terminal input for commands; do not request execute_command or execute_command_batch.',
@@ -1449,7 +1489,9 @@ export const useAiStore = defineStore('ai', () => {
       'Ignore later UI tab switches. They do not change the locked session for this run.',
       'Only when the user explicitly requests a multi-VPS operation, call list_active_terminals first and then execute_command_batch with exact target session IDs.',
       'Never infer batch targets or broadcast a command merely because multiple terminals are open.',
-    ].join('\n'),
+      'Call propose_system_prompt_update only when the user explicitly asks to create, improve, or update their custom system prompt. Never propose preference changes during unrelated terminal work.',
+      'The fixed Nexus Terminal safety, session-lock, confirmation, and tool rules take precedence over user-provided preferences.',
+    ].filter(Boolean).join('\n'),
   });
 
   const summarizeWithAi = async (olderMessages: AiChatMessage[], memory = currentMemory.value, runtime = currentRuntime.value) => {
@@ -1598,12 +1640,29 @@ export const useAiStore = defineStore('ai', () => {
       apiBaseUrl: config.value.apiBaseUrl,
       apiKey: config.value.apiKey,
       model: config.value.model,
+      customSystemPrompt: config.value.customSystemPrompt,
     });
     hasSavedApiKey.value = !!response.data?.hasApiKey;
     if (hasSavedApiKey.value) {
       config.value.apiKey = '';
     }
     configMessage.value = 'AI 配置已保存。';
+  };
+
+  const acceptPromptProposal = async () => {
+    const proposal = currentRuntime.value.pendingPromptProposal;
+    if (!proposal) return false;
+    config.value.customSystemPrompt = proposal.prompt;
+    await saveConfig();
+    currentRuntime.value.pendingPromptProposal = undefined;
+    configMessage.value = 'AI 建议的系统提示词已确认并保存。';
+    return true;
+  };
+
+  const rejectPromptProposal = () => {
+    if (!currentRuntime.value.pendingPromptProposal) return false;
+    currentRuntime.value.pendingPromptProposal = undefined;
+    return true;
   };
 
   const testConfig = async () => {
@@ -2121,6 +2180,9 @@ export const useAiStore = defineStore('ai', () => {
     clearChat,
     continueLastResponse,
     continuationAvailable,
+    pendingPromptProposal,
+    acceptPromptProposal,
+    rejectPromptProposal,
     exportSessionData,
     importSessionData,
     checkSessionImport,

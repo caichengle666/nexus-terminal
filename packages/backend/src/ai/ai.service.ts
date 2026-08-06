@@ -18,6 +18,7 @@ export interface AiConfigRequest {
   apiBaseUrl?: unknown;
   apiKey?: unknown;
   model?: unknown;
+  customSystemPrompt?: unknown;
 }
 
 const AI_CONFIG_KEY = 'aiTerminalConfig';
@@ -33,7 +34,7 @@ const normalizeApiBaseUrl = (value: unknown): string => {
 const readStoredConfig = async () => {
   const raw = await settingsRepository.getSetting(AI_CONFIG_KEY);
   if (!raw) {
-    return { apiBaseUrl: '', model: '', encryptedApiKey: '' };
+    return { apiBaseUrl: '', model: '', encryptedApiKey: '', customSystemPrompt: '' };
   }
 
   try {
@@ -42,10 +43,21 @@ const readStoredConfig = async () => {
       apiBaseUrl: typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl : '',
       model: typeof parsed.model === 'string' ? parsed.model : '',
       encryptedApiKey: typeof parsed.encryptedApiKey === 'string' ? parsed.encryptedApiKey : '',
+      customSystemPrompt: typeof parsed.customSystemPrompt === 'string' ? parsed.customSystemPrompt : '',
     };
   } catch {
-    return { apiBaseUrl: '', model: '', encryptedApiKey: '' };
+    return { apiBaseUrl: '', model: '', encryptedApiKey: '', customSystemPrompt: '' };
   }
+};
+
+const normalizeCustomSystemPrompt = (value: unknown, fallback = '') => {
+  const prompt = typeof value === 'string' ? value.trim() : fallback;
+  if (prompt.length > 16384) {
+    const error = new Error('自定义系统提示词不能超过 16KB。');
+    (error as any).status = 400;
+    throw error;
+  }
+  return prompt;
 };
 
 const decryptStoredApiKey = (encryptedApiKey: string) => {
@@ -69,6 +81,7 @@ export const getConfig = async () => {
   return {
     apiBaseUrl: stored.apiBaseUrl,
     model: stored.model,
+    customSystemPrompt: stored.customSystemPrompt,
     hasApiKey: !!stored.encryptedApiKey,
   };
 };
@@ -82,6 +95,7 @@ export const saveConfig = async (payload: AiConfigRequest) => {
   const next = {
     apiBaseUrl: typeof payload.apiBaseUrl === 'string' ? payload.apiBaseUrl.trim() : current.apiBaseUrl,
     model: typeof payload.model === 'string' ? payload.model.trim() : current.model,
+    customSystemPrompt: normalizeCustomSystemPrompt(payload.customSystemPrompt, current.customSystemPrompt),
     encryptedApiKey: nextApiKey,
   };
 
@@ -89,6 +103,7 @@ export const saveConfig = async (payload: AiConfigRequest) => {
   return {
     apiBaseUrl: next.apiBaseUrl,
     model: next.model,
+    customSystemPrompt: next.customSystemPrompt,
     hasApiKey: !!next.encryptedApiKey,
   };
 };

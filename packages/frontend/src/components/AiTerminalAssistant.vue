@@ -47,6 +47,7 @@ const {
   canQueueGuidance,
   hasActiveTerminal,
   continuationAvailable,
+  pendingPromptProposal,
 } = storeToRefs(aiStore);
 
 const modeMenuOpen = ref(false);
@@ -56,6 +57,7 @@ const modelMenuRef = ref<HTMLElement | null>(null);
 const moreMenuOpen = ref(false);
 const moreMenuRef = ref<HTMLElement | null>(null);
 const contextExpanded = ref(false);
+const promptSettingsExpanded = ref(false);
 const toolRenderLimit = ref(20);
 const importFileInput = ref<HTMLInputElement | null>(null);
 const modeOptions = [
@@ -211,6 +213,7 @@ const formatToolName = (name: string) => {
   if (name === 'list_remote_directory') return '列出远程目录';
   if (name === 'list_active_terminals') return '列出活动终端';
   if (name === 'execute_command_batch') return '批量执行 VPS 命令';
+  if (name === 'propose_system_prompt_update') return '建议修改系统提示词';
   return name;
 };
 
@@ -257,6 +260,7 @@ const formatToolSummary = (run: AiToolRun) => {
     const count = Array.isArray(run.args.targetSessionIds) ? run.args.targetSessionIds.length : 0;
     return `${count} 台终端 · ${String(run.args.command || '').slice(0, 100)}`;
   }
+  if (run.name === 'propose_system_prompt_update') return String(run.args.reason || '等待用户审核');
   if (run.name === 'list_active_terminals') return '读取当前已连接 SSH Tab';
   return JSON.stringify(run.args);
 };
@@ -692,6 +696,20 @@ const testStreaming = async () => {
   }
 };
 
+const acceptPromptProposal = async () => {
+  try {
+    await aiStore.acceptPromptProposal();
+    promptSettingsExpanded.value = true;
+    showConfig.value = true;
+  } catch (error: any) {
+    errorMessage.value = error.response?.data?.message || error.message || '系统提示词保存失败。';
+  }
+};
+
+const rejectPromptProposal = () => {
+  aiStore.rejectPromptProposal();
+};
+
 const testToolCalling = async () => {
   try {
     await aiStore.testToolCalling();
@@ -823,6 +841,33 @@ const deleteHistory = async () => {
         </div>
         <span v-if="modelFetchMessage" class="mt-1 block" :class="availableModels.length > 0 ? 'text-success' : 'text-warning'">{{ modelFetchMessage }}</span>
       </label>
+      <div class="rounded border border-border/70 bg-header/20">
+        <button
+          type="button"
+          class="flex w-full items-center justify-between gap-2 px-2 py-2 text-left text-foreground hover:bg-hover"
+          :aria-expanded="promptSettingsExpanded"
+          @click="promptSettingsExpanded = !promptSettingsExpanded"
+        >
+          <span class="font-medium">自定义系统提示词</span>
+          <span class="flex items-center gap-2 text-[11px] text-text-secondary">
+            {{ config.customSystemPrompt.length }} / 16384
+            <i class="fas text-[10px]" :class="promptSettingsExpanded ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
+          </span>
+        </button>
+        <div v-if="promptSettingsExpanded" class="border-t border-border/70 p-2">
+          <textarea
+            v-model="config.customSystemPrompt"
+            maxlength="16384"
+            rows="6"
+            class="w-full resize-y rounded border border-primary/40 bg-input px-2 py-1.5 text-xs leading-relaxed text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/25"
+            placeholder="例如：优先使用当前系统的包管理器；修改服务前先读取状态；完成后验证结果。"
+          />
+          <div class="mt-1 flex items-center justify-between gap-2 text-[10px] text-text-secondary">
+            <span>这里只设置操作偏好，不能覆盖终端锁定、危险命令确认和工具安全规则。</span>
+            <button v-if="config.customSystemPrompt" type="button" class="flex-shrink-0 text-error hover:underline" @click="config.customSystemPrompt = ''">清空</button>
+          </div>
+        </div>
+      </div>
       <div class="rounded border border-border/70 bg-header/20 p-2">
         <div class="mb-2 flex items-center justify-between gap-2">
           <span class="font-medium text-foreground">文件会话记录</span>
@@ -864,6 +909,16 @@ const deleteHistory = async () => {
         <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testToolCalling">测试工具</button>
       </div>
       <div v-if="configMessage" class="text-success">{{ configMessage }}</div>
+    </div>
+
+    <div v-if="pendingPromptProposal" class="border-b border-primary/30 bg-primary/10 p-3 text-xs">
+      <div class="font-medium text-foreground">AI 建议更新系统提示词</div>
+      <div class="mt-1 text-text-secondary">{{ pendingPromptProposal.reason }}</div>
+      <pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded border border-border/60 bg-background/70 p-2 text-[11px] text-foreground">{{ pendingPromptProposal.prompt }}</pre>
+      <div class="mt-2 flex gap-2">
+        <button type="button" class="rounded bg-primary px-3 py-1.5 text-white" @click="acceptPromptProposal">接受并保存</button>
+        <button type="button" class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="rejectPromptProposal">拒绝</button>
+      </div>
     </div>
 
     <div class="border-b border-border px-3 py-1.5 text-xs">

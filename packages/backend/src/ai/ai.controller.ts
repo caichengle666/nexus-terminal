@@ -13,7 +13,7 @@ export const saveConfig = async (req: Request, res: Response): Promise<void> => 
   try {
     res.status(200).json(await AiService.saveConfig(req.body || {}));
   } catch (error: any) {
-    res.status(500).json({ message: error.message || 'Failed to save AI config.' });
+    res.status(error.status || 500).json({ message: error.message || 'Failed to save AI config.' });
   }
 };
 

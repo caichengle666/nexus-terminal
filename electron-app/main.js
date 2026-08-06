@@ -727,7 +727,7 @@ ipcMain.on('minimize-window', () => {
   }
 });
 
-ipcMain.handle('get-app-version', () => app.getVersion());
+ipcMain.handle('get-app-version', () => require('./package.json').releaseVersion || app.getVersion());
 ipcMain.handle('get-platform', () => process.platform);
 
 const commandExists = (command) => new Promise((resolve) => {

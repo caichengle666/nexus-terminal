@@ -50,7 +50,7 @@ export const aiTools = [
         required: ['text'],
         properties: {
           text: { type: 'string', description: 'Text or command to send to terminal.' },
-          pressEnter: { type: 'boolean', description: 'Append Enter after text. Default false.' },
+          pressEnter: { type: 'boolean', description: 'Append Enter after text. Defaults to true for commands. Set false only for partial interactive input that must not be submitted yet.' },
           waitMs: { type: 'number', description: 'Maximum initial wait for visible output to settle. Default 3000, maximum 10000. Use wait_for_terminal_output for longer operations.' },
           reason: { type: 'string', description: 'Short reason why this input is needed.' },
         },
@@ -147,6 +147,22 @@ export const aiTools = [
           targetSessionIds: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'string' }, description: 'Exact session IDs returned by list_active_terminals.' },
           timeoutMs: { type: 'number', description: 'Per-terminal timeout in milliseconds. Default 30000, maximum 180000.' },
           reason: { type: 'string', description: 'Short reason for the batch operation.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_system_prompt_update',
+      description: 'Propose a new user preference for the Nexus Terminal AI system prompt. This never changes settings directly; the user must review and approve the proposal in the UI. Do not use this for terminal commands or safety rules.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['prompt', 'reason'],
+        properties: {
+          prompt: { type: 'string', maxLength: 16384, description: 'Complete replacement for the user custom prompt, maximum 16KB.' },
+          reason: { type: 'string', maxLength: 1000, description: 'Why this prompt change should improve future terminal operations.' },
         },
       },
     },
