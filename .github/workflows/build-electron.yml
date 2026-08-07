@@ -54,7 +54,17 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType File -Force -Path "electron-app/dist/win-unpacked/.Portable" | Out-Null
-          Compress-Archive -Path "electron-app/dist/win-unpacked/*" -DestinationPath "electron-app/dist/Nexus Terminal Portable win-unpacked.zip" -Force
+          $source = Resolve-Path "electron-app/dist/win-unpacked"
+          $destination = [System.IO.Path]::GetFullPath("electron-app/dist/Nexus Terminal Portable win-unpacked.zip")
+          Push-Location $source
+          try {
+            & 7z a -tzip -mx=9 -mm=Deflate -mfb=258 -mpass=15 $destination ".\*"
+            if ($LASTEXITCODE -ne 0) {
+              throw "7-Zip failed with exit code $LASTEXITCODE"
+            }
+          } finally {
+            Pop-Location
+          }
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
