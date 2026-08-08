@@ -878,6 +878,9 @@ export const useAiStore = defineStore('ai', () => {
   };
 
   const readRemoteFile = async (args: Record<string, any>, context: AiRunContext) => {
+    if (!config.value.enableBackgroundTools) {
+      return { ok: false, error: '后台工具未启用，AI 无法读取远程文件。' };
+    }
     const session = getTargetSession(context.sessionId);
     if (!session) return { ok: false, error: '锁定的终端会话不可用。' };
     if (!session.wsManager.isSftpReady.value) return { ok: false, error: '当前终端的 SFTP 尚未就绪。' };
@@ -924,6 +927,9 @@ export const useAiStore = defineStore('ai', () => {
   };
 
   const listRemoteDirectory = async (args: Record<string, any>, context: AiRunContext) => {
+    if (!config.value.enableBackgroundTools) {
+      return { ok: false, error: '后台工具未启用，AI 无法读取远程目录。' };
+    }
     const session = getTargetSession(context.sessionId);
     if (!session) return { ok: false, error: '锁定的终端会话不可用。' };
     if (!session.wsManager.isSftpReady.value) return { ok: false, error: '当前终端的 SFTP 尚未就绪。' };
@@ -1468,12 +1474,11 @@ export const useAiStore = defineStore('ai', () => {
       `Run mode: ${runMode.value}. In readOnly mode, inspect only and explain what you would do.`,
       'Use get_terminal_output for an immediate terminal snapshot when context is unclear.',
       'Terminal reads without afterCursor return a full snapshot. Reuse a returned cursor as afterCursor for incremental output; only then may an unchanged body be omitted.',
-      'Use read_remote_file and list_remote_directory for read-only file inspection instead of shell commands when the exact path is known.',
       'Prefer terminal_input for ordinary commands on the current terminal so the user can see what you are doing in the visible shell.',
       'For terminal_input commands, set pressEnter to true. Set it to false only when intentionally entering partial interactive input that must not be submitted yet.',
       config.value.enableBackgroundTools
-        ? 'Background tools are enabled by the user. Use execute_command only when you need an exact exit code, clean machine-readable output, or batch-safe background execution. Its command and result remain visible in the AI tool activity, but it does not type into the terminal.'
-        : 'Background tools are disabled by the user. Use only visible terminal input for commands; do not request execute_command or execute_command_batch.',
+        ? 'Background tools are enabled by the user. Use read_remote_file and list_remote_directory for read-only file inspection when the exact path is known. Use execute_command only when you need an exact exit code, clean machine-readable output, or batch-safe background execution. Background tool activity remains visible to the user, but commands are not typed into the terminal.'
+        : 'Background tools are disabled by the user. Use only visible terminal tools; do not request execute_command, execute_command_batch, read_remote_file, or list_remote_directory.',
       'Use send_terminal_key for Enter, Ctrl+C, Escape, or Tab. Do not encode control characters manually.',
       'After terminal_input, inspect its status fields. If likelyRunning or pending is true, call wait_for_terminal_output; never send an empty Enter merely to check progress.',
       'Treat likelyRunning as a prompt-based hint, not a guaranteed process state. A returned shell prompt is the strongest visible-terminal completion signal.',
@@ -1579,7 +1584,12 @@ export const useAiStore = defineStore('ai', () => {
 
   const enabledAiTools = computed(() => config.value.enableBackgroundTools
     ? aiTools
-    : aiTools.filter(tool => tool.function.name !== 'execute_command' && tool.function.name !== 'execute_command_batch'));
+    : aiTools.filter(tool => ![
+      'execute_command',
+      'execute_command_batch',
+      'read_remote_file',
+      'list_remote_directory',
+    ].includes(tool.function.name)));
 
   const buildChatPayload = (context?: AiRunContext, extraMessages: AiChatMessage[] = []) => ({
     ...config.value,

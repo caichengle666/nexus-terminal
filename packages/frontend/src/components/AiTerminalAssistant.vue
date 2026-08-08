@@ -1144,7 +1144,7 @@ const deleteHistory = async () => {
       </div>
       <div class="flex items-center justify-end gap-2 text-xs">
         <div class="flex flex-shrink-0 items-center gap-2">
-          <label class="flex items-center gap-1.5 text-text-secondary" title="允许 AI 使用不会显示在终端中的后台命令和批量命令工具">
+          <label class="flex items-center gap-1.5 text-text-secondary" title="允许 AI 使用后台命令、批量命令和远程文件读取工具">
             <input v-model="config.enableBackgroundTools" type="checkbox" class="accent-primary" :disabled="isRunning" />
             <span>后台工具</span>
           </label>
