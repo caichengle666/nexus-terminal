@@ -15,7 +15,7 @@
   <body>
     <div id="app">
       <div class="app-boot" role="status" aria-live="polite">
-        <div class="app-boot__mark" aria-hidden="true">N</div>
+        <img class="app-boot__mark" src="/src/assets/logo.png?inline" alt="" aria-hidden="true" />
         <div class="app-boot__name">Nexus Terminal</div>
         <div id="app-loading-status" class="app-boot__status">正在启动客户端...</div>
       </div>
@@ -45,15 +45,11 @@
       }
 
       .app-boot__mark {
-        display: grid;
-        width: 42px;
-        height: 42px;
-        place-items: center;
-        border: 1px solid #566179;
-        border-radius: 10px;
-        color: #9dbbff;
-        font-size: 22px;
-        font-weight: 700;
+        display: block;
+        width: 72px;
+        height: 72px;
+        border-radius: 14px;
+        object-fit: contain;
       }
 
       .app-boot__name {
