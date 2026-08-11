@@ -25,20 +25,28 @@ export class TransfersController {
       }
 
       const payload = req.body as InitiateTransferPayload;
-      // TODO: 添加payload验证逻辑
-      if (!payload || !payload.connectionIds || !payload.sourceItems || !payload.remoteTargetPath || !payload.transferMethod) {
-        res.status(400).json({ message: 'Invalid payload. Required fields: connectionIds, sourceItems, remoteTargetPath, transferMethod.' });
+      if (!payload || !Number.isSafeInteger(payload.sourceConnectionId) || typeof payload.remoteTargetPath !== 'string' || !payload.remoteTargetPath.trim()) {
+        res.status(400).json({ message: '缺少有效的源连接或目标路径。' });
         return;
       }
-      if (!Array.isArray(payload.connectionIds) || payload.connectionIds.length === 0) {
-        res.status(400).json({ message: 'connectionIds must be a non-empty array.' });
+      if (!Array.isArray(payload.connectionIds) || payload.connectionIds.length === 0 || payload.connectionIds.some(id => !Number.isSafeInteger(id))) {
+        res.status(400).json({ message: '目标连接列表无效。' });
         return;
       }
-      if (!Array.isArray(payload.sourceItems) || payload.sourceItems.length === 0) {
-        res.status(400).json({ message: 'sourceItems must be a non-empty array.' });
+      if (payload.connectionIds.includes(payload.sourceConnectionId)) {
+        res.status(400).json({ message: '目标连接不能与源连接相同。' });
         return;
       }
-      // 更多详细验证可以后续添加
+      if (!Array.isArray(payload.sourceItems) || payload.sourceItems.length === 0 || payload.sourceItems.some(item =>
+        !item || typeof item.name !== 'string' || !item.name || typeof item.path !== 'string' || !item.path || !['file', 'directory'].includes(item.type)
+      )) {
+        res.status(400).json({ message: '源文件列表无效。' });
+        return;
+      }
+
+      payload.connectionIds = [...new Set(payload.connectionIds)];
+      payload.remoteTargetPath = payload.remoteTargetPath.trim();
+      payload.transferMethod = 'sftp-relay';
 
       const task = await this.transfersService.initiateNewTransfer(payload, userId);
       res.status(202).json(task); // 202 Accepted 表示请求已接受处理，但尚未完成

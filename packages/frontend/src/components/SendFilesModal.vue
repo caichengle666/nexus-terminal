@@ -21,7 +21,7 @@
 
       <!-- Body -->
       <div class="flex-grow overflow-y-auto pr-1 space-y-4">
-        <!-- Top Section: Search, Target Path, Transfer Method -->
+        <!-- Top Section: Search and target path -->
         <div class="space-y-4">
           <input
             type="text"
@@ -29,8 +29,8 @@
             v-model="searchTerm"
             class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-input text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm"
           />
-          <div class="flex flex-col sm:flex-row gap-4">
-            <div class="form-group flex-1">
+          <div>
+            <div class="form-group">
               <label for="targetPath" class="block text-sm font-medium text-text-secondary mb-1">{{ t('sendFilesModal.targetPathLabel') }}</label>
               <input
                 type="text"
@@ -39,19 +39,6 @@
                 :placeholder="t('sendFilesModal.targetPathPlaceholder')"
                 class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-input text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-sm"
               />
-            </div>
-            <div class="form-group sm:w-48">
-              <label for="transferMethod" class="block text-sm font-medium text-text-secondary mb-1">{{ t('sendFilesModal.transferMethodLabel') }}</label>
-              <select
-                id="transferMethod"
-                v-model="transferMethod"
-                class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary appearance-none bg-no-repeat bg-right pr-8"
-                style="background-image: url('data:image/svg+xml,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 16 16\'%3e%3cpath fill=\'none\' stroke=\'%236c757d\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M2 5l6 6 6-6\'/%3e%3c/svg%3e'); background-position: right 0.75rem center; background-size: 16px 12px;"
-              >
-                <option value="auto">{{ t('sendFilesModal.transferMethodAuto') }}</option>
-                <option value="rsync">rsync</option>
-                <option value="scp">scp</option>
-              </select>
             </div>
           </div>
         </div>
@@ -197,7 +184,6 @@ const emitWorkspaceEvent = useWorkspaceEventEmitter(); // +++ 获取事件发射
 
 const searchTerm = ref('');
 const targetPath = ref('');
-const transferMethod = ref<'auto' | 'rsync' | 'scp'>('auto');
 const selectedConnectionIds = ref<number[]>([]);
 
 const isLoadingConnections = ref(false);
@@ -254,7 +240,7 @@ const groupedConnections = computed<GroupedConnection[]>(() => {
   const untaggedConnections: ConnectionInfo[] = [];
 
   allConnections.value.forEach(conn => {
-    if (conn.type?.toLowerCase() !== 'ssh') { // 首先过滤掉非 SSH 连接
+    if (conn.type?.toLowerCase() !== 'ssh' || conn.id === props.sourceConnectionId) {
       return;
     }
     const connTagIds = conn.tag_ids || [];
@@ -375,7 +361,7 @@ const handleSend = async () => {
     connectionIds: [...selectedConnectionIds.value], // 这些是目标服务器IDs
     sourceItems,
     remoteTargetPath: targetPath.value.trim(),
-    transferMethod: transferMethod.value,
+    transferMethod: 'sftp-relay',
   };
 
   // 验证 sourceConnectionId 是否存在

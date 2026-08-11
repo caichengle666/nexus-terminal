@@ -486,6 +486,13 @@ async function _establishConnectionViaJumpChainRecursive(
                 finalTargetDetails.name
             )
             .then(client => {
+                const closeJumpClients = () => {
+                    activeClients.splice(0).reverse().forEach(activeClient => {
+                        try { activeClient.end(); } catch { /* already closed */ }
+                    });
+                };
+                client.once('close', closeJumpClients);
+                client.once('error', closeJumpClients);
                 resolveOuter(client); // Successfully connected to final target
             })
             .catch(err => {

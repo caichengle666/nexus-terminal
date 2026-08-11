@@ -5,6 +5,7 @@
    "main": "dist/index.js",
    "scripts": {
       "build": "tsc && copyfiles -u 1 \"src/locales/**/*.json\" dist/src",
+      "test:transfers": "npm run build && node --test test/transfers.service.test.js",
       "prepare:dist": "node build-tools/prepare-dist.js",
       "build:prod": "npm run build && npm run prepare:dist && cd dist && npm install --omit=dev",
       "start": "node dist/index.js",

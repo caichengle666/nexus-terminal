@@ -54,7 +54,13 @@ interface TransferSubTask {
   status: 'queued' | 'connecting' | 'transferring' | 'completed' | 'failed' | 'cancelling' | 'cancelled'; // +++ 新增状态 +++
   progress?: number; // 0-100
   message?: string;
-  transferMethodUsed?: 'rsync' | 'scp';
+  transferMethodUsed?: 'sftp-relay';
+  transferredBytes?: number;
+  totalBytes?: number;
+  speedBytesPerSecond?: number;
+  currentPath?: string;
+  filesCompleted?: number;
+  totalFiles?: number;
 }
 
 interface TransferTask {
@@ -153,11 +159,29 @@ const formatDate = (dateInput: string | Date): string => {
   }
 };
 
+const formatBytes = (bytes = 0): string => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / Math.pow(1024, unitIndex);
+  return `${value >= 100 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+};
+
+const formatEta = (subTask: TransferSubTask): string => {
+  const speed = subTask.speedBytesPerSecond ?? 0;
+  const remainingBytes = Math.max(0, (subTask.totalBytes ?? 0) - (subTask.transferredBytes ?? 0));
+  if (speed <= 0 || remainingBytes <= 0) return '';
+  const seconds = Math.ceil(remainingBytes / speed);
+  if (seconds < 60) return `${seconds} 秒`;
+  if (seconds < 3600) return `${Math.ceil(seconds / 60)} 分钟`;
+  return `${(seconds / 3600).toFixed(1)} 小时`;
+};
+
 onMounted(() => {
   if (props.visible) {
     fetchTransferTasks();
     if (pollingIntervalId.value === null) {
-       pollingIntervalId.value = window.setInterval(fetchTransferTasks, 5000);
+       pollingIntervalId.value = window.setInterval(fetchTransferTasks, 1500);
     }
   }
 });
@@ -174,7 +198,7 @@ watch(() => props.visible, (newVisible) => {
   if (newVisible) {
     fetchTransferTasks(); // 模态框可见时立即获取一次数据
     if (pollingIntervalId.value === null) { // 只有在没有定时器时才启动
-      pollingIntervalId.value = window.setInterval(fetchTransferTasks, 5000);
+      pollingIntervalId.value = window.setInterval(fetchTransferTasks, 1500);
     }
   } else {
     if (pollingIntervalId.value !== null) {
@@ -331,7 +355,19 @@ const handleCancelTask = async (taskId: string) => {
                     </span>
                     <span v-if="subTask.progress !== undefined" class="ml-1 text-xs text-text-secondary"> ({{ subTask.progress }}%)</span>
                   </div>
-                  <p v-if="subTask.transferMethodUsed"><strong>{{ t('transferProgressModal.subTask.method', '方法') }}:</strong> {{ subTask.transferMethodUsed }}</p>
+                  <p v-if="subTask.transferMethodUsed"><strong>{{ t('transferProgressModal.subTask.method', '方法') }}:</strong> Nexus SFTP</p>
+                  <div v-if="subTask.totalBytes !== undefined" class="mt-1 space-y-1">
+                    <div class="w-full bg-border rounded-full h-1.5 overflow-hidden">
+                      <div class="bg-primary h-1.5 rounded-full" :style="{ width: (subTask.progress ?? 0) + '%' }"></div>
+                    </div>
+                    <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-text-secondary">
+                      <span>{{ formatBytes(subTask.transferredBytes) }} / {{ formatBytes(subTask.totalBytes) }}</span>
+                      <span v-if="subTask.totalFiles">{{ subTask.filesCompleted ?? 0 }} / {{ subTask.totalFiles }} 个文件</span>
+                      <span v-if="subTask.speedBytesPerSecond">{{ formatBytes(subTask.speedBytesPerSecond) }}/s</span>
+                      <span v-if="formatEta(subTask)">预计 {{ formatEta(subTask) }}</span>
+                    </div>
+                    <p v-if="subTask.currentPath" class="truncate text-text-muted" :title="subTask.currentPath">{{ subTask.currentPath }}</p>
+                  </div>
                   <p v-if="subTask.status === 'failed' && subTask.message" class="text-red-600">
                     <strong>{{ t('transferProgressModal.subTask.error', '错误') }}:</strong> {{ subTask.message }}
                   </p>
