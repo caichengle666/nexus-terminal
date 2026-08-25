@@ -1260,6 +1260,7 @@
       "connectingVnc": "正在连接 VNC...",
       "waiting": "等待服务器响应...",
       "connecting": "连接中...",
+      "reconnecting": "正在重连（第 {attempt} 次，{delay} 秒后）...",
       "error": "错误",
       "connected": "已连接",
       "disconnecting": "正在断开连接...",
@@ -1273,9 +1274,40 @@
       "connectionFailed": "连接失败",
       "inputError": "设置输入监听器时出错。",
       "noConnection": "未提供连接信息。",
-      "tokenError": "获取令牌失败"
+      "tokenError": "获取令牌失败",
+      "gateway": "网关错误",
+      "authentication": "认证错误",
+      "timeout": "连接超时",
+      "network": "网络错误",
+      "protocol": "RDP 协议错误"
     },
-    "reconnectTooltip": "重新连接到远程桌面"
+    "reconnectTooltip": "重新连接到远程桌面",
+    "toolbar": {
+      "ctrlAltDelete": "发送 Ctrl+Alt+Delete",
+      "sendClipboard": "发送本地剪贴板",
+      "fit": "适应窗口",
+      "viewOnly": "只读模式",
+      "disconnect": "断开连接",
+      "clipboardStatus": "剪贴板状态",
+      "transferStatus": "文件和剪贴板传输状态"
+    },
+    "clipboard": {
+      "sent": "本地剪贴板已发送到远程桌面。",
+      "sendFailed": "无法读取或发送本地剪贴板。"
+    },
+    "files": {
+      "dropHere": "释放文件以上传到远程桌面",
+      "sent": "已向远程桌面发送 {count} 个文件。",
+      "sendFailed": "远程文件上传失败。",
+      "received": "已下载远程文件：{filename}"
+    }
+  },
+  "remoteDesktopPane": {
+    "searchPlaceholder": "搜索 RDP 名称、主机或用户...",
+    "groupLabel": "分组",
+    "allGroups": "全部分组",
+    "tagGroup": "标签 {id}",
+    "empty": "没有可用的 RDP 连接。请先在连接管理中添加一个 RDP 连接。"
   },
   "vncModal": {
     "title": "VNC 会话",

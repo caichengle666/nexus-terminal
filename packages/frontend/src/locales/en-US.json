@@ -1260,6 +1260,7 @@
       "disconnected": "Disconnected",
       "unknownState": "Unknown State",
       "connecting": "Connecting...",
+      "reconnecting": "Reconnecting (attempt {attempt}, in {delay}s)...",
       "error": "Error"
     },
     "errors": {
@@ -1269,9 +1270,40 @@
       "connectionFailed": "Connection Failed",
       "inputError": "Error setting up input listeners.",
       "noConnection": "No connection information provided.",
-      "tokenError": "Failed to retrieve token"
+      "tokenError": "Failed to retrieve token",
+      "gateway": "Gateway error",
+      "authentication": "Authentication error",
+      "timeout": "Connection timed out",
+      "network": "Network error",
+      "protocol": "RDP protocol error"
     },
-    "reconnectTooltip": "Reconnect to the remote desktop"
+    "reconnectTooltip": "Reconnect to the remote desktop",
+    "toolbar": {
+      "ctrlAltDelete": "Send Ctrl+Alt+Delete",
+      "sendClipboard": "Send local clipboard",
+      "fit": "Fit to window",
+      "viewOnly": "View-only mode",
+      "disconnect": "Disconnect",
+      "clipboardStatus": "Clipboard status",
+      "transferStatus": "File and clipboard transfer status"
+    },
+    "clipboard": {
+      "sent": "Local clipboard sent to the remote desktop.",
+      "sendFailed": "Unable to read or send the local clipboard."
+    },
+    "files": {
+      "dropHere": "Drop files to upload to the remote desktop",
+      "sent": "Sent {count} file(s) to the remote desktop.",
+      "sendFailed": "Remote file upload failed.",
+      "received": "Downloaded remote file: {filename}"
+    }
+  },
+  "remoteDesktopPane": {
+    "searchPlaceholder": "Search RDP name, host, or user...",
+    "groupLabel": "Group",
+    "allGroups": "All groups",
+    "tagGroup": "Tag {id}",
+    "empty": "No RDP connections available. Add an RDP connection first."
   },
   "vncModal": {
     "title": "VNC Session",

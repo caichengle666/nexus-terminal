@@ -28,13 +28,19 @@ const maxAllowedHeight = computed(() => window.innerHeight - MODAL_CONTAINER_PAD
 const rdpDisplayRef = ref<HTMLDivElement | null>(null);
 const rdpContainerRef = ref<HTMLDivElement | null>(null);
 const guacClient = ref<any | null>(null);
-const connectionStatus = ref<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
+const connectionStatus = ref<'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'error'>('disconnected');
 const isResizing = ref(false);
 const resizeStartX = ref(0);
 const resizeStartY = ref(0);
 const initialModalWidthForResize = ref(0); 
 const initialModalHeightForResize = ref(0); 
 const statusMessage = ref('');
+const errorCategory = ref('');
+const reconnectAttempt = ref(0);
+const clipboardStatus = ref<'idle' | 'sending' | 'received' | 'error'>('idle');
+const fileTransferStatus = ref<'idle' | 'sending' | 'receiving' | 'completed' | 'error'>('idle');
+const isFileDragActive = ref(false);
+const viewOnly = ref(false);
 const keyboard = ref<any | null>(null);
 const mouse = ref<any | null>(null);
 const desiredModalWidth = ref(1064);
@@ -52,6 +58,8 @@ let dragOffsetX = 0;
 let dragOffsetY = 0;
 let hasDragged = false; 
 let rdpResizeObserver: ResizeObserver | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let manualDisconnect = false;
 
 const MIN_MODAL_WIDTH = 1024;
 const MIN_MODAL_HEIGHT = 768;
@@ -105,18 +113,26 @@ if (window.location.hostname === 'localhost') {
   backendBaseUrl = `${wsProtocol}//${wsHostAndPort}/ws`; // Assuming RDP proxy is at /ws path
 }
 
-const handleConnection = async () => {
+const handleConnection = async (isReconnect = false) => {
   if (!props.connection || !rdpDisplayRef.value) {
     statusMessage.value = t('remoteDesktopModal.errors.missingInfo');
     connectionStatus.value = 'error';
     return;
   }
 
+  manualDisconnect = false;
+  if (!isReconnect) {
+    reconnectAttempt.value = 0;
+    clearReconnectTimer();
+  }
+  errorCategory.value = '';
+
   // Clear previous display and disconnect
   while (rdpDisplayRef.value.firstChild) {
     rdpDisplayRef.value.removeChild(rdpDisplayRef.value.firstChild);
   }
-  disconnectGuacamole(); // Renamed from disconnectRdp
+  disconnectGuacamole(true); // 清理旧 tunnel，避免旧连接触发重连
+  manualDisconnect = false;
 
   connectionStatus.value = 'connecting';
   statusMessage.value = t('remoteDesktopModal.status.fetchingToken');
@@ -159,8 +175,7 @@ const handleConnection = async () => {
     tunnel.onerror = (status: any) => {
       const errorMessage = status.message || 'Unknown tunnel error';
       const errorCode = status.code || 'N/A';
-      statusMessage.value = `${t('remoteDesktopModal.errors.tunnelError')} (${errorCode}): ${errorMessage}`;
-      connectionStatus.value = 'error';
+      setConnectionError(`${t('remoteDesktopModal.errors.tunnelError')} (${errorCode}): ${errorMessage}`);
       disconnectGuacamole();
     };
 
@@ -190,6 +205,8 @@ const handleConnection = async () => {
         case 3: // CONNECTED
           i18nKeyPart = 'connected';
           currentStatus = 'connected';
+          reconnectAttempt.value = 0;
+          errorCategory.value = '';
           setupInputListeners();
           nextTick(() => {
             const displayEl = guacClient.value?.getDisplay()?.getElement();
@@ -213,16 +230,16 @@ const handleConnection = async () => {
         case 5: // DISCONNECTED
           i18nKeyPart = 'disconnected';
           currentStatus = 'disconnected';
+          if (!manualDisconnect) scheduleReconnect();
           break;
       }
       statusMessage.value = t(`remoteDesktopModal.status.${i18nKeyPart}`, { state });
-      if (currentStatus) connectionStatus.value = currentStatus as 'disconnected' | 'connecting' | 'connected' | 'error';
+      if (currentStatus && currentStatus !== 'reconnecting') connectionStatus.value = currentStatus as 'disconnected' | 'connecting' | 'connected' | 'error';
     };
 
     guacClient.value.onerror = (status: any) => {
       const errorMessage = status.message || 'Unknown client error';
-      statusMessage.value = `${t('remoteDesktopModal.errors.clientError')}: ${errorMessage}`;
-      connectionStatus.value = 'error';
+      setConnectionError(`${t('remoteDesktopModal.errors.clientError')}: ${errorMessage}`);
       disconnectGuacamole();
     };
 
@@ -232,9 +249,8 @@ const handleConnection = async () => {
     const message = error.response?.data?.message || error.message || String(error);
     const externalOpened = await tryOpenExternalRdpClient(message);
     if (!externalOpened) {
-      statusMessage.value = `${t('remoteDesktopModal.errors.connectionFailed')}: ${statusMessage.value || message}`;
+      setConnectionError(`${t('remoteDesktopModal.errors.connectionFailed')}: ${message}`);
     }
-    connectionStatus.value = 'error';
     disconnectGuacamole();
   }
 };
@@ -261,6 +277,89 @@ const trySyncClipboardOnDisplayFocus = async () => {
       console.warn('[RemoteDesktopModal] Could not read clipboard on display focus, or other error:', err);
     }
   }
+};
+
+const sendClipboardToRemote = async () => {
+  if (!guacClient.value || connectionStatus.value !== 'connected' || viewOnly.value) return;
+  clipboardStatus.value = 'sending';
+  try {
+    const text = await navigator.clipboard.readText();
+    const stream = guacClient.value.createClipboardStream('text/plain');
+    const writer = new Guacamole.StringWriter(stream);
+    writer.sendText(text);
+    writer.sendEnd();
+    clipboardStatus.value = 'received';
+    statusMessage.value = t('remoteDesktopModal.clipboard.sent');
+  } catch (error) {
+    console.warn('[RemoteDesktopModal] Clipboard send failed:', error);
+    clipboardStatus.value = 'error';
+    statusMessage.value = t('remoteDesktopModal.clipboard.sendFailed');
+  }
+};
+
+const sendCtrlAltDelete = () => {
+  if (!guacClient.value || connectionStatus.value !== 'connected' || viewOnly.value) return;
+  const keys = [0xffe3, 0xffe9, 0xffff];
+  keys.forEach((keysym) => guacClient.value.sendKeyEvent(1, keysym));
+  keys.reverse().forEach((keysym) => guacClient.value.sendKeyEvent(0, keysym));
+};
+
+const fitDisplay = () => {
+  sendContainerSize();
+  nextTick(() => sendContainerSize());
+};
+
+const downloadReceivedFile = (stream: any, mimetype: string, filename: string) => {
+  const reader = new Guacamole.BlobReader(stream, mimetype);
+  fileTransferStatus.value = 'receiving';
+  reader.onend = () => {
+    const url = URL.createObjectURL(reader.getBlob());
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    fileTransferStatus.value = 'completed';
+    statusMessage.value = t('remoteDesktopModal.files.received', { filename });
+  };
+};
+
+const handleFileDrop = (event: DragEvent) => {
+  event.preventDefault();
+  isFileDragActive.value = false;
+  if (!guacClient.value || connectionStatus.value !== 'connected' || viewOnly.value) return;
+  const files = Array.from(event.dataTransfer?.files ?? []);
+  if (files.length === 0) return;
+  fileTransferStatus.value = 'sending';
+  Promise.all(files.map((file) => new Promise<void>((resolve, reject) => {
+    try {
+      const stream = guacClient.value.createFileStream(file.type || 'application/octet-stream', file.name);
+      const writer = new Guacamole.BlobWriter(stream);
+      writer.oncomplete = () => resolve();
+      writer.onack = (status: any) => {
+        if (status?.code && status.code !== 0x0000) reject(new Error(status.message || 'File transfer rejected'));
+      };
+      writer.sendBlob(file);
+    } catch (error) {
+      reject(error);
+    }
+  }))).then(() => {
+    fileTransferStatus.value = 'completed';
+    statusMessage.value = t('remoteDesktopModal.files.sent', { count: files.length });
+  }).catch((error) => {
+    console.warn('[RemoteDesktopModal] File drop transfer failed:', error);
+    fileTransferStatus.value = 'error';
+    statusMessage.value = t('remoteDesktopModal.files.sendFailed');
+  });
+};
+
+const handleFileDragOver = (event: DragEvent) => {
+  event.preventDefault();
+  if (!viewOnly.value) isFileDragActive.value = true;
+};
+
+const handleFileDragLeave = (event: DragEvent) => {
+  if (event.currentTarget === event.target) isFileDragActive.value = false;
 };
 
 const setupInputListeners = () => {
@@ -369,6 +468,9 @@ const setupInputListeners = () => {
           }
         };
 
+        // Guacamole file streams keep transfer behavior cross-platform.
+        guacClient.value.onfile = downloadReceivedFile;
+
     } catch (inputError) {
         console.error("Error setting up input listeners:", inputError); // 添加错误日志
         statusMessage.value = t('remoteDesktopModal.errors.inputError');
@@ -406,6 +508,8 @@ const removeInputListeners = () => {
     if (guacClient.value) {
         // @ts-ignore
         guacClient.value.onclipboard = null;
+        // @ts-ignore
+        guacClient.value.onfile = null;
     }
 };
 
@@ -475,7 +579,11 @@ const handleClickRestoreButton = () => {
   hasDragged = false;
 };
 
-const disconnectGuacamole = () => {
+const disconnectGuacamole = (manual = false) => {
+  if (manual) {
+    manualDisconnect = true;
+    clearReconnectTimer();
+  }
   removeInputListeners();
   isKeyboardDisabledForInput.value = false; // 确保状态重置
   if (guacClient.value) {
@@ -495,8 +603,44 @@ const disconnectGuacamole = () => {
 
 
 const closeModal = () => {
-  disconnectGuacamole();
+  disconnectGuacamole(true);
   emit('close');
+};
+
+const classifyConnectionError = (message: string) => {
+  const normalized = message.toLowerCase();
+  if (normalized.includes('gateway') || normalized.includes('remote gateway')) return t('remoteDesktopModal.errors.gateway');
+  if (normalized.includes('token') || normalized.includes('credential') || normalized.includes('password') || normalized.includes('authentication')) return t('remoteDesktopModal.errors.authentication');
+  if (normalized.includes('timeout') || normalized.includes('timed out')) return t('remoteDesktopModal.errors.timeout');
+  if (normalized.includes('websocket') || normalized.includes('tunnel') || normalized.includes('network')) return t('remoteDesktopModal.errors.network');
+  return t('remoteDesktopModal.errors.protocol');
+};
+
+const clearReconnectTimer = () => {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+};
+
+const scheduleReconnect = () => {
+  if (manualDisconnect || reconnectAttempt.value >= 3 || !props.connection) return;
+  clearReconnectTimer();
+  reconnectAttempt.value += 1;
+  const delay = Math.min(1000 * 2 ** (reconnectAttempt.value - 1), 8000);
+  connectionStatus.value = 'reconnecting';
+  statusMessage.value = t('remoteDesktopModal.status.reconnecting', { attempt: reconnectAttempt.value, delay: Math.round(delay / 1000) });
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    void handleConnection(true);
+  }, delay);
+};
+
+const setConnectionError = (message: string, shouldReconnect = true) => {
+  errorCategory.value = classifyConnectionError(message);
+  statusMessage.value = `${errorCategory.value}: ${message}`;
+  connectionStatus.value = 'error';
+  if (shouldReconnect) scheduleReconnect();
 };
 
 const sendContainerSize = () => {
@@ -607,9 +751,11 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  manualDisconnect = true;
+  clearReconnectTimer();
   rdpResizeObserver?.disconnect();
   rdpResizeObserver = null;
-  disconnectGuacamole(); // 这里已经调用了 removeInputListeners
+  disconnectGuacamole(true); // 这里已经调用了 removeInputListeners
   document.removeEventListener('mousemove', onRestoreButtonMouseMove);
   document.removeEventListener('mouseup', onRestoreButtonMouseUp);
   // Clean up resize listeners if component is unmounted while resizing
@@ -626,7 +772,7 @@ watch(() => props.connection, (newConnection, oldConnection) => {
         // 不再需要设置 observer
      });
   } else if (!newConnection) {
-      disconnectGuacamole();
+      disconnectGuacamole(true);
       statusMessage.value = t('remoteDesktopModal.errors.noConnection');
       connectionStatus.value = 'error';
   }
@@ -724,7 +870,7 @@ const stopResize = () => {
         <div class="flex items-center space-x-1">
             <span class="text-xs px-2 py-0.5 rounded"
                   :class="{
-                    'bg-yellow-200 text-yellow-800': connectionStatus === 'connecting',
+                    'bg-yellow-200 text-yellow-800': connectionStatus === 'connecting' || connectionStatus === 'reconnecting',
                     'bg-green-200 text-green-800': connectionStatus === 'connected',
                     'bg-red-200 text-red-800': connectionStatus === 'error',
                     'bg-gray-200 text-gray-800': connectionStatus === 'disconnected'
@@ -750,13 +896,25 @@ const stopResize = () => {
         </div>
       </div>
 
-      <div ref="rdpContainerRef" class="relative bg-black overflow-hidden flex-1">
+      <div
+        ref="rdpContainerRef"
+        class="relative flex-1 overflow-hidden bg-black"
+        @dragover="handleFileDragOver"
+        @dragleave="handleFileDragLeave"
+        @drop="handleFileDrop"
+      >
         <div ref="rdpDisplayRef" class="rdp-display-container w-full h-full">
         </div>
-         <div v-if="connectionStatus === 'connecting' || connectionStatus === 'error'"
+        <div
+          v-if="isFileDragActive"
+          class="pointer-events-none absolute inset-3 z-20 flex items-center justify-center border-2 border-dashed border-primary bg-black/60 text-sm text-white"
+        >
+          <span><i class="fas fa-upload mr-2" aria-hidden="true"></i>{{ t('remoteDesktopModal.files.dropHere') }}</span>
+        </div>
+         <div v-if="connectionStatus === 'connecting' || connectionStatus === 'reconnecting' || connectionStatus === 'error'"
               class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75 text-white p-4 z-10">
             <div class="text-center">
-              <i v-if="connectionStatus === 'connecting'" class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+              <i v-if="connectionStatus === 'connecting' || connectionStatus === 'reconnecting'" class="fas fa-spinner fa-spin fa-2x mb-3"></i>
               <i v-else class="fas fa-exclamation-triangle fa-2x mb-3 text-red-400"></i>
               <p class="text-sm">{{ statusMessage }}</p>
                <button v-if="connectionStatus === 'error'"
@@ -768,8 +926,73 @@ const stopResize = () => {
          </div>
       </div>
 
-       <div v-if="!props.embedded" class="p-2 border-t border-border flex-shrink-0 text-xs text-text-secondary bg-header flex items-center justify-end">
-         <div class="flex items-center space-x-2 flex-wrap gap-y-1">
+       <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border bg-header p-2 text-xs text-text-secondary">
+         <div class="flex items-center gap-1">
+           <button
+             type="button"
+             :disabled="connectionStatus !== 'connected' || viewOnly"
+             class="rounded p-1.5 hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+             :title="t('remoteDesktopModal.toolbar.ctrlAltDelete')"
+             :aria-label="t('remoteDesktopModal.toolbar.ctrlAltDelete')"
+             @click="sendCtrlAltDelete"
+           >
+             <i class="fas fa-keyboard" aria-hidden="true"></i>
+           </button>
+           <button
+             type="button"
+             :disabled="connectionStatus !== 'connected' || viewOnly"
+             class="rounded p-1.5 hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+             :title="t('remoteDesktopModal.toolbar.sendClipboard')"
+             :aria-label="t('remoteDesktopModal.toolbar.sendClipboard')"
+             @click="sendClipboardToRemote"
+           >
+             <i class="fas fa-paste" aria-hidden="true"></i>
+           </button>
+           <button
+             type="button"
+             :disabled="connectionStatus !== 'connected'"
+             class="rounded p-1.5 hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+             :title="t('remoteDesktopModal.toolbar.fit')"
+             :aria-label="t('remoteDesktopModal.toolbar.fit')"
+             @click="fitDisplay"
+           >
+             <i class="fas fa-expand-arrows-alt" aria-hidden="true"></i>
+           </button>
+           <button
+             type="button"
+             class="rounded p-1.5 hover:bg-hover"
+             :class="viewOnly ? 'text-primary' : ''"
+             :title="t('remoteDesktopModal.toolbar.viewOnly')"
+             :aria-label="t('remoteDesktopModal.toolbar.viewOnly')"
+             @click="viewOnly = !viewOnly"
+           >
+             <i class="fas fa-eye" aria-hidden="true"></i>
+           </button>
+           <button
+             type="button"
+             :disabled="connectionStatus === 'connecting' || connectionStatus === 'reconnecting'"
+             class="rounded p-1.5 hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+             :title="t('remoteDesktopModal.reconnectTooltip')"
+             :aria-label="t('remoteDesktopModal.reconnectTooltip')"
+             @click="() => handleConnection()"
+           >
+             <i class="fas fa-redo" aria-hidden="true"></i>
+           </button>
+           <button
+             type="button"
+             :disabled="connectionStatus === 'disconnected'"
+             class="rounded p-1.5 hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+             :title="t('remoteDesktopModal.toolbar.disconnect')"
+             :aria-label="t('remoteDesktopModal.toolbar.disconnect')"
+             @click="() => disconnectGuacamole(true)"
+           >
+             <i class="fas fa-stop-circle" aria-hidden="true"></i>
+           </button>
+           <span v-if="clipboardStatus !== 'idle' || fileTransferStatus !== 'idle'" class="ml-1" :title="t('remoteDesktopModal.toolbar.transferStatus')">
+             <i :class="(clipboardStatus === 'error' || fileTransferStatus === 'error') ? 'fas fa-exclamation-circle text-red-400' : 'fas fa-clipboard-check text-green-400'" aria-hidden="true"></i>
+           </span>
+         </div>
+         <div v-if="!props.embedded" class="flex items-center gap-2 flex-wrap">
             <label for="modal-width" class="text-xs ml-2">{{ t('common.width') }}:</label>
             <input
               id="modal-width"
@@ -792,8 +1015,8 @@ const stopResize = () => {
             />
              <!-- 添加重新连接按钮 -->
              <button
-               @click="handleConnection"
-               :disabled="connectionStatus === 'connecting'"
+               @click="() => handleConnection()"
+               :disabled="connectionStatus === 'connecting' || connectionStatus === 'reconnecting'"
                class="px-4 py-2 bg-button text-button-text rounded-md shadow-sm hover:bg-button-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out"
                :title="t('remoteDesktopModal.reconnectTooltip')"
              >
