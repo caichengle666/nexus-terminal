@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, computed, defineAsyncComponent, ref, shallowRef, type PropType } from 'vue';
+import { onMounted, onBeforeUnmount, computed, defineAsyncComponent, ref, shallowRef, watch, type PropType } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { storeToRefs } from 'pinia';
-import { useLayoutStore, type LayoutNode } from '../stores/layout.store'; // +++ Import LayoutNode +++
+import { useLayoutStore, type LayoutNode, type PaneName } from '../stores/layout.store'; // +++ Import LayoutNode +++
 import { useDeviceDetection } from '../composables/useDeviceDetection';
 import { useConnectionsStore, type ConnectionInfo } from '../stores/connections.store';
 import AddConnectionFormComponent from '../components/AddConnectionForm.vue';
@@ -64,15 +64,49 @@ const activeEditorTabId = computed(() => {
   }
 });
 
-// +++ Add computed property for mobile terminal layout node +++
-const mobileLayoutNodeForTerminal = computed((): LayoutNode | null => {
-  return {
-    id: 'mobile-main-terminal-pane',
-    type: 'pane' as const,
-    component: 'terminal' as const,
-    size: 100,
-  };
-});
+type MobilePaneOption = {
+  component: Exclude<PaneName, 'commandBar'>;
+  icon: string;
+  label: string;
+  requiresSession?: boolean;
+};
+
+const mobilePaneOptions = computed<MobilePaneOption[]>(() => [
+  { component: 'terminal', icon: 'fas fa-terminal', label: t('layout.pane.terminal', '终端'), requiresSession: true },
+  { component: 'connections', icon: 'fas fa-network-wired', label: t('layout.pane.connections', '连接') },
+  { component: 'fileManager', icon: 'fas fa-folder-open', label: t('layout.pane.fileManager', '文件'), requiresSession: true },
+  { component: 'editor', icon: 'fas fa-file-alt', label: t('layout.pane.editor', '编辑器'), requiresSession: true },
+  { component: 'remoteDesktop', icon: 'fas fa-desktop', label: t('layout.pane.remoteDesktop', 'RDP') },
+  { component: 'transferCenter', icon: 'fas fa-exchange-alt', label: t('layout.pane.transferCenter', '传输') },
+  { component: 'localTerminal', icon: 'fas fa-laptop-code', label: t('layout.pane.localTerminal', '本地终端') },
+  { component: 'localSystem', icon: 'fas fa-chart-line', label: t('layout.pane.localSystem', '监控') },
+  { component: 'statusMonitor', icon: 'fas fa-tachometer-alt', label: t('layout.pane.statusMonitor', '状态'), requiresSession: true },
+  { component: 'quickCommands', icon: 'fas fa-bolt', label: t('layout.pane.quickCommands', '快捷指令'), requiresSession: true },
+  { component: 'commandHistory', icon: 'fas fa-history', label: t('layout.pane.commandHistory', '历史'), requiresSession: true },
+  { component: 'dockerManager', icon: 'fab fa-docker', label: t('layout.pane.dockerManager', 'Docker') },
+  { component: 'suspendedSshSessions', icon: 'fas fa-pause-circle', label: t('layout.panes.suspendedSshSessions', '挂起会话') },
+  { component: 'aiAssistant', icon: 'fas fa-robot', label: t('layout.pane.aiAssistant', 'AI') },
+]);
+
+const mobilePane = ref<Exclude<PaneName, 'commandBar'>>('terminal');
+const mobilePaneRequiresSession = computed(() => mobilePaneOptions.value.find(option => option.component === mobilePane.value)?.requiresSession ?? false);
+const mobileLayoutNode = computed<LayoutNode>(() => ({
+  id: `mobile-${mobilePane.value}`,
+  type: 'pane',
+  component: mobilePane.value,
+  size: 100,
+}));
+
+const selectMobilePane = (option: MobilePaneOption) => {
+  if (option.requiresSession && !activeSessionId.value) return;
+  mobilePane.value = option.component;
+};
+
+watch(activeSessionId, (nextSessionId) => {
+  if (!nextSessionId && mobilePane.value === 'terminal') {
+    mobilePane.value = 'connections';
+  }
+}, { immediate: true });
 
 // --- UI 状态 (保持本地) ---
 const showAddEditForm = ref(false);
@@ -754,10 +788,28 @@ const closeFileManagerModal = () => {
 
     <!-- --- 移动端布局 --- -->
     <template v-else>
+      <nav class="mobile-pane-switcher" :aria-label="t('layout.mobilePanes', '工作区面板')">
+        <button
+          v-for="option in mobilePaneOptions"
+          :key="option.component"
+          type="button"
+          class="mobile-pane-tab"
+          :class="{ active: mobilePane === option.component }"
+          :disabled="option.requiresSession && !activeSessionId"
+          :title="option.label"
+          :aria-label="option.label"
+          :aria-current="mobilePane === option.component ? 'page' : undefined"
+          @click="selectMobilePane(option)"
+        >
+          <i :class="option.icon" aria-hidden="true"></i>
+          <span>{{ option.label }}</span>
+        </button>
+      </nav>
       <div class="mobile-content-area">
         <LayoutRenderer
-          v-if="activeSessionId && mobileLayoutNodeForTerminal"
-          :layout-node="mobileLayoutNodeForTerminal"
+          v-if="!mobilePaneRequiresSession || activeSessionId"
+          :key="mobilePane"
+          :layout-node="mobileLayoutNode"
           :active-session-id="activeSessionId"
           :is-root-renderer="false"
           :layout-locked="layoutLockedBoolean"
@@ -770,6 +822,7 @@ const closeFileManagerModal = () => {
         </div>
       </div>
       <CommandInputBar
+        v-if="mobilePane === 'terminal'"
         class="mobile-command-bar"
         :is-mobile="isMobile"
         @send-command="handleSendCommand"
@@ -784,6 +837,7 @@ const closeFileManagerModal = () => {
       />
       <!-- +++ Use v-show for VirtualKeyboard and bind visibility +++ -->
       <VirtualKeyboard
+        v-if="mobilePane === 'terminal'"
         v-show="isVirtualKeyboardVisible"
         class="mobile-virtual-keyboard"
         @send-key="handleVirtualKeyPress"
@@ -916,6 +970,51 @@ const closeFileManagerModal = () => {
 .workspace-view.is-mobile .main-content-area {
   /* Hide the desktop content area in mobile view */
   display: none;
+}
+
+.mobile-pane-switcher {
+  display: flex;
+  flex-shrink: 0;
+  min-width: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-color, #ccc);
+  background: var(--header-bg-color);
+  scrollbar-width: none;
+  padding-inline: max(0.25rem, env(safe-area-inset-left)) max(0.25rem, env(safe-area-inset-right));
+}
+
+.mobile-pane-switcher::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-pane-tab {
+  display: inline-flex;
+  min-width: 3.5rem;
+  min-height: 2.75rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-bottom: 2px solid transparent;
+  padding: 0.35rem 0.65rem;
+  color: var(--text-color-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.mobile-pane-tab:hover:not(:disabled) {
+  background: var(--hover-bg-color);
+  color: var(--text-color);
+}
+
+.mobile-pane-tab.active {
+  border-bottom-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.mobile-pane-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 
 .mobile-content-area {

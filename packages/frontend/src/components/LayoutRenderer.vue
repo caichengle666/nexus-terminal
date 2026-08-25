@@ -378,6 +378,8 @@ watch(sidebarPanes, (newVal) => {
 const getIconClasses = (paneName: PaneName): string[] => {
   switch (paneName) {
     case 'connections': return ['fas', 'fa-network-wired'];
+    case 'terminal': return ['fas', 'fa-terminal'];
+    case 'commandBar': return ['fas', 'fa-keyboard'];
     case 'fileManager': return ['fas', 'fa-folder-open'];
     case 'commandHistory': return ['fas', 'fa-history'];
     case 'quickCommands': return ['fas', 'fa-bolt'];
@@ -386,6 +388,10 @@ const getIconClasses = (paneName: PaneName): string[] => {
     case 'statusMonitor': return ['fas', 'fa-tachometer-alt'];
     case 'suspendedSshSessions': return ['fas', 'fa-pause-circle']; // 图标：暂停圈
     case 'aiAssistant': return ['fas', 'fa-robot'];
+    case 'remoteDesktop': return ['fas', 'fa-desktop'];
+    case 'transferCenter': return ['fas', 'fa-exchange-alt'];
+    case 'localSystem': return ['fas', 'fa-chart-line'];
+    case 'localTerminal': return ['fas', 'fa-laptop-code'];
     // Add other specific icons here if needed
     default: return ['fas', 'fa-question-circle']; // Default icon
   }
