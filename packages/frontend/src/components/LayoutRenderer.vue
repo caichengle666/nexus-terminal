@@ -94,6 +94,10 @@ const componentMap: Record<PaneName, Component> = {
   dockerManager: defineAsyncComponent(() => import('./DockerManager.vue')), // <--- 添加 dockerManager 映射
   suspendedSshSessions: defineAsyncComponent(() => import('../views/SuspendedSshSessionsView.vue')),
   aiAssistant: defineAsyncComponent(() => import('./AiTerminalAssistant.vue')),
+  remoteDesktop: defineAsyncComponent(() => import('./RemoteDesktopPane.vue')),
+  transferCenter: defineAsyncComponent(() => import('./TransferCenterPane.vue')),
+  localSystem: defineAsyncComponent(() => import('./LocalSystemPane.vue')),
+  localTerminal: defineAsyncComponent(() => import('./LocalTerminalPane.vue')),
 };
 
 // --- Computed ---
@@ -138,6 +142,10 @@ const paneLabels = computed(() => ({
   dockerManager: t('layout.pane.dockerManager', 'Docker 管理器'),
   suspendedSshSessions: t('layout.panes.suspendedSshSessions', '挂起会话管理'),
   aiAssistant: t('layout.pane.aiAssistant', 'AI 终端助手'),
+  remoteDesktop: t('layout.pane.remoteDesktop', '远程桌面'),
+  transferCenter: t('layout.pane.transferCenter', '传输中心'),
+  localSystem: t('layout.pane.localSystem', '本机监控'),
+  localTerminal: t('layout.pane.localTerminal', '本地终端'),
 }));
 
 
@@ -215,6 +223,22 @@ const componentProps = computed(() => {
    case 'suspendedSshSessions':
      return {
        class: 'flex flex-col flex-grow h-full overflow-auto', // 与 quickCommands 类似
+     };
+   case 'remoteDesktop':
+     return {
+       class: 'pane-content',
+     };
+   case 'transferCenter':
+     return {
+       class: 'pane-content',
+     };
+   case 'localSystem':
+     return {
+       class: 'pane-content',
+     };
+   case 'localTerminal':
+     return {
+       class: 'pane-content',
      };
    default:
      return { class: 'pane-content' };

@@ -4,6 +4,22 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
+  createLocalTerminal: (options) => ipcRenderer.invoke('local-terminal-create', options),
+  writeLocalTerminal: (payload) => ipcRenderer.invoke('local-terminal-write', payload),
+  resizeLocalTerminal: (payload) => ipcRenderer.invoke('local-terminal-resize', payload),
+  closeLocalTerminal: (terminalId) => ipcRenderer.invoke('local-terminal-close', terminalId),
+  onLocalTerminalOutput: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on('local-terminal-output', handler);
+    return () => ipcRenderer.removeListener('local-terminal-output', handler);
+  },
+  onLocalTerminalExit: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on('local-terminal-exit', handler);
+    return () => ipcRenderer.removeListener('local-terminal-exit', handler);
+  },
+  getLocalSystemStatus: () => ipcRenderer.invoke('get-local-system-status'),
+  getLocalProcesses: () => ipcRenderer.invoke('get-local-processes'),
   getRdpClientStatus: () => ipcRenderer.invoke('get-rdp-client-status'),
   openExternalRdp: (connectionDetails) => ipcRenderer.invoke('open-external-rdp-connection', connectionDetails),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),

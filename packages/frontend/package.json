@@ -1,6 +1,6 @@
 {
   "name": "@nexus-terminal/frontend",
-  "version": "0.9.22.8",
+  "version": "0.9.22.9",
   "private": true,
   "type": "module",
   "scripts": {
@@ -40,6 +40,7 @@
     "buffer": "^6.0.3",
     "chart.js": "^4.5.1",
     "date-fns": "^4.1.0",
+    "element-plus": "^2.14.5",
     "guacamole-common-js": "^1.5.0",
     "iconv-lite": "^0.7.3",
     "mitt": "^3.0.1",
@@ -47,6 +48,7 @@
     "pinia": "^4.0.2",
     "pinia-plugin-persistedstate": "^4.7.1",
     "splitpanes": "^4.1.2",
+    "uuid": "^14.0.2",
     "vue": "3.5.40",
     "vue-chartjs": "^5.3.4",
     "vue-i18n": "^11.4.6",

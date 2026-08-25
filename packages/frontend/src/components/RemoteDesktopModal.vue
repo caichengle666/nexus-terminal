@@ -12,6 +12,7 @@ const settingsStore = useSettingsStore();
 
 const props = defineProps<{
   connection: ConnectionInfo | null;
+  embedded?: boolean;
 }>();
 
 const emit = defineEmits(['close']);
@@ -50,6 +51,7 @@ const restoreButtonPosition = ref({ x: 16, y: window.innerHeight / 2 - 25 }); //
 let dragOffsetX = 0;
 let dragOffsetY = 0;
 let hasDragged = false; 
+let rdpResizeObserver: ResizeObserver | null = null;
 
 const MIN_MODAL_WIDTH = 1024;
 const MIN_MODAL_HEIGHT = 768;
@@ -71,7 +73,7 @@ const checkRemoteGateway = async () => {
 
 const tryOpenExternalRdpClient = async (reason: string): Promise<boolean> => {
   const electronApi = (window as any).electronAPI;
-  if (!props.connection || props.connection.type !== 'RDP' || !electronApi?.getRdpClientStatus || !electronApi?.openExternalRdp) {
+  if (props.embedded || !props.connection || props.connection.type !== 'RDP' || !electronApi?.getRdpClientStatus || !electronApi?.openExternalRdp) {
     return false;
   }
 
@@ -497,6 +499,18 @@ const closeModal = () => {
   emit('close');
 };
 
+const sendContainerSize = () => {
+  if (!guacClient.value || connectionStatus.value !== 'connected' || !rdpContainerRef.value) {
+    return;
+  }
+
+  const displayWidth = rdpContainerRef.value.offsetWidth;
+  const displayHeight = rdpContainerRef.value.offsetHeight;
+  if (displayWidth > 0 && displayHeight > 0) {
+    guacClient.value.sendSize(displayWidth, displayHeight);
+  }
+};
+
 const handleWidthInputBlur = () => {
   const currentValue = Number(tempInputWidth.value) || MIN_MODAL_WIDTH;
   const validatedValue = Math.min(Math.max(MIN_MODAL_WIDTH, currentValue), maxAllowedWidth.value);
@@ -585,9 +599,16 @@ onMounted(() => {
       statusMessage.value = t('remoteDesktopModal.errors.noConnection');
       connectionStatus.value = 'error';
   }
+
+  if (props.embedded && rdpContainerRef.value) {
+    rdpResizeObserver = new ResizeObserver(() => sendContainerSize());
+    rdpResizeObserver.observe(rdpContainerRef.value);
+  }
 });
 
 onUnmounted(() => {
+  rdpResizeObserver?.disconnect();
+  rdpResizeObserver = null;
   disconnectGuacamole(); // 这里已经调用了 removeInputListeners
   document.removeEventListener('mousemove', onRestoreButtonMouseMove);
   document.removeEventListener('mouseup', onRestoreButtonMouseUp);
@@ -626,18 +647,8 @@ const computedModalStyle = computed(() => {
 // Watch for modal size changes to update Guacamole client
 watchEffect(() => {
   const currentStyle = computedModalStyle.value; // Dependency
-  if (guacClient.value && connectionStatus.value === 'connected' && rdpContainerRef.value) {
-    nextTick(() => {
-      if (rdpContainerRef.value && guacClient.value) {
-        const displayWidth = rdpContainerRef.value.offsetWidth;
-        const displayHeight = rdpContainerRef.value.offsetHeight;
-        if (displayWidth > 0 && displayHeight > 0) {
-          // console.log(`[RDP Modal] Resizing Guacamole display to: ${displayWidth}x${displayHeight} due to style change.`);
-          guacClient.value.sendSize(displayWidth, displayHeight);
-        }
-      }
-    });
-  }
+  if (props.embedded) return;
+  nextTick(sendContainerSize);
 });
 
 const initResize = (event: MouseEvent) => {
@@ -681,14 +692,14 @@ const stopResize = () => {
 <template>
   <div
     :class="[
-      'fixed inset-0 z-50 flex items-center justify-center p-4',
-      isMinimized ? '' : 'bg-overlay',
-      isMinimized ? 'pointer-events-none' : '' // 允许恢复按钮接收事件
+      props.embedded ? 'flex h-full min-h-0 w-full' : 'fixed inset-0 z-50 flex items-center justify-center p-4',
+      props.embedded ? '' : (isMinimized ? '' : 'bg-overlay'),
+      props.embedded ? '' : (isMinimized ? 'pointer-events-none' : '') // 允许恢复按钮接收事件
     ]"
   >
     <button
       ref="restoreButtonRef"
-      v-if="isMinimized"
+      v-if="!props.embedded && isMinimized"
       @mousedown="onRestoreButtonMouseDown"
       @click="handleClickRestoreButton"
       :style="{ left: `${restoreButtonPosition.x}px`, top: `${restoreButtonPosition.y}px`, width: '50px', height: '50px' }"
@@ -698,9 +709,12 @@ const stopResize = () => {
       <i class="fas fa-window-restore fa-lg"></i>
     </button>
     <div
-      v-show="!isMinimized"
-      :style="computedModalStyle"
-      class="bg-background text-foreground rounded-lg shadow-xl flex flex-col overflow-hidden border border-border pointer-events-auto relative"
+      v-show="props.embedded || !isMinimized"
+      :style="props.embedded ? undefined : computedModalStyle"
+      :class="[
+        'bg-background text-foreground flex flex-col overflow-hidden pointer-events-auto relative',
+        props.embedded ? 'h-full w-full border-0' : 'rounded-lg shadow-xl border border-border'
+      ]"
     >
       <div class="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
         <h3 class="text-base font-semibold truncate">
@@ -718,6 +732,7 @@ const stopResize = () => {
               {{ t('remoteDesktopModal.status.' + connectionStatus) }}
             </span>
             <button
+                v-if="!props.embedded"
                 @click="minimizeModal"
                 class="text-text-secondary hover:text-foreground transition-colors duration-150 p-1 rounded hover:bg-hover"
                 :title="t('common.minimize')"
@@ -725,6 +740,7 @@ const stopResize = () => {
                 <i class="fas fa-window-minimize fa-sm"></i>
             </button>
              <button
+                v-if="!props.embedded"
                 @click="closeModal"
                 class="text-text-secondary hover:text-foreground transition-colors duration-150 p-1 rounded hover:bg-hover"
                 :title="t('common.close')"
@@ -752,7 +768,7 @@ const stopResize = () => {
          </div>
       </div>
 
-       <div class="p-2 border-t border-border flex-shrink-0 text-xs text-text-secondary bg-header flex items-center justify-end">
+       <div v-if="!props.embedded" class="p-2 border-t border-border flex-shrink-0 text-xs text-text-secondary bg-header flex items-center justify-end">
          <div class="flex items-center space-x-2 flex-wrap gap-y-1">
             <label for="modal-width" class="text-xs ml-2">{{ t('common.width') }}:</label>
             <input
@@ -787,6 +803,7 @@ const stopResize = () => {
        </div>
        <!-- Resize Handle -->
        <div
+         v-if="!props.embedded"
          class="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-10 bg-transparent hover:bg-primary-dark hover:bg-opacity-30"
          title="Resize"
          @mousedown.stop="initResize"

@@ -7,6 +7,7 @@ import { useConnectionsStore } from '../stores/connections.store'; // 请确认�
 
 interface Props {
   visible: boolean;
+  embedded?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -178,6 +179,9 @@ const formatEta = (subTask: TransferSubTask): string => {
 };
 
 onMounted(() => {
+  if (connectionsStore.connections.length === 0) {
+    void connectionsStore.fetchConnections();
+  }
   if (props.visible) {
     fetchTransferTasks();
     if (pollingIntervalId.value === null) {
@@ -265,10 +269,13 @@ const handleCancelTask = async (taskId: string) => {
 <template>
   <div
     v-if="internalVisible"
-    class="fixed inset-0 bg-overlay flex justify-center items-center z-50 p-4"
-    @click.self="handleClose"
+    :class="props.embedded ? 'flex h-full min-h-0 w-full' : 'fixed inset-0 bg-overlay flex justify-center items-center z-50 p-4'"
+    @click.self="props.embedded ? undefined : handleClose()"
   >
-    <div class="bg-background text-foreground p-6 rounded-lg shadow-xl border w-full max-w-3xl max-h-[85vh] flex flex-col" :style="{ borderColor: 'var(--border-color)' }">
+    <div :class="[
+      'bg-background text-foreground w-full flex flex-col',
+      props.embedded ? 'h-full min-h-0 p-3 border-0' : 'p-6 rounded-lg shadow-xl border max-w-3xl max-h-[85vh]'
+    ]" :style="{ borderColor: 'var(--border-color)' }">
       <!-- Header -->
       <h3 class="text-xl font-semibold text-center mb-6 flex-shrink-0">
         {{ t('transferProgressModal.title', '文件传输进度') }}
@@ -382,7 +389,7 @@ const handleCancelTask = async (taskId: string) => {
       </div>
 
       <!-- Footer -->
-      <div class="flex justify-end items-center pt-4 mt-auto flex-shrink-0 border-t" :style="{ borderTopColor: 'var(--border-color)' }">
+      <div v-if="!props.embedded" class="flex justify-end items-center pt-4 mt-auto flex-shrink-0 border-t" :style="{ borderTopColor: 'var(--border-color)' }">
         <button
           @click="handleClose"
           class="px-4 py-2 bg-button text-button-text rounded-md shadow-sm hover:bg-button-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition duration-150 ease-in-out"

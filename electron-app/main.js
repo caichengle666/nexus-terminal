@@ -4,7 +4,9 @@ const url = require('url');
 const express = require('express'); 
 const http = require('http'); 
 const { spawn } = require('child_process');
+const { randomUUID } = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const iconv = require('iconv-lite');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
@@ -18,6 +20,8 @@ let actualBackendUrlForFileDownloads; // 新增：用于文件下载的后端URL
 let tray = null;
 let isQuitting = false;
 let isAlwaysOnTop = false;
+let previousCpuTimes = null;
+const localTerminalSessions = new Map();
 const PROD_FRONTEND_PORT = 22457;
 const PROD_BACKEND_PORT = 22458;
 
@@ -679,6 +683,14 @@ app.on('window-all-closed', function () {
 app.on('before-quit', () => {
   isQuitting = true;
   console.log('Application is quitting...');
+  for (const { terminal } of localTerminalSessions.values()) {
+    try {
+      terminal.kill();
+    } catch (error) {
+      console.warn('Failed to close local terminal:', error);
+    }
+  }
+  localTerminalSessions.clear();
   if (backendRestartTimer) {
     clearTimeout(backendRestartTimer);
     backendRestartTimer = null;
@@ -729,6 +741,161 @@ ipcMain.on('minimize-window', () => {
 
 ipcMain.handle('get-app-version', () => require('./package.json').releaseVersion || app.getVersion());
 ipcMain.handle('get-platform', () => process.platform);
+
+const getOwnedLocalTerminal = (event, terminalId) => {
+  const session = localTerminalSessions.get(terminalId);
+  if (!session || session.webContents.id !== event.sender.id) {
+    throw new Error('本地终端会话不存在或不可访问。');
+  }
+  return session.terminal;
+};
+
+ipcMain.handle('local-terminal-create', (event, options = {}) => {
+  let pty;
+  try {
+    pty = require('node-pty');
+  } catch (error) {
+    throw new Error(`本地终端依赖不可用: ${error.message}`);
+  }
+
+  const cols = Math.max(20, Math.min(Number(options.cols) || 80, 500));
+  const rows = Math.max(5, Math.min(Number(options.rows) || 24, 200));
+  const shell = process.platform === 'win32'
+    ? process.env.COMSPEC || 'cmd.exe'
+    : process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash');
+  const terminalId = randomUUID();
+  const terminal = pty.spawn(shell, [], {
+    name: 'xterm-256color',
+    cols,
+    rows,
+    cwd: os.homedir(),
+    env: { ...process.env, TERM: 'xterm-256color' },
+  });
+
+  localTerminalSessions.set(terminalId, { terminal, webContents: event.sender });
+  terminal.onData((data) => {
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('local-terminal-output', { terminalId, data });
+    }
+  });
+  terminal.onExit(({ exitCode }) => {
+    localTerminalSessions.delete(terminalId);
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('local-terminal-exit', { terminalId, exitCode });
+    }
+  });
+
+  return { terminalId };
+});
+
+ipcMain.handle('local-terminal-write', (event, { terminalId, data }) => {
+  if (typeof data !== 'string' || data.length > 64 * 1024) {
+    throw new Error('本地终端输入无效。');
+  }
+  getOwnedLocalTerminal(event, terminalId).write(data);
+});
+
+ipcMain.handle('local-terminal-resize', (event, { terminalId, cols, rows }) => {
+  const safeCols = Math.max(20, Math.min(Number(cols) || 80, 500));
+  const safeRows = Math.max(5, Math.min(Number(rows) || 24, 200));
+  getOwnedLocalTerminal(event, terminalId).resize(safeCols, safeRows);
+});
+
+ipcMain.handle('local-terminal-close', (event, terminalId) => {
+  const terminal = getOwnedLocalTerminal(event, terminalId);
+  localTerminalSessions.delete(terminalId);
+  terminal.kill();
+});
+
+const getCpuTimes = () => os.cpus().reduce((total, cpu) => {
+  const times = cpu.times;
+  return {
+    idle: total.idle + times.idle,
+    total: total.total + times.user + times.nice + times.sys + times.idle + times.irq,
+  };
+}, { idle: 0, total: 0 });
+
+const getLocalSystemStatus = () => {
+  const currentCpuTimes = getCpuTimes();
+  const previous = previousCpuTimes;
+  previousCpuTimes = currentCpuTimes;
+  const totalCpuDelta = previous ? currentCpuTimes.total - previous.total : 0;
+  const idleCpuDelta = previous ? currentCpuTimes.idle - previous.idle : 0;
+  const cpuPercent = totalCpuDelta > 0 ? Math.round((1 - idleCpuDelta / totalCpuDelta) * 1000) / 10 : 0;
+  const totalMemory = os.totalmem();
+
+  return {
+    platform: process.platform,
+    hostname: os.hostname(),
+    cpuModel: os.cpus()[0]?.model || 'Unknown CPU',
+    cpuPercent,
+    memoryTotal: totalMemory,
+    memoryUsed: totalMemory - os.freemem(),
+    uptimeSeconds: os.uptime(),
+  };
+};
+
+const runSystemCommand = (command, args) => new Promise((resolve, reject) => {
+  const child = spawn(command, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '';
+  let stderr = '';
+  const timeout = setTimeout(() => {
+    child.kill();
+    reject(new Error('本机系统信息查询超时。'));
+  }, 5000);
+
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+  child.on('error', (error) => {
+    clearTimeout(timeout);
+    reject(error);
+  });
+  child.on('close', (code) => {
+    clearTimeout(timeout);
+    if (code === 0) {
+      resolve(stdout);
+      return;
+    }
+    reject(new Error(stderr.trim() || `系统命令退出，状态码 ${code}。`));
+  });
+});
+
+const getLocalProcesses = async () => {
+  if (process.platform === 'win32') {
+    const output = await runSystemCommand('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      'Get-Process | Select-Object -First 200 Id,ProcessName,CPU,WorkingSet64 | ConvertTo-Json -Compress',
+    ]);
+    const rows = JSON.parse(output || '[]');
+    return (Array.isArray(rows) ? rows : [rows]).map((row) => ({
+      pid: Number(row.Id),
+      name: String(row.ProcessName || ''),
+      cpu: Number(row.CPU || 0),
+      memory: Number(row.WorkingSet64 || 0),
+    }));
+  }
+
+  const output = await runSystemCommand('ps', ['-axo', 'pid=,comm=,pcpu=,rss=']);
+  return output.split(/\r?\n/).flatMap((line) => {
+    const match = line.trim().match(/^(\d+)\s+(.+?)\s+(\d+(?:\.\d+)?)\s+(\d+)$/);
+    if (!match) return [];
+    return [{
+      pid: Number(match[1]),
+      name: match[2],
+      cpu: Number(match[3]),
+      memory: Number(match[4]) * 1024,
+    }];
+  });
+};
+
+ipcMain.handle('get-local-system-status', () => getLocalSystemStatus());
+ipcMain.handle('get-local-processes', () => getLocalProcesses());
 
 const commandExists = (command) => new Promise((resolve) => {
   const checker = process.platform === 'win32'

@@ -169,6 +169,10 @@ const paneLabels = computed(() => ({ // Assuming labels might depend on i18n
   dockerManager: t('layout.pane.dockerManager', 'Docker 管理器'),
   suspendedSshSessions: t('layout.pane.suspendedSshSessions'),
   aiAssistant: t('layout.pane.aiAssistant', 'AI 终端助手'),
+  remoteDesktop: t('layout.pane.remoteDesktop', '远程桌面'),
+  transferCenter: t('layout.pane.transferCenter', '传输中心'),
+  localSystem: t('layout.pane.localSystem', '本机监控'),
+  localTerminal: t('layout.pane.localTerminal', '本地终端'),
 }));
 
 // --- Methods ---
