@@ -660,7 +660,7 @@ const handleConnectAllFilteredConnections = async () => {
       <div class="bg-card text-card-foreground shadow rounded-lg overflow-hidden border border-border min-h-[400px]"> <!-- 移除了 max-w-screen-2xl mx-auto -->
         <div class="px-4 py-3 border-b border-border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <h2 class="text-lg font-medium flex-shrink-0">{{ t('dashboard.connectionList', '连接列表') }} ({{ filteredAndSortedConnections.length }})</h2>
-        <div class="w-full sm:w-auto flex flex-wrap sm:flex-nowrap items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
+        <div class="flex w-full flex-wrap items-stretch gap-2 sm:items-center">
           <!-- Batch Edit Toggle -->
           <div class="flex items-center mr-3">
             <label for="batch-edit-toggle" class="mr-2 text-sm font-medium text-text-secondary">{{ t('connections.batchEdit.toggleLabel', '批量修改') }}</label>
@@ -884,7 +884,7 @@ const handleConnectAllFilteredConnections = async () => {
                 :title="isFavoriteConnection(conn.id) ? t('connections.filters.removeFavorite') : t('connections.filters.addFavorite')"
                 :aria-label="isFavoriteConnection(conn.id) ? t('connections.filters.removeFavorite') : t('connections.filters.addFavorite')"
               >
-                <i :class="['fas', isFavoriteConnection(conn.id) ? 'fa-star' : 'fa-star', 'w-4 text-center']" aria-hidden="true"></i>
+                <i :class="['fas', isFavoriteConnection(conn.id) ? 'fa-star' : 'fa-star-o', 'w-4 text-center']" aria-hidden="true"></i>
               </button>
               <!-- Test Single Connection Button -->
               <button
