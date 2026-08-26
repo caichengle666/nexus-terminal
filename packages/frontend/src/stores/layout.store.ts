@@ -25,7 +25,7 @@ function generateId(): string {
   return Math.random().toString(36).substring(2, 15);
 }
 
-// 定义默认布局结构 (根据用户提供的配置更新，但使用 generateId)
+// 定义默认布局结构：左侧状态栏，中间终端，右侧 AI 助手
 const getDefaultLayout = (): LayoutNode => ({
   id: generateId(), // Generate new ID
   type: "container",
@@ -61,7 +61,7 @@ const getDefaultLayout = (): LayoutNode => ({
       id: generateId(), // Generate new ID
       type: "container",
       direction: "vertical",
-      size: 49.03, // 为右侧编辑器和 AI 助手保留独立区域
+      size: 67.03,
       children: [
         {
           id: generateId(), // Generate new ID
@@ -80,20 +80,6 @@ const getDefaultLayout = (): LayoutNode => ({
           type: "pane",
           component: "fileManager",
           size: 35.05166335166116 // 使用用户提供的 size
-        }
-      ]
-    },
-    {
-      id: generateId(), // Generate new ID
-      type: "container",
-      direction: "vertical",
-      size: 18,
-      children: [
-        {
-          id: generateId(), // Generate new ID
-          type: "pane",
-          component: "editor",
-          size: 100
         }
       ]
     },
@@ -118,10 +104,34 @@ const getDefaultLayout = (): LayoutNode => ({
 const getDefaultSidebarPanes = (): { left: PaneName[], right: PaneName[] } => ({
   "left": [
     "connections",
-    "dockerManager"
+    "dockerManager",
+    "editor"
   ],
   "right": []
 });
+
+function isLegacyDefaultLayout(node: LayoutNode | null): boolean {
+  if (!node || node.type !== 'container' || node.direction !== 'horizontal' || node.children?.length !== 4) {
+    return false;
+  }
+
+  const [statusColumn, terminalColumn, editorColumn, assistantColumn] = node.children;
+  const getPaneNames = (column: LayoutNode): PaneName[] =>
+    column.type === 'container' && column.direction === 'vertical' && column.children
+      ? column.children.map(child => child.component).filter((component): component is PaneName => Boolean(component))
+      : [];
+
+  return JSON.stringify(getPaneNames(statusColumn)) === JSON.stringify(['statusMonitor', 'commandHistory', 'quickCommands'])
+    && JSON.stringify(getPaneNames(terminalColumn)) === JSON.stringify(['terminal', 'commandBar', 'fileManager'])
+    && JSON.stringify(getPaneNames(editorColumn)) === JSON.stringify(['editor'])
+    && JSON.stringify(getPaneNames(assistantColumn)) === JSON.stringify(['aiAssistant']);
+}
+
+function isLegacyDefaultSidebar(value: { left: PaneName[], right: PaneName[] } | null): boolean {
+  return Boolean(value)
+    && JSON.stringify(value?.left) === JSON.stringify(['connections', 'dockerManager'])
+    && JSON.stringify(value?.right) === JSON.stringify([]);
+}
 
 // 递归查找主布局树中使用的面板
 function getMainLayoutUsedPaneNames(node: LayoutNode | null): Set<PaneName> {
@@ -236,6 +246,8 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
     let layoutLoadedFromBackend = false;
     let sidebarLoadedFromBackend = false;
     let loadedLayout: LayoutNode | null = null; // 临时存储加载的布局
+    let layoutMigrated = false;
+    let sidebarMigrated = false;
 
     // 1. 尝试从后端加载主布局
     try {
@@ -245,6 +257,11 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
         console.log('[Layout Store] Step 1: Backend returned data.');
         // +++ 在赋值前确保 ID 存在 +++
         loadedLayout = ensureNodeIds(response.data);
+        if (isLegacyDefaultLayout(loadedLayout)) {
+          loadedLayout = ensureNodeIds(getDefaultLayout());
+          layoutMigrated = true;
+          console.log('[Layout Store] Migrated legacy default layout.');
+        }
         layoutLoadedFromBackend = true;
         console.log('[Layout Store] Step 1: Layout processed with ensureNodeIds.');
       } else {
@@ -261,7 +278,13 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
         const sanitizedSidebars = sanitizeSidebarPanes(response.data, allPossiblePanes.value);
         if (sanitizedSidebars)
         {
-            sidebarPanes.value = sanitizedSidebars;
+            if (layoutMigrated && isLegacyDefaultSidebar(sanitizedSidebars)) {
+                sidebarPanes.value = getDefaultSidebarPanes();
+                sidebarMigrated = true;
+                console.log('[Layout Store] Migrated legacy default sidebar configuration.');
+            } else {
+                sidebarPanes.value = sanitizedSidebars;
+            }
             sidebarLoadedFromBackend = true;
             console.log('[Layout Store] Step 2: Sidebar config loaded from backend.');
             if (JSON.stringify(sanitizedSidebars) !== JSON.stringify(response.data)) {
@@ -277,12 +300,19 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
 
     // 3. 本地布局优先，后端布局作为跨设备或首次启动时的兜底
     let localLayout: LayoutNode | null = null;
+    let localLayoutWasLegacy = false;
     console.log('[Layout Store] Step 3: Attempting localStorage for layout...');
     try {
       const savedLayout = localStorage.getItem(LAYOUT_STORAGE_KEY);
       if (savedLayout) {
         const parsedLayout = JSON.parse(savedLayout) as LayoutNode;
         localLayout = ensureNodeIds(parsedLayout);
+        localLayoutWasLegacy = isLegacyDefaultLayout(localLayout);
+        if (localLayoutWasLegacy) {
+          localLayout = ensureNodeIds(getDefaultLayout());
+          layoutMigrated = true;
+          console.log('[Layout Store] Migrated legacy local layout.');
+        }
         console.log('[Layout Store] Step 3: Parsed layout from localStorage.');
       }
     } catch (error) {
@@ -291,6 +321,7 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
 
     if (localLayout) {
       loadedLayout = localLayout;
+      layoutMigrated = localLayoutWasLegacy;
     } else if (!layoutLoadedFromBackend) {
       console.log('[Layout Store] Step 4: No usable saved layout. Applying default.');
       loadedLayout = ensureNodeIds(getDefaultLayout());
@@ -313,6 +344,14 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
     }
 
     if (localSidebarPanes) {
+        const localSidebarWasLegacy = isLegacyDefaultSidebar(localSidebarPanes);
+        if (layoutMigrated && localSidebarWasLegacy) {
+            localSidebarPanes = getDefaultSidebarPanes();
+            sidebarMigrated = true;
+            console.log('[Layout Store] Migrated legacy local sidebar configuration.');
+        } else {
+            sidebarMigrated = false;
+        }
         sidebarPanes.value = localSidebarPanes;
     } else if (!sidebarLoadedFromBackend) {
         console.log('[Layout Store] Step 6: No usable saved sidebar config. Applying default.');
@@ -345,6 +384,12 @@ function ensureNodeIds(node: LayoutNode | null): LayoutNode | null {
      const sanitizedFinalSidebars = sanitizeSidebarPanes(sidebarPanes.value, allPossiblePanes.value) || getDefaultSidebarPanes();
      if (JSON.stringify(sanitizedFinalSidebars) !== JSON.stringify(sidebarPanes.value)) {
          sidebarPanes.value = sanitizedFinalSidebars;
+         await persistSidebarPanes();
+     }
+     if (layoutMigrated) {
+         await persistLayoutTree();
+     }
+     if (sidebarMigrated) {
          await persistSidebarPanes();
      }
 

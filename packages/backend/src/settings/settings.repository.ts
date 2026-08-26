@@ -213,19 +213,11 @@ export const ensureDefaultSettingsExist = async (db: sqlite3.Database): Promise<
         {
           type: "container",
           direction: "vertical",
-          size: 49.03,
+          size: 67.03,
           children: [
             { type: "pane", component: "terminal", size: 59.95 },
             { type: "pane", component: "commandBar", size: 5 },
             { type: "pane", component: "fileManager", size: 35.05 }
-          ]
-        },
-        {
-          type: "container",
-          direction: "vertical",
-          size: 18,
-          children: [
-            { type: "pane", component: "editor", size: 100 }
           ]
         },
         {
@@ -240,7 +232,7 @@ export const ensureDefaultSettingsExist = async (db: sqlite3.Database): Promise<
     };
 
     const defaultSidebarPanesStructure: SidebarConfig = {
-      left: ["connections", "dockerManager"],
+      left: ["connections", "dockerManager", "editor"],
       right: []
     };
 
