@@ -884,7 +884,7 @@ const handleConnectAllFilteredConnections = async () => {
                 :title="isFavoriteConnection(conn.id) ? t('connections.filters.removeFavorite') : t('connections.filters.addFavorite')"
                 :aria-label="isFavoriteConnection(conn.id) ? t('connections.filters.removeFavorite') : t('connections.filters.addFavorite')"
               >
-                <i :class="['fas', isFavoriteConnection(conn.id) ? 'fa-star' : 'fa-star-o', 'w-4 text-center']" aria-hidden="true"></i>
+                <i :class="[isFavoriteConnection(conn.id) ? 'fas fa-star' : 'far fa-star', 'w-4 text-center']" aria-hidden="true"></i>
               </button>
               <!-- Test Single Connection Button -->
               <button
