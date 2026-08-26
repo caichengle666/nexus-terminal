@@ -13,6 +13,7 @@ const settingsStore = useSettingsStore();
 const props = defineProps<{
   connection: ConnectionInfo | null;
   embedded?: boolean;
+  autoConnect?: boolean;
 }>();
 
 const emit = defineEmits(['close']);
@@ -24,6 +25,7 @@ const DEBOUNCE_DELAY = 500; // ms
 const MODAL_CONTAINER_PADDING = 32; 
 const maxAllowedWidth = computed(() => window.innerWidth - MODAL_CONTAINER_PADDING);
 const maxAllowedHeight = computed(() => window.innerHeight - MODAL_CONTAINER_PADDING);
+const shouldAutoConnect = computed(() => props.autoConnect !== false);
 
 const rdpDisplayRef = ref<HTMLDivElement | null>(null);
 const rdpContainerRef = ref<HTMLDivElement | null>(null);
@@ -734,11 +736,14 @@ onMounted(() => {
     tempInputHeight.value = desiredModalHeight.value;
   }
 
-  if (props.connection) {
+  if (props.connection && shouldAutoConnect.value) {
     nextTick(async () => {
         await handleConnection(); // 使用初始尺寸连接
         // 不再需要设置 observer
-    });
+      });
+  } else if (props.connection) {
+    statusMessage.value = t('remoteDesktopModal.status.standby');
+    connectionStatus.value = 'disconnected';
   } else {
       statusMessage.value = t('remoteDesktopModal.errors.noConnection');
       connectionStatus.value = 'error';
@@ -765,12 +770,18 @@ onUnmounted(() => {
   }
 });
 
-watch(() => props.connection, (newConnection, oldConnection) => {
+  watch(() => props.connection, (newConnection, oldConnection) => {
   if (newConnection && newConnection.id !== oldConnection?.id) {
-     nextTick(async () => {
-        await handleConnection(); // 使用初始尺寸连接
-        // 不再需要设置 observer
-     });
+     if (shouldAutoConnect.value) {
+       nextTick(async () => {
+          await handleConnection(); // 使用初始尺寸连接
+          // 不再需要设置 observer
+       });
+     } else {
+       disconnectGuacamole(true);
+       statusMessage.value = t('remoteDesktopModal.status.standby');
+       connectionStatus.value = 'disconnected';
+     }
   } else if (!newConnection) {
       disconnectGuacamole(true);
       statusMessage.value = t('remoteDesktopModal.errors.noConnection');
@@ -911,16 +922,23 @@ const stopResize = () => {
         >
           <span><i class="fas fa-upload mr-2" aria-hidden="true"></i>{{ t('remoteDesktopModal.files.dropHere') }}</span>
         </div>
-         <div v-if="connectionStatus === 'connecting' || connectionStatus === 'reconnecting' || connectionStatus === 'error'"
-              class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75 text-white p-4 z-10">
+          <div v-if="connectionStatus === 'connecting' || connectionStatus === 'reconnecting' || connectionStatus === 'error' || (!shouldAutoConnect && connectionStatus === 'disconnected')"
+               class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75 text-white p-4 z-10">
             <div class="text-center">
-              <i v-if="connectionStatus === 'connecting' || connectionStatus === 'reconnecting'" class="fas fa-spinner fa-spin fa-2x mb-3"></i>
-              <i v-else class="fas fa-exclamation-triangle fa-2x mb-3 text-red-400"></i>
-              <p class="text-sm">{{ statusMessage }}</p>
+               <i v-if="connectionStatus === 'connecting' || connectionStatus === 'reconnecting'" class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+               <i v-else-if="connectionStatus === 'error'" class="fas fa-exclamation-triangle fa-2x mb-3 text-red-400"></i>
+               <i v-else class="fas fa-desktop fa-2x mb-3 text-text-secondary"></i>
+               <p class="text-sm">{{ statusMessage }}</p>
                <button v-if="connectionStatus === 'error'"
                        @click="() => handleConnection()"
                        class="mt-4 px-3 py-1 bg-primary text-white rounded text-xs hover:bg-primary-dark">
                  {{ t('common.retry') }}
+               </button>
+               <button v-else-if="!shouldAutoConnect && connectionStatus === 'disconnected'"
+                       type="button"
+                       @click="() => handleConnection()"
+                       class="mt-4 px-3 py-1 bg-primary text-white rounded text-xs hover:bg-primary-dark">
+                 {{ t('common.connect', '连接') }}
                </button>
             </div>
          </div>

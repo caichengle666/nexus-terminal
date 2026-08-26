@@ -1301,6 +1301,7 @@
       "connectingVnc": "正在连接 VNC...",
       "waiting": "等待服务器响应...",
       "connecting": "连接中...",
+      "standby": "远程桌面待命，点击连接开始会话",
       "reconnecting": "正在重连（第 {attempt} 次，{delay} 秒后）...",
       "error": "错误",
       "connected": "已连接",
@@ -1636,9 +1637,19 @@
     "errorLoading": "加载传输任务失败：{error}",
     "error": {
       "unknown": "未知错误",
-      "cancelFailed": "终止任务失败。"
+      "cancelFailed": "终止任务失败。",
+      "retryFailed": "重试任务失败。"
     },
     "noTasks": "当前没有活动的传输任务。",
+    "filters": {
+      "all": "全部",
+      "active": "进行中",
+      "completed": "已完成",
+      "failed": "失败"
+    },
+    "retryTaskTooltip": "重试任务",
+    "retryButton": "重试",
+    "retryingButton": "重试中",
     "task": {
       "idLabel": "任务",
       "createdAt": "创建于",

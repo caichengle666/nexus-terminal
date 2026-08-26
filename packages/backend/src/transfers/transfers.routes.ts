@@ -21,5 +21,8 @@ export const transfersRoutes = (): Router => {
   // POST /api/transfers/cancel/:taskId - 请求取消一个传输任务
   router.post('/cancel/:taskId', controller.cancelTransfer);
 
+  // POST /api/transfers/retry/:taskId - 重试失败或被终止的传输任务
+  router.post('/retry/:taskId', controller.retryTransfer);
+
   return router;
 };

@@ -26,9 +26,9 @@ const profileGroups = computed(() => {
 });
 const filteredRdpConnections = computed(() => {
   const search = profileSearch.value.trim().toLowerCase();
-  return rdpConnections.value.filter(connection => {
+    return rdpConnections.value.filter(connection => {
     const matchesSearch = !search || [connection.name, connection.host, connection.username]
-      .some(value => value.toLowerCase().includes(search));
+      .some(value => String(value ?? '').toLowerCase().includes(search));
     const matchesGroup = profileGroup.value === 'all'
       || (profileGroup.value === 'untagged'
         ? !connection.tag_ids?.length
@@ -94,6 +94,7 @@ onMounted(() => {
       v-if="selectedConnection"
       :key="selectedConnection.id"
       embedded
+      :auto-connect="false"
       :connection="selectedConnection"
       class="min-h-0 flex-1"
     />

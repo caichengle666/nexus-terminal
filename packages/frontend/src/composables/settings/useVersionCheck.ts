@@ -22,14 +22,48 @@ const isVersionNewer = (latest: string, current: string) => {
 };
 
 const getPlatformDownloadAsset = (assets: ReleaseAsset[]) => {
-  const isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent);
-  const assetPattern = isMac ? /macOS[- ]arm64\.dmg$/i : /Portable.*\.exe$/i;
-  return assets.find(asset => assetPattern.test(asset.name))?.browser_download_url || null;
+  const userAgentData = (navigator as Navigator & {
+    userAgentData?: { platform?: string; architecture?: string };
+  }).userAgentData;
+  const platform = `${navigator.userAgent} ${userAgentData?.platform || ''}`.toLowerCase();
+  const architecture = `${userAgentData?.architecture || ''} ${navigator.userAgent}`.toLowerCase();
+  const isArm64 = /arm64|aarch64|apple silicon/.test(architecture);
+  const findAsset = (pattern: RegExp) => assets.find(asset => pattern.test(asset.name))?.browser_download_url || null;
+
+  if (/windows/.test(platform)) {
+    return findAsset(isArm64
+      ? /(?:portable|windows|win).*?(?:arm64|aarch64).*\.exe$/i
+      : /portable.*\.exe$/i)
+      || findAsset(/\.exe$/i);
+  }
+
+  if (/macintosh|mac os x|macos/.test(platform)) {
+    return findAsset(isArm64
+      ? /(?:macos|darwin).*?(?:arm64|apple silicon).*\.dmg$/i
+      : /(?:macos|darwin).*?(?:x64|intel|amd64).*\.dmg$/i)
+      || findAsset(/\.dmg$/i);
+  }
+
+  if (/linux/.test(platform)) {
+    return findAsset(isArm64
+      ? /(?:appimage|linux).*?(?:arm64|aarch64).*\.appimage$/i
+      : /(?:appimage|linux).*?(?:x64|amd64).*\.appimage$/i)
+      || findAsset(/\.appimage$/i);
+  }
+
+  return null;
 };
+
+const appVersion = ref(pkg.version);
+const latestVersion = ref<string | null>(null);
+const latestReleaseUrl = ref<string | null>(null);
+const updateDownloadUrl = ref<string | null>(null);
+const isCheckingVersion = ref(false);
+const versionCheckError = ref<string | null>(null);
+let versionCheckPromise: Promise<void> | null = null;
 
 export function useVersionCheck() {
   const { t } = useI18n();
-  const appVersion = ref(pkg.version);
   const runtimeKind = computed<RuntimeKind>(() => {
     if ((window as any).electronAPI) return 'electron';
     if (import.meta.env.VITE_DEPLOYMENT_MODE === 'docker') return 'docker';
@@ -37,11 +71,6 @@ export function useVersionCheck() {
     return 'web';
   });
   const dockerUpgradeCommand = 'docker compose pull && docker compose up -d';
-  const latestVersion = ref<string | null>(null);
-  const latestReleaseUrl = ref<string | null>(null);
-  const updateDownloadUrl = ref<string | null>(null);
-  const isCheckingVersion = ref(false);
-  const versionCheckError = ref<string | null>(null);
 
   const isUpdateAvailable = computed(() => {
     // 简单的字符串比较，假设 tag 格式为 vX.Y.Z
@@ -58,33 +87,40 @@ export function useVersionCheck() {
   };
 
   const checkLatestVersion = async () => {
+    if (versionCheckPromise) return versionCheckPromise;
+
     isCheckingVersion.value = true;
     versionCheckError.value = null;
     latestVersion.value = null;
     latestReleaseUrl.value = null;
     updateDownloadUrl.value = null;
-    try {
-      await loadActualAppVersion();
-      const response = await axios.get('https://api.github.com/repos/caichengle666/nexus-terminal/releases/latest');
-      if (response.data && response.data.tag_name) {
-        latestVersion.value = response.data.tag_name;
-        latestReleaseUrl.value = response.data.html_url || null;
-        updateDownloadUrl.value = getPlatformDownloadAsset(response.data.assets || []);
-      } else {
-        throw new Error('Invalid API response format');
+    versionCheckPromise = (async () => {
+      try {
+        await loadActualAppVersion();
+        const response = await axios.get('https://api.github.com/repos/caichengle666/nexus-terminal/releases/latest');
+        if (response.data && response.data.tag_name) {
+          latestVersion.value = response.data.tag_name;
+          latestReleaseUrl.value = response.data.html_url || null;
+          updateDownloadUrl.value = getPlatformDownloadAsset(response.data.assets || []);
+        } else {
+          throw new Error('Invalid API response format');
+        }
+      } catch (error: any) {
+        console.error('检查最新版本失败:', error);
+        if (axios.isAxiosError(error) && error.response?.status === 404) {
+          versionCheckError.value = t('settings.about.error.noReleases');
+        } else if (axios.isAxiosError(error) && error.response?.status === 403) {
+          versionCheckError.value = t('settings.about.error.rateLimit');
+        } else {
+          versionCheckError.value = t('settings.about.error.checkFailed');
+        }
+      } finally {
+        isCheckingVersion.value = false;
+        versionCheckPromise = null;
       }
-    } catch (error: any) {
-      console.error('检查最新版本失败:', error);
-      if (axios.isAxiosError(error) && error.response?.status === 404) {
-        versionCheckError.value = t('settings.about.error.noReleases');
-      } else if (axios.isAxiosError(error) && error.response?.status === 403) {
-         versionCheckError.value = t('settings.about.error.rateLimit');
-      } else {
-        versionCheckError.value = t('settings.about.error.checkFailed');
-      }
-    } finally {
-      isCheckingVersion.value = false;
-    }
+    })();
+
+    return versionCheckPromise;
   };
 
   return {

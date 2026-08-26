@@ -79,18 +79,24 @@ const transferTasks = ref<TransferTask[]>([]);
 const isLoading = ref(false);
 const errorLoading = ref<string | null>(null);
 const pollingIntervalId = ref<number | null>(null);
+const statusFilter = ref<'all' | 'active' | 'completed' | 'failed'>('all');
+const retryingTaskId = ref<string | null>(null);
 
-// Computed property for sorted and limited tasks
+const filteredTasks = computed(() => transferTasks.value.filter(task => {
+  if (statusFilter.value === 'active') return ['queued', 'in-progress', 'cancelling'].includes(task.status);
+  if (statusFilter.value === 'completed') return ['completed', 'partially-completed'].includes(task.status);
+  if (statusFilter.value === 'failed') return ['failed', 'cancelled'].includes(task.status);
+  return true;
+}));
+
 const displayedTasks = computed(() => {
-  // Create a new array to avoid mutating the original transferTasks ref directly during sort
-  return [...transferTasks.value]
+  return [...filteredTasks.value]
     .sort((a, b) => {
-      // Ensure createdAt is treated as a Date object for comparison
       const dateA = new Date(a.createdAt);
       const dateB = new Date(b.createdAt);
-      return dateB.getTime() - dateA.getTime(); // For descending order (newest first)
+      return dateB.getTime() - dateA.getTime();
     })
-    .slice(0, 5); // Limit to the 5 newest tasks
+    .slice(0, 50);
 });
 
 const fetchTransferTasks = async () => {
@@ -239,6 +245,10 @@ const isTaskCancelling = (taskStatus: TransferTask['status']): boolean => {
   return taskStatus === 'cancelling';
 };
 
+const isTaskRetryable = (taskStatus: TransferTask['status']): boolean => {
+  return ['failed', 'partially-completed', 'cancelled'].includes(taskStatus);
+};
+
 const handleCancelTask = async (taskId: string) => {
   // 可以在这里添加一个确认对话框
   // const confirmed = window.confirm(t('transferProgressModal.confirmCancel', '您确定要终止此传输任务吗？'));
@@ -264,6 +274,19 @@ const handleCancelTask = async (taskId: string) => {
   }
 };
 
+const handleRetryTask = async (taskId: string) => {
+  retryingTaskId.value = taskId;
+  try {
+    await apiClient.post(`/transfers/retry/${taskId}`);
+    await fetchTransferTasks();
+  } catch (error: any) {
+    console.error(`Failed to retry task ${taskId}:`, error);
+    errorLoading.value = error.response?.data?.message || error.message || t('transferProgressModal.error.retryFailed', '重试任务失败。');
+  } finally {
+    retryingTaskId.value = null;
+  }
+};
+
 </script>
 
 <template>
@@ -281,6 +304,21 @@ const handleCancelTask = async (taskId: string) => {
         {{ t('transferProgressModal.title', '文件传输进度') }}
       </h3>
 
+      <div v-if="transferTasks.length > 0" class="flex flex-wrap gap-2 mb-4 flex-shrink-0">
+        <button
+          type="button"
+          v-for="filter in ['all', 'active', 'completed', 'failed'] as const"
+          :key="filter"
+          @click="statusFilter = filter"
+          :class="[
+            'px-3 py-1.5 text-xs rounded-md border transition-colors',
+            statusFilter === filter ? 'bg-primary text-white border-primary' : 'text-text-secondary hover:text-foreground hover:bg-background-alt'
+          ]"
+        >
+          {{ t(`transferProgressModal.filters.${filter}`) }}
+        </button>
+      </div>
+
       <!-- Content Area -->
       <div class="flex-grow overflow-y-auto mb-6 pr-2 space-y-4 custom-scrollbar">
         <div v-if="isLoading && transferTasks.length === 0" class="text-center text-text-secondary py-10">
@@ -294,7 +332,7 @@ const handleCancelTask = async (taskId: string) => {
           <p class="font-semibold">{{ t('transferProgressModal.errorLoadingTitle', '加载错误') }}</p>
           <p>{{ t('transferProgressModal.errorLoading', { error: errorLoading }) }}</p>
         </div>
-        <div v-else-if="!isLoading && transferTasks.length === 0" class="text-center text-text-secondary py-10">
+        <div v-else-if="!isLoading && displayedTasks.length === 0" class="text-center text-text-secondary py-10">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
@@ -317,16 +355,30 @@ const handleCancelTask = async (taskId: string) => {
                 ]">
                   {{ getDisplayStatus(task.status) }}
                 </span>
-                <button
-                  v-if="isTaskCancellable(task.status)"
-                  @click="handleCancelTask(task.taskId)"
-                  :disabled="isTaskCancelling(task.status)"
-                  class="px-2 py-0.5 text-xs bg-red-500 hover:bg-red-600 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  :title="isTaskCancelling(task.status) ? t('transferProgressModal.cancellingTooltip', '终止中...') : t('transferProgressModal.cancelTaskTooltip', '终止任务')"
-                >
-                  <i v-if="isTaskCancelling(task.status)" class="fas fa-spinner fa-spin mr-1"></i>
-                  {{ isTaskCancelling(task.status) ? t('transferProgressModal.cancellingButton', '终止中') : t('transferProgressModal.cancelButton', '终止') }}
-                </button>
+                <div class="flex items-center gap-1">
+                  <button
+                    v-if="isTaskRetryable(task.status)"
+                    type="button"
+                    @click="handleRetryTask(task.taskId)"
+                    :disabled="retryingTaskId === task.taskId"
+                    class="px-2 py-0.5 text-xs bg-primary hover:bg-primary/80 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    :title="t('transferProgressModal.retryTaskTooltip', '重试任务')"
+                  >
+                    <i :class="['fas', retryingTaskId === task.taskId ? 'fa-spinner fa-spin' : 'fa-rotate-right', 'mr-1']"></i>
+                    {{ retryingTaskId === task.taskId ? t('transferProgressModal.retryingButton', '重试中') : t('transferProgressModal.retryButton', '重试') }}
+                  </button>
+                  <button
+                    v-if="isTaskCancellable(task.status)"
+                    type="button"
+                    @click="handleCancelTask(task.taskId)"
+                    :disabled="isTaskCancelling(task.status)"
+                    class="px-2 py-0.5 text-xs bg-red-500 hover:bg-red-600 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    :title="isTaskCancelling(task.status) ? t('transferProgressModal.cancellingTooltip', '终止中...') : t('transferProgressModal.cancelTaskTooltip', '终止任务')"
+                  >
+                    <i v-if="isTaskCancelling(task.status)" class="fas fa-spinner fa-spin mr-1"></i>
+                    {{ isTaskCancelling(task.status) ? t('transferProgressModal.cancellingButton', '终止中') : t('transferProgressModal.cancelButton', '终止') }}
+                  </button>
+                </div>
               </div>
             </div>
 

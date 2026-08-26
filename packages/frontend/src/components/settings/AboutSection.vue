@@ -27,7 +27,10 @@
           <span v-else-if="!isUpdateAvailable && latestVersion" class="inline-block text-xs ml-2 px-2 py-0.5 rounded-full bg-success text-white">
             {{ $t('settings.about.latestVersion') }}
           </span>
-          <a v-else-if="isUpdateAvailable && latestVersion"
+          <span v-else-if="isUpdateAvailable && latestVersion && runtimeKind !== 'electron'" class="inline-block text-xs ml-2 px-2 py-0.5 rounded-full bg-warning text-white">
+            {{ $t('settings.about.updateAvailable', { version: latestVersion }) }}
+          </span>
+          <a v-else-if="isUpdateAvailable && latestVersion && runtimeKind === 'electron'"
              :href="updateDownloadUrl || latestReleaseUrl || `https://github.com/caichengle666/nexus-terminal/releases/tag/${latestVersion}`"
              target="_blank" rel="noopener noreferrer"
              :title="updateDownloadUrl ? '下载当前系统对应版本' : '查看 Release 页面'"
@@ -107,7 +110,9 @@ const copyDockerUpgradeCommand = async () => {
 const reloadPage = () => window.location.reload();
 
 onMounted(async () => {
-  await checkLatestVersion();
+  if (!latestVersion.value && !isCheckingVersion.value) {
+    await checkLatestVersion();
+  }
 });
 </script>
 
