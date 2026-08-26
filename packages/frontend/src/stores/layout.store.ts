@@ -61,7 +61,7 @@ const getDefaultLayout = (): LayoutNode => ({
       id: generateId(), // Generate new ID
       type: "container",
       direction: "vertical",
-      size: 58.02787988626151, // 使用用户提供的 size
+      size: 49.03, // 为右侧编辑器和 AI 助手保留独立区域
       children: [
         {
           id: generateId(), // Generate new ID
@@ -87,19 +87,27 @@ const getDefaultLayout = (): LayoutNode => ({
       id: generateId(), // Generate new ID
       type: "container",
       direction: "vertical",
-      size: 27.3820599922619, // 使用用户提供的 size
+      size: 18,
       children: [
         {
           id: generateId(), // Generate new ID
           type: "pane",
           component: "editor",
-          size: 56 // 编辑器与 AI 助手共享右侧区域
-        },
+          size: 100
+        }
+      ]
+    },
+    {
+      id: generateId(),
+      type: "container",
+      direction: "vertical",
+      size: 18.38,
+      children: [
         {
           id: generateId(),
           type: "pane",
           component: "aiAssistant",
-          size: 44
+          size: 100
         }
       ]
     }
