@@ -93,7 +93,13 @@ const getDefaultLayout = (): LayoutNode => ({
           id: generateId(), // Generate new ID
           type: "pane",
           component: "editor",
-          size: 100 // 使用用户提供的 size
+          size: 56 // 编辑器与 AI 助手共享右侧区域
+        },
+        {
+          id: generateId(),
+          type: "pane",
+          component: "aiAssistant",
+          size: 44
         }
       ]
     }

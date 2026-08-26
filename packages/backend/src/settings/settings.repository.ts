@@ -225,7 +225,8 @@ export const ensureDefaultSettingsExist = async (db: sqlite3.Database): Promise<
           direction: "vertical",
           size: 27.38,
           children: [
-            { type: "pane", component: "editor", size: 100 }
+            { type: "pane", component: "editor", size: 56 },
+            { type: "pane", component: "aiAssistant", size: 44 }
           ]
         }
       ]
