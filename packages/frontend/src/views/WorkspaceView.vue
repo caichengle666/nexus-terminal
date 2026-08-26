@@ -92,15 +92,24 @@ const mobilePrimaryPaneNames = new Set<MobilePaneOption['component']>([
   'connections',
   'terminal',
   'fileManager',
-  'remoteDesktop',
   'transferCenter',
-  'localTerminal',
-  'localSystem',
 ]);
 const mobilePrimaryPaneOptions = computed(() => mobilePaneOptions.value.filter(option => mobilePrimaryPaneNames.has(option.component)));
 const mobileSecondaryPaneOptions = computed(() => mobilePaneOptions.value.filter(option => !mobilePrimaryPaneNames.has(option.component)));
 
-const mobilePane = ref<Exclude<PaneName, 'commandBar'>>('terminal');
+const MOBILE_PANE_STORAGE_KEY = 'nexus_terminal_mobile_pane';
+const getStoredMobilePane = (): Exclude<PaneName, 'commandBar'> => {
+  if (typeof localStorage === 'undefined') return 'terminal';
+  try {
+    const storedPane = localStorage.getItem(MOBILE_PANE_STORAGE_KEY) as Exclude<PaneName, 'commandBar'> | null;
+    return storedPane && mobilePaneOptions.value.some(option => option.component === storedPane) ? storedPane : 'terminal';
+  } catch {
+    return 'terminal';
+  }
+};
+
+const mobilePane = ref<Exclude<PaneName, 'commandBar'>>(getStoredMobilePane());
+const isMobilePaneMenuOpen = ref(false);
 const mobilePaneRequiresSession = computed(() => mobilePaneOptions.value.find(option => option.component === mobilePane.value)?.requiresSession ?? false);
 const mobileLayoutNode = computed<LayoutNode>(() => ({
   id: `mobile-${mobilePane.value}`,
@@ -112,16 +121,27 @@ const mobileLayoutNode = computed<LayoutNode>(() => ({
 const selectMobilePane = (option: MobilePaneOption) => {
   if (option.requiresSession && !activeSessionId.value) return;
   mobilePane.value = option.component;
+  isMobilePaneMenuOpen.value = false;
 };
 
-const selectMobileMorePane = (event: Event) => {
-  const component = (event.target as HTMLSelectElement).value as MobilePaneOption['component'];
-  const option = mobileSecondaryPaneOptions.value.find(item => item.component === component);
-  if (option) selectMobilePane(option);
+const toggleMobilePaneMenu = () => {
+  isMobilePaneMenuOpen.value = !isMobilePaneMenuOpen.value;
 };
+
+const closeMobilePaneMenu = () => {
+  isMobilePaneMenuOpen.value = false;
+};
+
+watch(mobilePane, (pane) => {
+  try {
+    localStorage.setItem(MOBILE_PANE_STORAGE_KEY, pane);
+  } catch {
+    // Ignore storage failures; the current session remains usable.
+  }
+});
 
 watch(activeSessionId, (nextSessionId) => {
-  if (!nextSessionId && mobilePane.value === 'terminal') {
+  if (!nextSessionId && mobilePaneRequiresSession.value) {
     mobilePane.value = 'connections';
   }
 }, { immediate: true });
@@ -822,26 +842,42 @@ const closeFileManagerModal = () => {
           <i :class="option.icon" aria-hidden="true"></i>
           <span>{{ option.label }}</span>
         </button>
-        <label class="mobile-pane-more">
+        <button
+          type="button"
+          class="mobile-pane-more"
+          :class="{ active: isMobilePaneMenuOpen || mobileSecondaryPaneOptions.some(option => option.component === mobilePane) }"
+          :aria-expanded="isMobilePaneMenuOpen"
+          :aria-label="t('layout.morePanes', '更多')"
+          @click="toggleMobilePaneMenu"
+        >
           <i class="fas fa-ellipsis-h" aria-hidden="true"></i>
           <span>{{ t('layout.morePanes', '更多') }}</span>
-          <select
-            :value="mobileSecondaryPaneOptions.some(option => option.component === mobilePane) ? mobilePane : 'more'"
-            :aria-label="t('layout.morePanes', '更多')"
-            @change="selectMobileMorePane"
-          >
-            <option value="more" disabled>{{ t('layout.morePanes', '更多') }}</option>
-            <option
+        </button>
+      </nav>
+      <div v-if="isMobilePaneMenuOpen" class="mobile-pane-menu-backdrop" @click.self="closeMobilePaneMenu">
+        <section class="mobile-pane-menu" role="dialog" aria-modal="true" :aria-label="t('layout.morePanes', '更多')">
+          <div class="mobile-pane-menu__header">
+            <h2>{{ t('layout.morePanes', '更多面板') }}</h2>
+            <button type="button" class="mobile-pane-menu__close" :aria-label="t('common.close', '关闭')" @click="closeMobilePaneMenu">
+              <i class="fas fa-times" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div class="mobile-pane-menu__grid">
+            <button
               v-for="option in mobileSecondaryPaneOptions"
               :key="option.component"
-              :value="option.component"
+              type="button"
+              class="mobile-pane-menu__item"
+              :class="{ active: mobilePane === option.component }"
               :disabled="option.requiresSession && !activeSessionId"
+              @click="selectMobilePane(option)"
             >
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
-      </nav>
+              <i :class="option.icon" aria-hidden="true"></i>
+              <span>{{ option.label }}</span>
+            </button>
+          </div>
+        </section>
+      </div>
       <div class="mobile-content-area">
         <LayoutRenderer
           v-if="!mobilePaneRequiresSession || activeSessionId"
@@ -1011,13 +1047,14 @@ const closeFileManagerModal = () => {
 
 .mobile-pane-switcher {
   display: flex;
+  gap: 0.25rem;
   flex-shrink: 0;
   min-width: 0;
   overflow-x: auto;
   border-bottom: 1px solid var(--border-color, #ccc);
   background: var(--header-bg-color);
   scrollbar-width: none;
-  padding-inline: max(0.25rem, env(safe-area-inset-left)) max(0.25rem, env(safe-area-inset-right));
+  padding: 0.25rem max(0.25rem, env(safe-area-inset-left)) 0.25rem max(0.25rem, env(safe-area-inset-right));
 }
 
 .mobile-pane-switcher::-webkit-scrollbar {
@@ -1027,13 +1064,14 @@ const closeFileManagerModal = () => {
 .mobile-pane-tab {
   display: inline-flex;
   min-width: 3.5rem;
-  min-height: 2.75rem;
+  min-height: 2.5rem;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
-  border-bottom: 2px solid transparent;
-  padding: 0.35rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  padding: 0.35rem 0.55rem;
   color: var(--text-color-secondary);
   font-size: 0.75rem;
   white-space: nowrap;
@@ -1045,7 +1083,8 @@ const closeFileManagerModal = () => {
 }
 
 .mobile-pane-tab.active {
-  border-bottom-color: var(--primary-color);
+  border-color: color-mix(in srgb, var(--primary-color) 35%, transparent);
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
   color: var(--primary-color);
 }
 
@@ -1054,10 +1093,127 @@ const closeFileManagerModal = () => {
   opacity: 0.4;
 }
 
+.mobile-pane-more {
+  display: inline-flex;
+  min-width: 4.5rem;
+  min-height: 2.5rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  padding: 0.35rem 0.55rem;
+  color: var(--text-color-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.mobile-pane-more.active {
+  border-color: color-mix(in srgb, var(--primary-color) 35%, transparent);
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  color: var(--primary-color);
+}
+
+.mobile-pane-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: flex-end;
+  background: rgb(0 0 0 / 45%);
+}
+
+.mobile-pane-menu {
+  width: 100%;
+  max-height: min(70dvh, 32rem);
+  overflow: hidden;
+  border-top: 1px solid var(--border-color);
+  border-radius: 1rem 1rem 0 0;
+  background: var(--app-bg-color);
+  padding: 0.75rem max(0.75rem, env(safe-area-inset-left)) max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-right));
+  box-shadow: 0 -1rem 2rem rgb(0 0 0 / 18%);
+}
+
+.mobile-pane-menu__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  color: var(--text-color);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.mobile-pane-menu__close {
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.6rem;
+  color: var(--text-color-secondary);
+}
+
+.mobile-pane-menu__close:hover,
+.mobile-pane-menu__item:hover:not(:disabled) {
+  background: var(--hover-bg-color);
+  color: var(--text-color);
+}
+
+.mobile-pane-menu__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  max-height: calc(min(70dvh, 32rem) - 5rem);
+  overflow-y: auto;
+}
+
+.mobile-pane-menu__item {
+  display: flex;
+  min-height: 3rem;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  color: var(--text-color);
+  text-align: left;
+  font-size: 0.8rem;
+}
+
+.mobile-pane-menu__item i {
+  width: 1.1rem;
+  flex: 0 0 auto;
+  color: var(--text-color-secondary);
+  text-align: center;
+}
+
+.mobile-pane-menu__item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-pane-menu__item.active {
+  border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  color: var(--primary-color);
+}
+
+.mobile-pane-menu__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 .mobile-content-area {
   display: flex; /* Use flex for the terminal container */
   flex-direction: column; /* Stack elements vertically if needed */
   flex-grow: 1; /* Allow this area to take up remaining space */
+  min-height: 0;
   overflow: hidden; /* Prevent overflow */
   position: relative; /* Needed for potential absolute positioning inside */
   /* Remove desktop margins/borders */

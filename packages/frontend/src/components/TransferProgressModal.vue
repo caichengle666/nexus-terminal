@@ -86,7 +86,7 @@ const statusFilter = ref<'all' | 'active' | 'completed' | 'failed'>('all');
 const retryingTaskId = ref<string | null>(null);
 
 const localTransferTasks = computed<TransferTask[]>(() => rdpTransferStore.records.map(record => ({
-  taskId: `rdp-${record.id}`,
+  taskId: record.id,
   status: record.status === 'transferring' ? 'in-progress' : record.status,
   createdAt: record.createdAt,
   updatedAt: record.updatedAt,
@@ -280,13 +280,10 @@ const handleCancelTask = async (taskId: string) => {
   // const confirmed = window.confirm(t('transferProgressModal.confirmCancel', '您确定要终止此传输任务吗？'));
   // if (!confirmed) return;
 
+  const cancelTask = transferTasks.value.find(t => t.taskId === taskId);
+  if (cancelTask?.isLocal) return;
+
   try {
-    // 更新UI，将任务状态临时设置为 'cancelling' 或禁用按钮
-    const task = transferTasks.value.find(t => t.taskId === taskId);
-    if (task) {
-
-    }
-
     await apiClient.post(`/transfers/cancel/${taskId}`);
     const taskBeingCancelled = transferTasks.value.find(t => t.taskId === taskId);
     if (taskBeingCancelled && ['queued', 'in-progress', 'connecting', 'transferring'].includes(taskBeingCancelled.status)) {
@@ -301,6 +298,8 @@ const handleCancelTask = async (taskId: string) => {
 };
 
 const handleRetryTask = async (taskId: string) => {
+  const retryTask = transferTasks.value.find(t => t.taskId === taskId);
+  if (retryTask?.isLocal) return;
   retryingTaskId.value = taskId;
   try {
     await apiClient.post(`/transfers/retry/${taskId}`);

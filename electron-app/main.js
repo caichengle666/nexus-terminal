@@ -123,6 +123,10 @@ const downloadUpdateAsset = (value, targetPath, onProgress, redirectCount = 0) =
     const hash = createHash('sha256');
     const file = fs.createWriteStream(targetPath);
     if (updateDownloadState) updateDownloadState.file = file;
+    file.on('error', error => {
+      response.destroy();
+      reject(error);
+    });
     response.on('data', chunk => {
       if (updateDownloadState?.cancelled) return;
       receivedBytes += chunk.length;
@@ -164,8 +168,14 @@ const verifyUpdateSignature = (filePath) => new Promise(resolve => {
   }
 
   if (process.platform === 'darwin') {
-    const child = spawn('codesign', ['--verify', '--deep', '--strict', filePath]);
-    child.on('close', code => resolve({ status: code === 0 ? 'valid' : 'unavailable', detail: code === 0 ? 'codesign 验证通过' : '系统未能验证 DMG 签名' }));
+    const child = spawn('spctl', ['--assess', '--type', 'install', '--verbose', filePath], { windowsHide: true });
+    let output = '';
+    child.stdout.on('data', data => { output += data.toString(); });
+    child.stderr.on('data', data => { output += data.toString(); });
+    child.on('close', code => {
+      const accepted = /accepted|valid/i.test(output) || code === 0;
+      resolve({ status: accepted ? 'valid' : 'invalid', detail: accepted ? 'Gatekeeper 验证通过' : '系统未能验证安装包签名' });
+    });
     child.on('error', error => resolve({ status: 'unavailable', detail: error.message }));
     return;
   }
@@ -878,7 +888,14 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
 
   const filename = path.basename(decodeURIComponent(parsedUrl.pathname)) || `nexus-terminal-${payload.version || 'update'}`;
   const safeFilename = filename.replace(/[<>:"/\\|?*]/g, '_');
-  const targetPath = path.join(app.getPath('downloads'), safeFilename);
+  const updaterDir = path.join(app.getPath('temp'), 'nexus-terminal-updater');
+  const targetPath = path.join(updaterDir, safeFilename);
+  try {
+    fs.rmSync(updaterDir, { recursive: true, force: true });
+    fs.mkdirSync(updaterDir, { recursive: true });
+  } catch (error) {
+    return { ok: false, message: `无法准备更新目录：${error.message}` };
+  }
   updateDownloadState = { request: null, file: null, cancelled: false, sender: event.sender };
   completedUpdatePath = null;
   const sendProgress = (status, extra = {}) => {
@@ -954,8 +971,11 @@ ipcMain.handle('install-update', async () => {
   if (process.platform === 'linux') {
     try { fs.chmodSync(completedUpdatePath, 0o755); } catch { /* shell.openPath will report failures */ }
   }
-  const error = await shell.openPath(completedUpdatePath);
-  return error ? { ok: false, message: error } : { ok: true };
+  const updatePath = completedUpdatePath;
+  const error = await shell.openPath(updatePath);
+  if (error) return { ok: false, message: error };
+  completedUpdatePath = null;
+  return { ok: true };
 });
 
 const getOwnedLocalTerminal = (event, terminalId) => {
