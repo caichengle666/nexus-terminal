@@ -88,6 +88,18 @@ const mobilePaneOptions = computed<MobilePaneOption[]>(() => [
   { component: 'aiAssistant', icon: 'fas fa-robot', label: t('layout.pane.aiAssistant', 'AI') },
 ]);
 
+const mobilePrimaryPaneNames = new Set<MobilePaneOption['component']>([
+  'connections',
+  'terminal',
+  'fileManager',
+  'remoteDesktop',
+  'transferCenter',
+  'localTerminal',
+  'localSystem',
+]);
+const mobilePrimaryPaneOptions = computed(() => mobilePaneOptions.value.filter(option => mobilePrimaryPaneNames.has(option.component)));
+const mobileSecondaryPaneOptions = computed(() => mobilePaneOptions.value.filter(option => !mobilePrimaryPaneNames.has(option.component)));
+
 const mobilePane = ref<Exclude<PaneName, 'commandBar'>>('terminal');
 const mobilePaneRequiresSession = computed(() => mobilePaneOptions.value.find(option => option.component === mobilePane.value)?.requiresSession ?? false);
 const mobileLayoutNode = computed<LayoutNode>(() => ({
@@ -100,6 +112,12 @@ const mobileLayoutNode = computed<LayoutNode>(() => ({
 const selectMobilePane = (option: MobilePaneOption) => {
   if (option.requiresSession && !activeSessionId.value) return;
   mobilePane.value = option.component;
+};
+
+const selectMobileMorePane = (event: Event) => {
+  const component = (event.target as HTMLSelectElement).value as MobilePaneOption['component'];
+  const option = mobileSecondaryPaneOptions.value.find(item => item.component === component);
+  if (option) selectMobilePane(option);
 };
 
 watch(activeSessionId, (nextSessionId) => {
@@ -790,7 +808,7 @@ const closeFileManagerModal = () => {
     <template v-else>
       <nav class="mobile-pane-switcher" :aria-label="t('layout.mobilePanes', '工作区面板')">
         <button
-          v-for="option in mobilePaneOptions"
+          v-for="option in mobilePrimaryPaneOptions"
           :key="option.component"
           type="button"
           class="mobile-pane-tab"
@@ -804,6 +822,25 @@ const closeFileManagerModal = () => {
           <i :class="option.icon" aria-hidden="true"></i>
           <span>{{ option.label }}</span>
         </button>
+        <label class="mobile-pane-more">
+          <i class="fas fa-ellipsis-h" aria-hidden="true"></i>
+          <span>{{ t('layout.morePanes', '更多') }}</span>
+          <select
+            :value="mobileSecondaryPaneOptions.some(option => option.component === mobilePane) ? mobilePane : 'more'"
+            :aria-label="t('layout.morePanes', '更多')"
+            @change="selectMobileMorePane"
+          >
+            <option value="more" disabled>{{ t('layout.morePanes', '更多') }}</option>
+            <option
+              v-for="option in mobileSecondaryPaneOptions"
+              :key="option.component"
+              :value="option.component"
+              :disabled="option.requiresSession && !activeSessionId"
+            >
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
       </nav>
       <div class="mobile-content-area">
         <LayoutRenderer

@@ -1051,6 +1051,13 @@
       "version": "版本",
       "checkingUpdate": "正在检查更新...",
       "checkNow": "立即检查",
+      "downloadUpdate": "下载更新",
+      "downloadingUpdate": "正在下载更新 {progress}%",
+      "verifyingUpdate": "正在校验更新文件...",
+      "updateReady": "更新已下载",
+      "installUpdate": "打开安装程序",
+      "cancelUpdate": "取消",
+      "downloadFailed": "更新下载失败",
       "latestVersion": "已是最新版本",
       "updateAvailable": "发现新版本 {version}！",
       "dockerTitle": "Docker 更新",
@@ -1341,6 +1348,7 @@
       "dropHere": "释放文件以上传到远程桌面",
       "sent": "已向远程桌面发送 {count} 个文件。",
       "sendFailed": "远程文件上传失败。",
+      "receiveFailed": "远程文件接收失败。",
       "received": "已下载远程文件：{filename}"
     }
   },

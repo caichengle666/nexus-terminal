@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue';
+import { ref, computed, onUnmounted } from 'vue';
 import axios from 'axios';
 import pkg from '../../../package.json'; // 调整路径以正确导入 package.json
 import { useI18n } from 'vue-i18n';
@@ -9,6 +9,7 @@ type ReleaseAsset = {
 };
 
 export type RuntimeKind = 'electron' | 'docker' | 'pwa' | 'web';
+export type UpdateDownloadStatus = 'idle' | 'downloading' | 'verifying' | 'ready' | 'failed' | 'cancelled';
 
 const normalizeVersion = (version: string) => version.replace(/^v/i, '').split('.').map(part => Number.parseInt(part, 10) || 0);
 const isVersionNewer = (latest: string, current: string) => {
@@ -21,14 +22,14 @@ const isVersionNewer = (latest: string, current: string) => {
   return false;
 };
 
-const getPlatformDownloadAsset = (assets: ReleaseAsset[]) => {
+const getPlatformDownloadAsset = (assets: ReleaseAsset[]): ReleaseAsset | null => {
   const userAgentData = (navigator as Navigator & {
     userAgentData?: { platform?: string; architecture?: string };
   }).userAgentData;
   const platform = `${navigator.userAgent} ${userAgentData?.platform || ''}`.toLowerCase();
   const architecture = `${userAgentData?.architecture || ''} ${navigator.userAgent}`.toLowerCase();
   const isArm64 = /arm64|aarch64|apple silicon/.test(architecture);
-  const findAsset = (pattern: RegExp) => assets.find(asset => pattern.test(asset.name))?.browser_download_url || null;
+  const findAsset = (pattern: RegExp) => assets.find(asset => pattern.test(asset.name)) || null;
 
   if (/windows/.test(platform)) {
     return findAsset(isArm64
@@ -54,12 +55,22 @@ const getPlatformDownloadAsset = (assets: ReleaseAsset[]) => {
   return null;
 };
 
+const getChecksumAsset = (assets: ReleaseAsset[]): ReleaseAsset | null => {
+  return assets.find(asset => /(?:sha256|sha-256|checksums?|checksum)[^/]*$/i.test(asset.name)) || null;
+};
+
 const appVersion = ref(pkg.version);
 const latestVersion = ref<string | null>(null);
 const latestReleaseUrl = ref<string | null>(null);
 const updateDownloadUrl = ref<string | null>(null);
+const updateChecksumUrl = ref<string | null>(null);
 const isCheckingVersion = ref(false);
 const versionCheckError = ref<string | null>(null);
+const updateDownloadStatus = ref<UpdateDownloadStatus>('idle');
+const updateDownloadProgress = ref<number | null>(null);
+const updateDownloadError = ref<string | null>(null);
+const updateChecksumVerified = ref(false);
+const updateSignatureStatus = ref<'valid' | 'invalid' | 'unavailable' | null>(null);
 let versionCheckPromise: Promise<void> | null = null;
 
 export function useVersionCheck() {
@@ -71,6 +82,7 @@ export function useVersionCheck() {
     return 'web';
   });
   const dockerUpgradeCommand = 'docker compose pull && docker compose up -d';
+  const electronApi = (window as any).electronAPI;
 
   const isUpdateAvailable = computed(() => {
     // 简单的字符串比较，假设 tag 格式为 vX.Y.Z
@@ -94,6 +106,7 @@ export function useVersionCheck() {
     latestVersion.value = null;
     latestReleaseUrl.value = null;
     updateDownloadUrl.value = null;
+    updateChecksumUrl.value = null;
     versionCheckPromise = (async () => {
       try {
         await loadActualAppVersion();
@@ -101,7 +114,10 @@ export function useVersionCheck() {
         if (response.data && response.data.tag_name) {
           latestVersion.value = response.data.tag_name;
           latestReleaseUrl.value = response.data.html_url || null;
-          updateDownloadUrl.value = getPlatformDownloadAsset(response.data.assets || []);
+          const downloadAsset = getPlatformDownloadAsset(response.data.assets || []);
+          const checksumAsset = getChecksumAsset(response.data.assets || []);
+          updateDownloadUrl.value = downloadAsset?.browser_download_url || null;
+          updateChecksumUrl.value = checksumAsset?.browser_download_url || null;
         } else {
           throw new Error('Invalid API response format');
         }
@@ -123,16 +139,72 @@ export function useVersionCheck() {
     return versionCheckPromise;
   };
 
+  const downloadUpdate = async () => {
+    if (runtimeKind.value !== 'electron' || !electronApi?.downloadUpdate || !updateDownloadUrl.value) return;
+    updateDownloadStatus.value = 'downloading';
+    updateDownloadProgress.value = 0;
+    updateDownloadError.value = null;
+    updateChecksumVerified.value = false;
+    updateSignatureStatus.value = null;
+    const result = await electronApi.downloadUpdate({
+      url: updateDownloadUrl.value,
+      checksumUrl: updateChecksumUrl.value,
+      version: latestVersion.value,
+    });
+    if (!result?.ok && result?.message) {
+      updateDownloadStatus.value = 'failed';
+      updateDownloadError.value = result?.message || '更新下载失败。';
+    }
+  };
+
+  const cancelUpdate = async () => {
+    await electronApi?.cancelUpdate?.();
+  };
+
+  const installUpdate = async () => {
+    if (updateDownloadStatus.value !== 'ready') return;
+    const result = await electronApi?.installUpdate?.();
+    if (result && !result.ok && !result.cancelled) {
+      updateDownloadStatus.value = 'failed';
+      updateDownloadError.value = result.message || '打开安装程序失败。';
+    }
+  };
+
+  const removeUpdateProgressListener = electronApi?.onUpdateProgress?.((payload: {
+    status: UpdateDownloadStatus;
+    progress?: number | null;
+    message?: string;
+    checksumVerified?: boolean;
+    signature?: 'valid' | 'invalid' | 'unavailable';
+  }) => {
+    updateDownloadStatus.value = payload.status;
+    updateDownloadProgress.value = payload.progress ?? updateDownloadProgress.value;
+    updateChecksumVerified.value = payload.checksumVerified ?? updateChecksumVerified.value;
+    updateSignatureStatus.value = payload.signature ?? updateSignatureStatus.value;
+    if (payload.message) updateDownloadError.value = payload.message;
+  });
+
+  onUnmounted(() => removeUpdateProgressListener?.());
+
   return {
     appVersion,
     latestVersion,
     latestReleaseUrl,
     updateDownloadUrl,
+    updateChecksumUrl,
+    updateDownloadStatus,
+    updateDownloadProgress,
+    updateDownloadError,
+    updateChecksumVerified,
+    updateSignatureStatus,
     isCheckingVersion,
     versionCheckError,
     isUpdateAvailable,
     runtimeKind,
     dockerUpgradeCommand,
     checkLatestVersion,
+    downloadUpdate,
+    cancelUpdate,
+    installUpdate,
   };
 }

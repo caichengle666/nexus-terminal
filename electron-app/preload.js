@@ -4,6 +4,14 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
+  downloadUpdate: (payload) => ipcRenderer.invoke('download-update', payload),
+  cancelUpdate: () => ipcRenderer.invoke('cancel-update'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  onUpdateProgress: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on('update-progress', handler);
+    return () => ipcRenderer.removeListener('update-progress', handler);
+  },
   createLocalTerminal: (options) => ipcRenderer.invoke('local-terminal-create', options),
   writeLocalTerminal: (payload) => ipcRenderer.invoke('local-terminal-write', payload),
   resizeLocalTerminal: (payload) => ipcRenderer.invoke('local-terminal-resize', payload),

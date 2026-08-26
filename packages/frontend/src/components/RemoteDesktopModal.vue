@@ -6,9 +6,11 @@ import { useSettingsStore } from '../stores/settings.store';
 import Guacamole from 'guacamole-common-js';
 import apiClient from '../utils/apiClient';
 import { ConnectionInfo } from '../stores/connections.store';
+import { useRdpTransferStore } from '../stores/rdpTransfer.store';
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore(); 
+const rdpTransferStore = useRdpTransferStore();
 
 const props = defineProps<{
   connection: ConnectionInfo | null;
@@ -313,7 +315,31 @@ const fitDisplay = () => {
 
 const downloadReceivedFile = (stream: any, mimetype: string, filename: string) => {
   const reader = new Guacamole.BlobReader(stream, mimetype);
+  const transferId = rdpTransferStore.begin({
+    id: `rdp-download-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    direction: 'download',
+    filename,
+    connectionName: props.connection?.name || props.connection?.host || 'RDP',
+  });
+  let lastProgressAt = Date.now();
+  let lastProgressBytes = 0;
   fileTransferStatus.value = 'receiving';
+  reader.onprogress = (bytes: number) => {
+    const now = Date.now();
+    const elapsedSeconds = Math.max(0.001, (now - lastProgressAt) / 1000);
+    rdpTransferStore.updateRecord(transferId, {
+      transferredBytes: bytes,
+      speedBytesPerSecond: Math.round((bytes - lastProgressBytes) / elapsedSeconds),
+      message: '正在接收文件',
+    });
+    lastProgressAt = now;
+    lastProgressBytes = bytes;
+  };
+  reader.onerror = (error: any) => {
+    rdpTransferStore.fail(transferId, error?.message || t('remoteDesktopModal.files.receiveFailed'));
+    fileTransferStatus.value = 'error';
+    statusMessage.value = t('remoteDesktopModal.files.receiveFailed');
+  };
   reader.onend = () => {
     const url = URL.createObjectURL(reader.getBlob());
     const anchor = document.createElement('a');
@@ -321,6 +347,7 @@ const downloadReceivedFile = (stream: any, mimetype: string, filename: string) =
     anchor.download = filename;
     anchor.click();
     URL.revokeObjectURL(url);
+    rdpTransferStore.complete(transferId);
     fileTransferStatus.value = 'completed';
     statusMessage.value = t('remoteDesktopModal.files.received', { filename });
   };
@@ -334,15 +361,45 @@ const handleFileDrop = (event: DragEvent) => {
   if (files.length === 0) return;
   fileTransferStatus.value = 'sending';
   Promise.all(files.map((file) => new Promise<void>((resolve, reject) => {
+    const transferId = rdpTransferStore.begin({
+      id: `rdp-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      direction: 'upload',
+      filename: file.name,
+      connectionName: props.connection?.name || props.connection?.host || 'RDP',
+      totalBytes: file.size,
+      progress: file.size === 0 ? 100 : 0,
+    });
+    let lastProgressAt = Date.now();
+    let lastProgressBytes = 0;
     try {
       const stream = guacClient.value.createFileStream(file.type || 'application/octet-stream', file.name);
       const writer = new Guacamole.BlobWriter(stream);
-      writer.oncomplete = () => resolve();
+      writer.oncomplete = () => {
+        rdpTransferStore.complete(transferId);
+        resolve();
+      };
+      writer.onprogress = (_blob: Blob, bytes: number) => {
+        const now = Date.now();
+        const elapsedSeconds = Math.max(0.001, (now - lastProgressAt) / 1000);
+        rdpTransferStore.updateRecord(transferId, {
+          transferredBytes: bytes,
+          progress: file.size > 0 ? Math.min(99, Math.floor((bytes / file.size) * 100)) : 100,
+          speedBytesPerSecond: Math.round((bytes - lastProgressBytes) / elapsedSeconds),
+          message: '正在发送文件',
+        });
+        lastProgressAt = now;
+        lastProgressBytes = bytes;
+      };
       writer.onack = (status: any) => {
-        if (status?.code && status.code !== 0x0000) reject(new Error(status.message || 'File transfer rejected'));
+        if (status?.code && status.code !== 0x0000) {
+          const error = new Error(status.message || 'File transfer rejected');
+          rdpTransferStore.fail(transferId, error.message);
+          reject(error);
+        }
       };
       writer.sendBlob(file);
     } catch (error) {
+      rdpTransferStore.fail(transferId, error instanceof Error ? error.message : String(error));
       reject(error);
     }
   }))).then(() => {

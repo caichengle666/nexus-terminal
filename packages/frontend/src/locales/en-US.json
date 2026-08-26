@@ -1055,6 +1055,13 @@
       "version": "Version",
       "checkingUpdate": "Checking for update...",
       "checkNow": "Check now",
+      "downloadUpdate": "Download update",
+      "downloadingUpdate": "Downloading update {progress}%",
+      "verifyingUpdate": "Verifying update file...",
+      "updateReady": "Update downloaded",
+      "installUpdate": "Open installer",
+      "cancelUpdate": "Cancel",
+      "downloadFailed": "Update download failed",
       "latestVersion": "Up to date",
       "updateAvailable": "Update available: {version}!",
       "dockerTitle": "Docker update",
@@ -1337,6 +1344,7 @@
       "dropHere": "Drop files to upload to the remote desktop",
       "sent": "Sent {count} file(s) to the remote desktop.",
       "sendFailed": "Remote file upload failed.",
+      "receiveFailed": "Failed to receive the remote file.",
       "received": "Downloaded remote file: {filename}"
     }
   },
