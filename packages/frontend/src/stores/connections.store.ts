@@ -195,14 +195,16 @@ export const useConnectionsStore = defineStore('connections', {
         },
 
         // 批量删除连接 
-        async deleteBatchConnections(connectionIds: number[]): Promise<boolean> {
+        async deleteBatchConnections(connectionIds: number[]): Promise<{ successCount: number; errorCount: number }> {
             if (!connectionIds || connectionIds.length === 0) {
                 console.warn('[ConnectionsStore] deleteBatchConnections called with no IDs.');
-                return true; // 没有要删除的，视为成功
+                return { successCount: 0, errorCount: 0 }; // 没有要删除的，视为成功
             }
             this.isLoading = true; // 标记整个批量删除操作正在进行
             this.error = null;
             let allSucceeded = true;
+            let successCount = 0;
+            let errorCount = 0;
             const individualErrors: string[] = [];
 
             for (const id of connectionIds) {
@@ -211,16 +213,20 @@ export const useConnectionsStore = defineStore('connections', {
                     const success = await this.deleteConnection(id);
                     if (!success) {
                         allSucceeded = false;
+                        errorCount += 1;
                         if (this.error) {
                             individualErrors.push(`删除连接 ID ${id} 失败: ${this.error}`);
                         } else {
                             individualErrors.push(`删除连接 ID ${id} 失败 (未知原因)`);
                         }
                         this.error = null;
+                    } else {
+                        successCount += 1;
                     }
                 } catch (e: any) {
                     // 捕获 deleteConnection 调用本身可能抛出的意外错误
                     allSucceeded = false;
+                    errorCount += 1;
                     const errorMessage = e.message || '未知错误';
                     individualErrors.push(`调用删除连接 ID ${id} 时发生意外错误: ${errorMessage}`);
                     console.error(`[ConnectionsStore] Unexpected error calling deleteConnection for ID ${id}`, e);
@@ -236,7 +242,7 @@ export const useConnectionsStore = defineStore('connections', {
             }
 
             this.isLoading = false;
-            return allSucceeded;
+            return { successCount, errorCount };
         },
 
         // 测试连接 Action

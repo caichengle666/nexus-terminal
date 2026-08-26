@@ -16,6 +16,7 @@ import { storeToRefs } from 'pinia';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN, enUS, ja } from 'date-fns/locale';
 import type { Locale } from 'date-fns';
+import { useUiNotificationsStore } from '../stores/uiNotifications.store';
 
 const { t, locale } = useI18n();
 const { showConfirmDialog } = useConfirmDialog();
@@ -23,6 +24,7 @@ const { showAlertDialog } = useAlertDialog();
 const connectionsStore = useConnectionsStore();
 const sessionStore = useSessionStore();
 const tagsStore = useTagsStore();
+const uiNotificationsStore = useUiNotificationsStore();
 
 const { connections, isLoading: isLoadingConnections } = storeToRefs(connectionsStore);
 const { tags, isLoading: isLoadingTags } = storeToRefs(tagsStore);
@@ -30,6 +32,34 @@ const { tags, isLoading: isLoadingTags } = storeToRefs(tagsStore);
 const LS_SORT_BY_KEY = 'connections_view_sort_by';
 const LS_SORT_ORDER_KEY = 'connections_view_sort_order';
 const LS_FILTER_TAG_KEY = 'connections_view_filter_tag';
+const LS_FAVORITE_CONNECTIONS_KEY = 'nexus.favoriteConnectionIds';
+const LS_RECENT_CONNECTIONS_KEY = 'nexus.recentConnections';
+const LS_CONNECTION_VIEW_FILTER_KEY = 'connections_view_filter';
+
+type ConnectionViewFilter = 'all' | 'favorites' | 'recent';
+type RecentConnection = { id: number; usedAt: number };
+
+const readNumberSet = (key: string): Set<number> => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(key) || '[]');
+    return new Set(Array.isArray(stored) ? stored.filter((id): id is number => Number.isInteger(id)) : []);
+  } catch {
+    return new Set();
+  }
+};
+
+const readRecentConnections = (): RecentConnection[] => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(LS_RECENT_CONNECTIONS_KEY) || '[]');
+    if (!Array.isArray(stored)) return [];
+    return stored
+      .filter((item): item is RecentConnection => Number.isInteger(item?.id) && typeof item?.usedAt === 'number')
+      .sort((a, b) => b.usedAt - a.usedAt)
+      .slice(0, 50);
+  } catch {
+    return [];
+  }
+};
 
 const localSortBy = ref<SortField>(localStorage.getItem(LS_SORT_BY_KEY) as SortField || 'last_connected_at');
 const localSortOrder = ref<SortOrder>(localStorage.getItem(LS_SORT_ORDER_KEY) as SortOrder || 'desc');
@@ -40,6 +70,11 @@ const getInitialSelectedTagId = (): number | null => {
 };
 const selectedTagId = ref<number | null>(getInitialSelectedTagId());
 const searchQuery = ref('');
+const favoriteConnectionIds = ref<Set<number>>(readNumberSet(LS_FAVORITE_CONNECTIONS_KEY));
+const recentConnections = ref<RecentConnection[]>(readRecentConnections());
+const connectionViewFilter = ref<ConnectionViewFilter>(
+  (localStorage.getItem(LS_CONNECTION_VIEW_FILTER_KEY) as ConnectionViewFilter) || 'all'
+);
 
 const showAddEditConnectionForm = ref(false);
 const connectionToEdit = ref<ConnectionInfo | null>(null);
@@ -65,9 +100,18 @@ const filteredAndSortedConnections = computed(() => {
   const filterTagId = selectedTagId.value;
   const query = searchQuery.value.toLowerCase().trim();
 
+  const filteredByView = connectionViewFilter.value === 'favorites'
+    ? connections.value.filter(conn => favoriteConnectionIds.value.has(conn.id))
+    : connectionViewFilter.value === 'recent'
+      ? [...connections.value]
+        .filter(conn => recentConnections.value.some(item => item.id === conn.id))
+        .sort((a, b) => (recentConnections.value.find(item => item.id === b.id)?.usedAt || 0)
+          - (recentConnections.value.find(item => item.id === a.id)?.usedAt || 0))
+      : connections.value;
+
   let filteredByTag = filterTagId === null
-    ? [...connections.value]
-    : connections.value.filter(conn => conn.tag_ids?.includes(filterTagId));
+    ? [...filteredByView]
+    : filteredByView.filter(conn => conn.tag_ids?.includes(filterTagId));
 
   let searchedConnections = filteredByTag;
   if (query) {
@@ -130,7 +174,27 @@ onMounted(async () => {
 });
 
 const connectTo = (connection: ConnectionInfo) => {
+  if (connection.id !== undefined) {
+    recentConnections.value = [
+      { id: connection.id, usedAt: Date.now() },
+      ...recentConnections.value.filter(item => item.id !== connection.id),
+    ].slice(0, 50);
+    localStorage.setItem(LS_RECENT_CONNECTIONS_KEY, JSON.stringify(recentConnections.value));
+  }
   sessionStore.handleConnectRequest(connection);
+};
+
+const isFavoriteConnection = (connectionId: number) => favoriteConnectionIds.value.has(connectionId);
+
+const toggleFavoriteConnection = (connectionId: number) => {
+  const nextFavorites = new Set(favoriteConnectionIds.value);
+  if (nextFavorites.has(connectionId)) {
+    nextFavorites.delete(connectionId);
+  } else {
+    nextFavorites.add(connectionId);
+  }
+  favoriteConnectionIds.value = nextFavorites;
+  localStorage.setItem(LS_FAVORITE_CONNECTIONS_KEY, JSON.stringify(Array.from(nextFavorites)));
 };
 
 const toggleSortOrder = () => {
@@ -149,6 +213,10 @@ watch(localSortOrder, (newValue) => {
 
 watch(selectedTagId, (newValue) => {
   localStorage.setItem(LS_FILTER_TAG_KEY, newValue === null ? 'null' : String(newValue));
+});
+
+watch(connectionViewFilter, (newValue) => {
+  localStorage.setItem(LS_CONNECTION_VIEW_FILTER_KEY, newValue);
 });
 
 const dateFnsLocales: Record<string, Locale> = {
@@ -262,11 +330,30 @@ const openBatchEditModal = () => {
   showBatchEditForm.value = true;
 };
 
-const handleBatchEditSaved = async () => {
+const handleBatchEditSaved = async (result: { successCount: number; errorCount: number }) => {
+  const taskId = uiNotificationsStore.addTaskNotification({
+    title: t('taskNotifications.batchTitle'),
+    message: t('taskNotifications.batchEditing', { total: result.successCount + result.errorCount }),
+    status: 'running',
+    progress: 0,
+  });
   showBatchEditForm.value = false;
   selectedConnectionIdsForBatch.value.clear();
   // isBatchEditMode.value = false; // Optionally exit batch mode after saving
-  await connectionsStore.fetchConnections(); // Refresh the list
+  try {
+    await connectionsStore.fetchConnections(); // Refresh the list
+    uiNotificationsStore.updateTaskNotification(taskId, {
+      status: result.errorCount === 0 ? 'success' : 'error',
+      progress: 100,
+      message: t('taskNotifications.batchEditComplete', result),
+    });
+  } catch (error: any) {
+    uiNotificationsStore.updateTaskNotification(taskId, {
+      status: 'error',
+      progress: 100,
+      message: error.message || t('taskNotifications.batchFailed'),
+    });
+  }
 };
 
 const handleBatchEditFormClose = () => {
@@ -291,18 +378,38 @@ const handleBatchDeleteConnections = async () => {
   });
   if (confirmed) {
     isDeletingSelectedConnections.value = true;
+    const idsToDelete = Array.from(selectedConnectionIdsForBatch.value);
+    const taskId = uiNotificationsStore.addTaskNotification({
+      title: t('taskNotifications.batchTitle'),
+      message: t('taskNotifications.batchDeleting', { total: idsToDelete.length }),
+      status: 'running',
+      progress: 0,
+      retry: () => handleBatchDeleteConnections(),
+    });
     try {
-      const idsToDelete = Array.from(selectedConnectionIdsForBatch.value);
-      await connectionsStore.deleteBatchConnections(idsToDelete);
+      const result = await connectionsStore.deleteBatchConnections(idsToDelete);
 
+      uiNotificationsStore.updateTaskNotification(taskId, {
+        status: result.errorCount === 0 ? 'success' : 'error',
+        progress: 100,
+        message: t('taskNotifications.batchDeleteComplete', result),
+      });
 
-      showAlertDialog({ title: t('common.success', '成功'), message: t('connections.batchEdit.successMessage', '选中的连接已成功删除。') });
+      showAlertDialog({
+        title: result.errorCount === 0 ? t('common.success', '成功') : t('common.error'),
+        message: t('taskNotifications.batchDeleteComplete', result),
+      });
 
       selectedConnectionIdsForBatch.value.clear();
 
       await connectionsStore.fetchConnections();
     } catch (error: any) {
       console.error("Batch delete connections error:", error);
+      uiNotificationsStore.updateTaskNotification(taskId, {
+        status: 'error',
+        progress: 100,
+        message: error.message || t('taskNotifications.batchFailed'),
+      });
       showAlertDialog({ title: t('common.error'), message: t('connections.batchEdit.errorMessage', `批量删除连接失败: ${error.message || '未知错误'}`) });
     } finally {
       isDeletingSelectedConnections.value = false;
@@ -328,8 +435,8 @@ const getLatencyColorString = (latencyMs?: number): string => {
   return 'var(--color-error, #F44336)';
 };
 
-const handleTestSingleConnection = async (conn: ConnectionInfo) => {
-  if (!conn.id || conn.type !== 'SSH') return;
+const handleTestSingleConnection = async (conn: ConnectionInfo): Promise<boolean> => {
+  if (!conn.id || conn.type !== 'SSH') return false;
 
   connectionTestStates.value.set(conn.id, {
     status: 'testing',
@@ -361,17 +468,20 @@ const handleTestSingleConnection = async (conn: ConnectionInfo) => {
         latency: latencyMs,
         latencyColor: determinedColor,
       });
+      return true;
     } else {
       connectionTestStates.value.set(conn.id, {
         status: 'error',
         resultText: result.message || t('connections.test.unknownError', '未知错误'),
       });
+      return false;
     }
   } catch (error: any) {
     connectionTestStates.value.set(conn.id, {
       status: 'error',
       resultText: error.message || t('connections.test.unknownError', '未知错误'),
     });
+    return false;
   }
 };
 
@@ -386,30 +496,61 @@ const handleTestAllFilteredConnections = async () => {
   }
 
   isTestingAll.value = true;
+  let completedCount = 0;
+  const taskId = uiNotificationsStore.addTaskNotification({
+    title: t('taskNotifications.batchTitle'),
+    message: t('taskNotifications.batchTesting', { total: sshConnectionsToTest.length }),
+    status: 'running',
+    progress: 0,
+    retry: () => handleTestAllFilteredConnections(),
+  });
   const testPromises = sshConnectionsToTest.map(conn => {
     // conn.id is guaranteed to exist here due to the filter above.
     // We're calling handleTestSingleConnection for each.
     // Individual errors within handleTestSingleConnection will update that specific connection's state.
     // We also add a .catch here to handle any unexpected errors from handleTestSingleConnection itself
     // or if conn.id was somehow null/undefined (though filtered out).
-    return handleTestSingleConnection(conn).catch(error => {
-      console.error(`Error testing connection ${conn.id}:`, error);
-      // Ensure state is updated for this specific connection to show an error
-      // The 'id' here is from the 'conn' object in the map function's scope.
-      connectionTestStates.value.set(conn.id!, { // Using non-null assertion as id is checked
-        status: 'error',
-        resultText: t('connections.test.unknownErrorDuringBatch', '批量测试中发生错误'), // New i18n key
+    return handleTestSingleConnection(conn)
+      .catch(error => {
+        console.error(`Error testing connection ${conn.id}:`, error);
+        connectionTestStates.value.set(conn.id!, {
+          status: 'error',
+          resultText: t('connections.test.unknownErrorDuringBatch', '批量测试中发生错误'),
+        });
+        return false;
+      })
+      .then(result => {
+        completedCount += 1;
+        uiNotificationsStore.updateTaskNotification(taskId, {
+          progress: (completedCount / sshConnectionsToTest.length) * 100,
+          message: t('taskNotifications.batchProgress', {
+            completed: completedCount,
+            total: sshConnectionsToTest.length,
+          }),
+        });
+        return result;
       });
-    });
   });
 
   try {
-    await Promise.all(testPromises);
+    const results = await Promise.all(testPromises);
+    const successCount = results.filter(Boolean).length;
+    const errorCount = results.length - successCount;
+    uiNotificationsStore.updateTaskNotification(taskId, {
+      status: errorCount === 0 ? 'success' : 'error',
+      progress: 100,
+      message: t('taskNotifications.batchTestComplete', { successCount, errorCount }),
+    });
   } catch (error) {
     // This catch block handles errors if Promise.all itself fails,
     // though individual promise rejections are handled above.
     console.error("Error during batch testing of connections (Promise.all):", error);
     // Optionally, set a general error state or notification for the entire batch operation if needed.
+    uiNotificationsStore.updateTaskNotification(taskId, {
+      status: 'error',
+      progress: 100,
+      message: t('taskNotifications.batchFailed'),
+    });
   } finally {
     isTestingAll.value = false;
   }
@@ -466,17 +607,45 @@ const handleConnectAllFilteredConnections = async () => {
   }
 
   isConnectingAll.value = true;
+  let initiatedCount = 0;
+  let errorCount = 0;
+  const taskId = uiNotificationsStore.addTaskNotification({
+    title: t('taskNotifications.batchTitle'),
+    message: t('taskNotifications.batchConnecting', { total: sshConnectionsToConnect.length }),
+    status: 'running',
+    progress: 0,
+    retry: () => handleConnectAllFilteredConnections(),
+  });
   try {
     for (const conn of sshConnectionsToConnect) {
-      connectTo(conn);
+      try {
+        connectTo(conn);
+        initiatedCount += 1;
+      } catch (error) {
+        errorCount += 1;
+        console.error(`Error connecting to connection ${conn.id}:`, error);
+      }
+      uiNotificationsStore.updateTaskNotification(taskId, {
+        progress: ((initiatedCount + errorCount) / sshConnectionsToConnect.length) * 100,
+        message: t('taskNotifications.batchProgress', {
+          completed: initiatedCount + errorCount,
+          total: sshConnectionsToConnect.length,
+        }),
+      });
       // Consider a small delay if you want to visually see connections initiating one by one,
       // or if connectTo triggers operations that might benefit from not being fired too rapidly.
       // await new Promise(resolve => setTimeout(resolve, 200)); // Example delay
     }
   } catch (error) {
     console.error("Error connecting to all filtered SSH connections:", error);
+    errorCount += 1;
     // uiNotificationsStore.addNotification({ message: t('connections.errors.connectAllSshFailed', '连接全部 SSH 操作失败。'), type: 'error' });
   } finally {
+    uiNotificationsStore.updateTaskNotification(taskId, {
+      status: errorCount === 0 ? 'success' : 'error',
+      progress: 100,
+      message: t('taskNotifications.batchConnectComplete', { initiatedCount, errorCount }),
+    });
     isConnectingAll.value = false;
   }
 };
@@ -512,6 +681,21 @@ const handleConnectAllFilteredConnections = async () => {
                   isBatchEditMode ? 'translate-x-5' : 'translate-x-0'
                 ]"
               ></span>
+            </button>
+          </div>
+
+          <div class="flex items-center border border-border rounded-md overflow-hidden" role="group" :aria-label="t('connections.filters.viewLabel')">
+            <button
+              v-for="filter in (['all', 'favorites', 'recent'] as ConnectionViewFilter[])"
+              :key="filter"
+              type="button"
+              @click="connectionViewFilter = filter"
+              :class="[
+                'h-8 px-2 text-xs transition-colors',
+                connectionViewFilter === filter ? 'bg-primary text-white' : 'bg-background text-text-secondary hover:bg-muted'
+              ]"
+            >
+              {{ t(`connections.filters.${filter}`) }}
             </button>
           </div>
 
@@ -692,6 +876,16 @@ const handleConnectAllFilteredConnections = async () => {
             </div>
             <!-- 中间备注区域已被移除 -->
             <div class="flex items-center space-x-2 flex-shrink-0">
+              <button
+                type="button"
+                @click.stop="toggleFavoriteConnection(conn.id)"
+                class="h-9 w-9 rounded-md border border-border text-text-secondary hover:bg-border hover:text-warning focus:outline-none focus:ring-2 focus:ring-primary flex items-center justify-center"
+                :class="{ 'text-warning': isFavoriteConnection(conn.id) }"
+                :title="isFavoriteConnection(conn.id) ? t('connections.filters.removeFavorite') : t('connections.filters.addFavorite')"
+                :aria-label="isFavoriteConnection(conn.id) ? t('connections.filters.removeFavorite') : t('connections.filters.addFavorite')"
+              >
+                <i :class="['fas', isFavoriteConnection(conn.id) ? 'fa-star' : 'fa-star', 'w-4 text-center']" aria-hidden="true"></i>
+              </button>
               <!-- Test Single Connection Button -->
               <button
                 v-if="conn.type === 'SSH'"

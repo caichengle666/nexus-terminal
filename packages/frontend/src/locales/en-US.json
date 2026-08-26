@@ -23,6 +23,23 @@
     "iosInstallDescription": "Open the Share menu in Safari, then choose Add to Home Screen.",
     "close": "Close"
   },
+  "taskNotifications": {
+    "title": "Task notifications",
+    "clear": "Clear",
+    "empty": "No task notifications",
+    "retry": "Retry",
+    "batchTitle": "Batch operation",
+    "batchTesting": "Testing {total} SSH connections",
+    "batchConnecting": "Starting {total} SSH connections",
+    "batchDeleting": "Deleting {total} connections",
+    "batchEditing": "Refreshing results for {total} edited connections",
+    "batchProgress": "Completed {completed}/{total}",
+    "batchTestComplete": "Testing complete: {successCount} succeeded, {errorCount} failed",
+    "batchConnectComplete": "Connection requests started: {initiatedCount} succeeded, {errorCount} failed",
+    "batchDeleteComplete": "Deletion complete: {successCount} succeeded, {errorCount} failed",
+    "batchEditComplete": "Batch edit complete: {successCount} connections updated",
+    "batchFailed": "Batch operation failed"
+  },
   "styleCustomizer": {
     "title": "Appearance Customizer",
     "uiStyles": "UI Styles",
@@ -241,6 +258,14 @@
       "test": "Test",
       "testing": "Testing...",
       "clone": "Clone"
+    },
+    "filters": {
+      "viewLabel": "Connection view",
+      "all": "All",
+      "favorites": "Favorites",
+      "recent": "Recent",
+      "addFavorite": "Add to favorites",
+      "removeFavorite": "Remove from favorites"
     },
     "form": {
       "title": "Add New Connection",
@@ -1029,8 +1054,24 @@
     "about": {
       "version": "Version",
       "checkingUpdate": "Checking for update...",
+      "checkNow": "Check now",
       "latestVersion": "Up to date",
       "updateAvailable": "Update available: {version}!",
+      "dockerTitle": "Docker update",
+      "dockerDescription": "Run the following command in the deployment directory to pull and restart the latest images.",
+      "copyDockerCommand": "Copy command",
+      "copied": "Copied",
+      "refreshNow": "Refresh now",
+      "runtime": {
+        "electron": "Electron",
+        "docker": "Docker",
+        "pwa": "PWA",
+        "web": "Web"
+      },
+      "refreshHint": {
+        "web": "Refresh the page to load the latest web assets.",
+        "pwa": "Refresh the page to load the latest PWA assets."
+      },
       "error": {
         "checkFailed": "Failed to check for updates",
         "checkFailedShort": "Check failed",

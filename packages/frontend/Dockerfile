@@ -25,6 +25,8 @@ COPY packages/frontend/public ./packages/frontend/public/
 # an empty value, which makes the frontend use its own origin for API requests.
 ARG VITE_API_BASE_URL=
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ARG VITE_DEPLOYMENT_MODE=docker
+ENV VITE_DEPLOYMENT_MODE=${VITE_DEPLOYMENT_MODE}
 
 RUN npm run build --workspace=@nexus-terminal/frontend
 

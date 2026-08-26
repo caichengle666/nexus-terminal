@@ -8,6 +8,8 @@ type ReleaseAsset = {
   browser_download_url: string;
 };
 
+export type RuntimeKind = 'electron' | 'docker' | 'pwa' | 'web';
+
 const normalizeVersion = (version: string) => version.replace(/^v/i, '').split('.').map(part => Number.parseInt(part, 10) || 0);
 const isVersionNewer = (latest: string, current: string) => {
   const latestParts = normalizeVersion(latest);
@@ -28,6 +30,13 @@ const getPlatformDownloadAsset = (assets: ReleaseAsset[]) => {
 export function useVersionCheck() {
   const { t } = useI18n();
   const appVersion = ref(pkg.version);
+  const runtimeKind = computed<RuntimeKind>(() => {
+    if ((window as any).electronAPI) return 'electron';
+    if (import.meta.env.VITE_DEPLOYMENT_MODE === 'docker') return 'docker';
+    if (window.matchMedia('(display-mode: standalone)').matches) return 'pwa';
+    return 'web';
+  });
+  const dockerUpgradeCommand = 'docker compose pull && docker compose up -d';
   const latestVersion = ref<string | null>(null);
   const latestReleaseUrl = ref<string | null>(null);
   const updateDownloadUrl = ref<string | null>(null);
@@ -86,6 +95,8 @@ export function useVersionCheck() {
     isCheckingVersion,
     versionCheckError,
     isUpdateAvailable,
+    runtimeKind,
+    dockerUpgradeCommand,
     checkLatestVersion,
   };
 }

@@ -4,6 +4,19 @@
     <div class="p-6 space-y-4"> <!-- Reduced space-y for tighter layout -->
        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-text-secondary"> <!-- Flex container for info items, allow wrap -->
           <span class="font-medium">{{ $t('settings.about.version') }}: {{ appVersion }}</span>
+          <span class="text-xs rounded-full border border-border px-2 py-0.5">
+            {{ $t(`settings.about.runtime.${runtimeKind}`) }}
+          </span>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
+            :disabled="isCheckingVersion"
+            :title="$t('settings.about.checkNow')"
+            @click="checkLatestVersion"
+          >
+            <i :class="['fas', isCheckingVersion ? 'fa-spinner fa-spin' : 'fa-rotate', 'w-3']" aria-hidden="true"></i>
+            {{ $t('settings.about.checkNow') }}
+          </button>
           <!-- Version Check Status -->
           <span v-if="isCheckingVersion" class="inline-block text-xs ml-2 px-2 py-0.5 rounded-full bg-blue-500 text-white italic">
             {{ $t('settings.about.checkingUpdate') }}
@@ -33,12 +46,34 @@
             原作者：Heavrnl
           </a>
        </div>
+       <div v-if="runtimeKind === 'docker'" class="rounded-md border border-border bg-header/40 p-3 text-sm">
+         <p class="font-medium text-foreground">{{ $t('settings.about.dockerTitle') }}</p>
+         <p class="mt-1 text-text-secondary">{{ $t('settings.about.dockerDescription') }}</p>
+         <div class="mt-2 flex flex-wrap items-center gap-2">
+           <code class="rounded bg-background px-2 py-1 text-xs text-foreground">{{ dockerUpgradeCommand }}</code>
+           <button
+             type="button"
+             class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+             :title="$t('settings.about.copyDockerCommand')"
+             @click="copyDockerUpgradeCommand"
+           >
+             <i class="fas fa-copy" aria-hidden="true"></i>
+             {{ copyStatus === 'copied' ? $t('settings.about.copied') : $t('settings.about.copyDockerCommand') }}
+           </button>
+         </div>
+       </div>
+       <div v-else-if="runtimeKind === 'web' || runtimeKind === 'pwa'" class="flex flex-wrap items-center gap-2 text-sm text-text-secondary">
+         <span>{{ $t(`settings.about.refreshHint.${runtimeKind}`) }}</span>
+         <button type="button" class="text-primary hover:underline" @click="reloadPage">
+           <i class="fas fa-rotate mr-1" aria-hidden="true"></i>{{ $t('settings.about.refreshNow') }}
+         </button>
+       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useVersionCheck } from '../../composables/settings/useVersionCheck';
 
@@ -52,8 +87,24 @@ const {
   isCheckingVersion,
   versionCheckError,
   isUpdateAvailable,
+  runtimeKind,
+  dockerUpgradeCommand,
   checkLatestVersion,
 } = useVersionCheck();
+
+const copyStatus = ref<'idle' | 'copied' | 'error'>('idle');
+
+const copyDockerUpgradeCommand = async () => {
+  try {
+    await navigator.clipboard.writeText(dockerUpgradeCommand);
+    copyStatus.value = 'copied';
+    window.setTimeout(() => { copyStatus.value = 'idle'; }, 2000);
+  } catch {
+    copyStatus.value = 'error';
+  }
+};
+
+const reloadPage = () => window.location.reload();
 
 onMounted(async () => {
   await checkLatestVersion();

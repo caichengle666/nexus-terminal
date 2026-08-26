@@ -19,6 +19,11 @@ interface BatchUpdateData {
   notes?: string | null;
 }
 
+interface BatchEditResult {
+  successCount: number;
+  errorCount: number;
+}
+
 const props = defineProps({
   visible: {
     type: Boolean,
@@ -30,7 +35,10 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['update:visible', 'saved']);
+const emit = defineEmits<{
+  (event: 'update:visible', value: boolean): void;
+  (event: 'saved', result: BatchEditResult): void;
+}>();
 
 const { t } = useI18n();
 const connectionsStore = useConnectionsStore();
@@ -150,8 +158,11 @@ const handleSave = async () => {
 
     if (successCount > 0) {
       uiNotificationsStore.addNotification({ message: t('common.updateSuccess', { count: successCount }), type: 'success' });
-      emit('saved');
     }
+    emit('saved', {
+      successCount,
+      errorCount: props.connectionIds.length - successCount,
+    });
     emit('update:visible', false);
   } catch (error: any) {
     console.error("Batch update error:", error);
