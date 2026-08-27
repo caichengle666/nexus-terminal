@@ -79,7 +79,7 @@ AI Agent 是内置在 SSH 终端里的智能运维助手，可以读取当前终
 
 https://github.com/caichengle666/nexus-terminal/releases/latest
 
-Windows 请下载 `Nexus Terminal Setup ...exe`。安装向导可自定义安装目录，日常启动不会像单文件便携版那样先解压应用文件。macOS 请下载 `.dmg`，将应用拖到“应用程序”目录后运行。
+Windows 日常使用请下载 `Nexus Terminal Setup ...exe`，安装向导可自定义安装目录。需要免安装版本时，可下载 `Nexus Terminal Portable win-unpacked.zip`，解压后直接运行；其数据保存在解压目录内。macOS 请下载 `.dmg`，将应用拖到“应用程序”目录后运行。
 
 ## 🚀 快速开始
 

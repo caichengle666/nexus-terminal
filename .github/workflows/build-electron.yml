@@ -50,11 +50,35 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder build --win --config --publish never
 
+      - name: Create portable unpacked zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType File -Force -Path "electron-app/dist/win-unpacked/.Portable" | Out-Null
+          $source = Resolve-Path "electron-app/dist/win-unpacked"
+          $destination = [System.IO.Path]::GetFullPath("electron-app/dist/Nexus Terminal Portable win-unpacked.zip")
+          Push-Location $source
+          try {
+            & 7z a -tzip -mx=9 -mm=Deflate -mfb=258 -mpass=15 $destination ".\*"
+            if ($LASTEXITCODE -ne 0) {
+              throw "7-Zip failed with exit code $LASTEXITCODE"
+            }
+          } finally {
+            Pop-Location
+          }
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: Nexus-Terminal-Windows-Installer
           path: electron-app/dist/*Setup*.exe
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload portable unpacked artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nexus-Terminal-Windows-Portable-Unpacked
+          path: electron-app/dist/*Portable win-unpacked.zip
           if-no-files-found: error
           compression-level: 0
 
@@ -125,4 +149,5 @@ jobs:
           overwrite: true
           files: |
             Nexus-Terminal-Windows-Installer/*.exe
+            Nexus-Terminal-Windows-Portable-Unpacked/*.zip
             Nexus-Terminal-macOS-arm64/*.dmg
