@@ -476,7 +476,7 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
       </div>
     </header>
 
-    <main :class="{ 'min-h-0 flex-1 overflow-hidden': isWorkspaceRoute }">
+    <main class="flex-1 bg-background text-foreground" :class="{ 'min-h-0 overflow-hidden': isWorkspaceRoute }">
       <!-- 使用 KeepAlive 包裹 RouterView，并指定缓存 WorkspaceView -->
       <RouterView v-slot="{ Component }">
         <KeepAlive :include="['WorkspaceView', 'ConnectionsView']">
