@@ -76,8 +76,7 @@
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ],
       "icon": "build/icon.ico",
       "artifactName": "${productName}-0.9.22.9-${name}.${ext}"
@@ -96,9 +95,6 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "installerIcon": "build/icon.ico"
-    },
-    "portable": {
-      "artifactName": "${productName} Portable 0.9.22.9.${ext}"
     },
     "includePdb": false
   }
