@@ -294,11 +294,14 @@ async function createWindow() {
   mainWindow.setAlwaysOnTop(isAlwaysOnTop);
   createTray();
 
-  // 先显示前端内置的启动画面，避免等待后端和本地 HTTP 服务时出现白屏。
-  const startupPage = app.isPackaged
-    ? path.join(process.resourcesPath, 'packages/frontend/dist/index.html')
-    : path.join(__dirname, '..', 'packages/frontend/dist/index.html');
-  mainWindow.loadFile(startupPage).catch((error) => {
+  // 先显示轻量启动画面，避免在正式页面加载前初始化一整套 Vue 应用。
+  const startupHtml = `<!doctype html><html><head><meta charset="UTF-8"><style>
+    html,body{height:100%;margin:0;background:#101216;color:#f4f6fa;font:14px system-ui,-apple-system,"Segoe UI",sans-serif}
+    body{display:grid;place-content:center;justify-items:center;gap:10px}
+    .mark{width:56px;height:56px;border:3px solid #667085;border-top-color:#f4f6fa;border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style></head><body><div class="mark"></div><div>Nexus Terminal</div><div>正在启动客户端...</div></body></html>`;
+  mainWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(startupHtml)}`).catch((error) => {
     console.warn(`[Startup] Failed to load startup screen: ${error.message}`);
   });
   mainWindow.show();
