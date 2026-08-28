@@ -879,17 +879,20 @@ const closeFileManagerModal = () => {
         </section>
       </div>
       <div class="mobile-content-area">
-        <LayoutRenderer
-          v-if="!mobilePaneRequiresSession || activeSessionId"
-          :key="mobilePane"
-          :layout-node="mobileLayoutNode"
-          :active-session-id="activeSessionId"
-          :is-root-renderer="false"
-          :layout-locked="layoutLockedBoolean"
-          class="layout-renderer-wrapper flex-grow overflow-auto"
-          :editor-tabs="editorTabs"
-          :active-editor-tab-id="activeEditorTabId"
-        />
+        <template v-if="!mobilePaneRequiresSession || activeSessionId">
+          <KeepAlive>
+            <LayoutRenderer
+              :key="mobilePane"
+              :layout-node="mobileLayoutNode"
+              :active-session-id="activeSessionId"
+              :is-root-renderer="false"
+              :layout-locked="layoutLockedBoolean"
+              class="layout-renderer-wrapper flex-grow overflow-auto"
+              :editor-tabs="editorTabs"
+              :active-editor-tab-id="activeEditorTabId"
+            />
+          </KeepAlive>
+        </template>
         <div v-else class="pane-placeholder">
           {{ t('workspace.noActiveSession', '没有活动的会话') }}
         </div>
