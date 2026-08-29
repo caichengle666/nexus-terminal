@@ -487,7 +487,7 @@ onBeforeUnmount(() => {
             :key="session.sessionId"
             :class="['flex items-center h-full cursor-pointer border-r border-border transition-colors duration-150 relative group',
                      props.isMobile ? 'px-2' : 'px-3',
-                     session.sessionId === activeSessionId ? 'bg-background text-foreground' : 'bg-header text-text-secondary hover:bg-border']"
+                     session.sessionId === activeSessionId ? 'bg-primary/15 text-primary font-semibold border-b-2 border-primary' : 'bg-header text-text-secondary hover:bg-border']"
             @click="activateSession(session.sessionId)"
             @contextmenu.prevent="showContextMenu($event, session.sessionId)"
             @touchstart="handleTouchStart($event, session.sessionId)"
