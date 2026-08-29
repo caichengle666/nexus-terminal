@@ -66,8 +66,8 @@ watch(
         computedRenderPosition.value = { ...newPosition }; // 设置初始位置为当前点击位置
 
         nextTick(() => {
-          if (contextMenuRef.value) {
-            const menuElement = contextMenuRef.value;
+          const menuElement = contextMenuRef.value instanceof HTMLElement ? contextMenuRef.value : null;
+          if (menuElement) {
             const menuRect = menuElement.getBoundingClientRect();
 
             // 如果菜单没有实际尺寸 (例如，内容为空或未渲染)，则不进行调整
@@ -113,7 +113,7 @@ watch(
 
 // 点击其他地方自动关闭菜单
 const handleClickOutside = (event: MouseEvent) => {
-  if (contextMenuRef.value && !contextMenuRef.value.contains(event.target as Node)) {
+  if (contextMenuRef.value instanceof HTMLElement && !contextMenuRef.value.contains(event.target as Node)) {
     emit('close-request');
   }
 };

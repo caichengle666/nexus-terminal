@@ -263,10 +263,11 @@ export function useFileManagerContextMenu(options: UseFileManagerContextMenuOpti
     // Use nextTick to allow the DOM to update and the menu to render
     nextTick(() => {
         // Access the DOM element via $el from the component instance ref
-        const menuElement = contextMenuRef.value?.$el as HTMLDivElement | undefined;
+        const componentRoot = contextMenuRef.value?.$el;
+        const menuElement = componentRoot instanceof HTMLElement ? componentRoot : undefined;
         if (menuElement && contextMenuVisible.value) {
             // const menuElement = contextMenuRef.value; // Old way
-            const menuRect = menuElement.getBoundingClientRect(); // Now should work
+            const menuRect = menuElement.getBoundingClientRect();
             const menuWidth = menuRect.width;
             const menuHeight = menuRect.height;
 
