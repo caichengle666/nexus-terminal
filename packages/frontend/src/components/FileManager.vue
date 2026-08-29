@@ -2031,6 +2031,7 @@ const handleOpenEditorClick = () => {
     <FileManagerContextMenu
       ref="contextMenuRef"
       :is-visible="contextMenuVisible"
+      :is-mobile="props.isMobile"
       :position="contextMenuPosition"
       :items="contextMenuItems"
       :active-context-item="contextTargetItem"

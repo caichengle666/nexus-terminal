@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n';
 import SendFilesModal from './SendFilesModal.vue';
 import type { ContextMenuItem } from '../composables/file-manager/useFileManagerContextMenu';
 import type { FileListItem } from '../types/sftp.types';
-import { useDeviceDetection } from '../composables/useDeviceDetection';
 import { useSessionStore } from '../stores/session.store';
 
 const props = defineProps({
@@ -31,10 +30,13 @@ const props = defineProps({
   currentDirectoryPath: { // Current path of the file manager
     type: String,
     required: true,
-  }
+  },
+  isMobile: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-const { isMobile } = useDeviceDetection();
 const { t } = useI18n();
 const sessionStore = useSessionStore(); // +++ 使用 session store +++
 const showSendFilesModal = ref(false);
@@ -193,12 +195,24 @@ const handleFilesSent = (payload: any) => {
 
 // 管理二级菜单的展开状态
 const expandedSubmenu = ref<string | null>(null);
+const submenuPosition = ref({ left: 0, top: 0 });
 let closeTimeout: NodeJS.Timeout | null = null;
 
-const showSubmenu = (label: string) => {
+const showSubmenu = (label: string, event?: MouseEvent) => {
   if (closeTimeout) {
     clearTimeout(closeTimeout);
     closeTimeout = null;
+  }
+  if (event?.currentTarget instanceof HTMLElement && event.currentTarget.tagName === 'LI') {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const submenuWidth = 190;
+    const preferredLeft = rect.right + 4;
+    submenuPosition.value = {
+      left: preferredLeft + submenuWidth <= window.innerWidth
+        ? preferredLeft
+        : Math.max(4, rect.left - submenuWidth - 4),
+      top: Math.max(4, rect.top),
+    };
   }
   expandedSubmenu.value = label;
 };
@@ -229,32 +243,6 @@ onUnmounted(() => {
     <ul class="m-0 list-none p-1" :class="isMobile ? 'max-h-[70dvh] overflow-y-auto pb-[max(0.5rem,env(safe-area-inset-bottom))]' : ''">
       <template v-for="(menuItem, index) in items" :key="index">
         <li v-if="menuItem.separator" class="border-t border-border/50 my-1 mx-1"></li>
-        <!-- 如果是移动设备且有子菜单，则平铺子菜单 -->
-        <template v-else-if="isMobile && menuItem.submenu && menuItem.submenu.length > 0">
-          <li
-            v-for="(subItem, subIndex) in menuItem.submenu"
-            :key="`${index}-${subIndex}`"
-            @click.stop="handleItemClick(subItem)"
-            :class="[
-              'menu-action-item px-4 py-1.5 text-sm flex items-center transition-colors duration-150 rounded mx-1',
-              subItem.disabled ? 'cursor-not-allowed text-text-secondary opacity-50' : 'cursor-pointer text-foreground hover:bg-primary/10 hover:text-primary'
-            ]"
-          >
-            {{ subItem.label }}
-          </li>
-          <!-- 如果 menuItem (作为移动端子菜单容器) 是 "压缩", 在其子项后添加 "发送到" -->
-          <template v-if="menuItem.label === t('fileManager.contextMenu.compress')">
-            <li
-              @click.stop="handleSendToClick"
-              :class="[
-                'px-4 py-1.5 cursor-pointer text-foreground text-sm flex items-center transition-colors duration-150 rounded mx-1',
-                'hover:bg-primary/10 hover:text-primary'
-              ]"
-            >
-              {{ t('fileManager.contextMenu.sendTo', 'Send to...') }}
-            </li>
-          </template>
-        </template>
         <!-- 否则，按原有逻辑渲染一级菜单或带子菜单的一级菜单 -->
         <li
           v-else-if="!menuItem.submenu"
@@ -278,17 +266,18 @@ onUnmounted(() => {
             {{ t('fileManager.contextMenu.sendTo', 'Send to...') }}
           </li>
         </template>
-        <li
-          v-if="menuItem.submenu && !isMobile"
+          <li
+            v-if="menuItem.submenu"
           class="px-4 py-1.5 text-foreground text-sm flex items-center justify-between transition-colors duration-150 rounded mx-1 hover:bg-primary/10 hover:text-primary relative"
-          @mouseenter="showSubmenu(menuItem.label)"
+          @mouseenter="showSubmenu(menuItem.label, $event)"
           @mouseleave="hideSubmenu()"
         >
           {{ menuItem.label }}
           <span class="ml-2">›</span>
           <ul
             v-if="expandedSubmenu === menuItem.label"
-            class="absolute left-full top-0 mt-0 ml-0 bg-background border border-border shadow-lg rounded-md z-[1003] min-w-[150px] list-none p-1"
+            class="fixed bg-background border border-border shadow-lg rounded-md z-[1003] min-w-[150px] list-none p-1"
+            :style="{ left: `${submenuPosition.left}px`, top: `${submenuPosition.top}px` }"
             @mouseenter="showSubmenu(menuItem.label)"
             @mouseleave="hideSubmenu()"
           >
@@ -306,7 +295,7 @@ onUnmounted(() => {
           </ul>
         </li>
         <!-- 如果桌面端带子菜单的项是 "压缩", 在其后添加 "发送到" -->
-        <template v-if="menuItem.submenu && !isMobile && menuItem.label === t('fileManager.contextMenu.compress')">
+        <template v-if="menuItem.submenu && menuItem.label === t('fileManager.contextMenu.compress')">
           <li
             @click.stop="handleSendToClick"
             :class="[
