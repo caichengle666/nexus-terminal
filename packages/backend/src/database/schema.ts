@@ -252,3 +252,16 @@ CREATE TABLE IF NOT EXISTS favorite_paths (
     updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 `;
+
+export const createTransferTasksTableSQL = `
+CREATE TABLE IF NOT EXISTS transfer_tasks (
+    task_id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    overall_progress INTEGER NULL,
+    payload TEXT NOT NULL,
+    subtasks TEXT NOT NULL
+);
+`;

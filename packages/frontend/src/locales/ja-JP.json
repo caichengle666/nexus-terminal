@@ -1591,9 +1591,19 @@
     "errorLoading": "Failed to load transfer tasks: {error}",
     "error": {
       "unknown": "Unknown error",
-      "cancelFailed": "Failed to cancel task."
+      "cancelFailed": "Failed to cancel task.",
+      "retryFailed": "Failed to retry task."
     },
     "noTasks": "There are no active transfer tasks currently.",
+    "filters": {
+      "all": "All",
+      "active": "Active",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "retryTaskTooltip": "Retry task",
+    "retryButton": "Retry",
+    "retryingButton": "Retrying",
     "task": {
       "idLabel": "Task",
       "createdAt": "Created at",

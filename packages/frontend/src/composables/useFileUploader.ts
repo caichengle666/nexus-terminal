@@ -1,9 +1,10 @@
-import { reactive, nextTick, onUnmounted, type Ref, watchEffect } from 'vue';
+import { reactive, nextTick, onUnmounted, type Ref, watch, watchEffect } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { FileListItem } from '../types/sftp.types';
 import type { UploadItem } from '../types/upload.types';
 import type { WebSocketMessage, MessagePayload } from '../types/websocket.types';
 import type { WebSocketDependencies } from './useSftpActions';
+import { useTransferStore } from '../stores/transfer.store';
 
 const UPLOAD_CHUNK_SIZE = 65536; // 64KB; base64 后仍适合移动网络与代理传输
 const UPLOAD_READY_TIMEOUT_MS = 10000;
@@ -28,11 +29,27 @@ export function useFileUploader(
     wsDeps: Ref<WebSocketDependencies>
 ) {
     const { t } = useI18n();
+    const transferStore = useTransferStore();
     void fileListRef;
 
     const uploads = reactive<Record<string, UploadItem>>({});
     const uploadTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
     const uploadStartAttempts = new Map<string, number>();
+    const ownedUploadIds = new Set<string>();
+
+    watch(uploads, (currentUploads) => {
+        const currentIds = new Set(Object.keys(currentUploads));
+        Object.values(currentUploads).forEach(upload => {
+            ownedUploadIds.add(upload.id);
+            transferStore.upsertLocalUpload(upload, sessionIdForLog.value, () => cancelUpload(upload.id));
+        });
+        ownedUploadIds.forEach(uploadId => {
+            if (!currentIds.has(uploadId)) {
+                transferStore.removeLocalUpload(uploadId);
+                ownedUploadIds.delete(uploadId);
+            }
+        });
+    }, { deep: true, immediate: true });
 
     const clearUploadTimeout = (uploadId: string) => {
         const timeoutId = uploadTimeouts.get(uploadId);

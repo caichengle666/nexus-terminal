@@ -226,7 +226,7 @@ onUnmounted(() => {
     :style="isMobile ? undefined : { top: `${computedRenderPosition.y}px`, left: `${computedRenderPosition.x}px` }"
     @click.stop
   >
-    <ul class="m-0 list-none overflow-y-auto p-1" :class="isMobile ? 'max-h-[70dvh] pb-[max(0.5rem,env(safe-area-inset-bottom))]' : ''">
+    <ul class="m-0 list-none p-1" :class="isMobile ? 'max-h-[70dvh] overflow-y-auto pb-[max(0.5rem,env(safe-area-inset-bottom))]' : ''">
       <template v-for="(menuItem, index) in items" :key="index">
         <li v-if="menuItem.separator" class="border-t border-border/50 my-1 mx-1"></li>
         <!-- 如果是移动设备且有子菜单，则平铺子菜单 -->
@@ -288,7 +288,7 @@ onUnmounted(() => {
           <span class="ml-2">›</span>
           <ul
             v-if="expandedSubmenu === menuItem.label"
-            class="absolute left-full top-0 mt-0 ml-1 bg-background border border-border shadow-lg rounded-md z-[1003] min-w-[150px] list-none p-1"
+            class="absolute left-full top-0 mt-0 ml-0 bg-background border border-border shadow-lg rounded-md z-[1003] min-w-[150px] list-none p-1"
             @mouseenter="showSubmenu(menuItem.label)"
             @mouseleave="hideSubmenu()"
           >

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 // 定义通知对象的接口
 export interface UINotification {
@@ -9,9 +9,46 @@ export interface UINotification {
   timeout?: number; // 可选的自动关闭超时时间 (毫秒)
 }
 
+export type TaskNotificationStatus = 'running' | 'success' | 'error' | 'cancelled';
+
+export interface TaskNotification {
+  id: string;
+  title: string;
+  message: string;
+  status: TaskNotificationStatus;
+  progress?: number;
+  createdAt: number;
+  updatedAt: number;
+  read: boolean;
+  retry?: () => void | Promise<void>;
+}
+
+const TASK_NOTIFICATIONS_STORAGE_KEY = 'nexus.taskNotifications';
+
+const loadTaskNotifications = (): TaskNotification[] => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(TASK_NOTIFICATIONS_STORAGE_KEY) || '[]');
+    if (!Array.isArray(stored)) return [];
+    return stored.filter((task): task is TaskNotification => (
+      task && typeof task.id === 'string' && typeof task.title === 'string'
+      && typeof task.message === 'string' && typeof task.status === 'string'
+      && typeof task.createdAt === 'number' && typeof task.updatedAt === 'number'
+      && typeof task.read === 'boolean'
+    )).slice(0, 50);
+  } catch {
+    return [];
+  }
+};
+
 export const useUiNotificationsStore = defineStore('uiNotifications', () => {
   const notifications = ref<UINotification[]>([]);
+  const taskNotifications = ref<TaskNotification[]>(loadTaskNotifications());
   let nextId = 0;
+
+  const persistTaskNotifications = () => {
+    const serializableTasks = taskNotifications.value.map(({ retry: _retry, ...task }) => task);
+    localStorage.setItem(TASK_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(serializableTasks));
+  };
 
   /**
    * 添加一个新通知
@@ -54,6 +91,43 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
     addNotification({ type: 'warning', message }); // Timeout is handled by addNotification
   };
 
+  const addTaskNotification = (task: Omit<TaskNotification, 'id' | 'createdAt' | 'updatedAt' | 'read'> & { id?: string }) => {
+    const now = Date.now();
+    const entry: TaskNotification = {
+      ...task,
+      id: task.id ?? `task-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: now,
+      updatedAt: now,
+      read: false,
+    };
+    taskNotifications.value = [entry, ...taskNotifications.value].slice(0, 50);
+    persistTaskNotifications();
+    return entry.id;
+  };
+
+  const updateTaskNotification = (id: string, updates: Partial<Omit<TaskNotification, 'id' | 'createdAt'>>) => {
+    const index = taskNotifications.value.findIndex(task => task.id === id);
+    if (index === -1) return;
+    taskNotifications.value[index] = {
+      ...taskNotifications.value[index],
+      ...updates,
+      updatedAt: Date.now(),
+    };
+    persistTaskNotifications();
+  };
+
+  const markTaskNotificationsRead = () => {
+    taskNotifications.value = taskNotifications.value.map(task => ({ ...task, read: true }));
+    persistTaskNotifications();
+  };
+
+  const clearTaskNotifications = () => {
+    taskNotifications.value = [];
+    persistTaskNotifications();
+  };
+
+  const unreadTaskCount = computed(() => taskNotifications.value.filter(task => !task.read).length);
+
 
   return {
     notifications,
@@ -63,5 +137,11 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
     showSuccess,
     showInfo,
     showWarning,
+    taskNotifications,
+    unreadTaskCount,
+    addTaskNotification,
+    updateTaskNotification,
+    markTaskNotificationsRead,
+    clearTaskNotifications,
   };
 });

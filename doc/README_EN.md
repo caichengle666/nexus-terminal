@@ -61,6 +61,8 @@
 
 https://github.com/Heavrnl/nexus-terminal/releases/latest
 
+For regular Windows use, download `Nexus Terminal Setup ...exe`; the installer lets you choose the installation directory. For a no-install option, download `Nexus Terminal Portable win-unpacked.zip`, extract it, and run the app directly; its data stays in the extracted directory. On macOS, download the `.dmg` and move the app to Applications before launching it.
+
 ## 🚀 Quick Start
 
 ### 1️⃣ Configure Environment

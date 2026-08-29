@@ -284,7 +284,7 @@ const handleConnectionModified = async () => {
 </script>
 
 <template>
-  <div class="p-4 md:p-6 lg:p-8 bg-background text-foreground">
+  <div class="min-h-[100dvh] bg-background p-4 text-foreground md:p-6 lg:p-8">
     <h1 class="text-2xl font-semibold mb-6">{{ t('nav.dashboard') }}</h1>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:items-start">

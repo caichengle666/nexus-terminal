@@ -12,6 +12,7 @@ export class TransfersController {
     this.getAllStatuses = this.getAllStatuses.bind(this);
     this.getTaskStatus = this.getTaskStatus.bind(this);
     this.cancelTransfer = this.cancelTransfer.bind(this); // +++ 绑定新方法 +++
+    this.retryTransfer = this.retryTransfer.bind(this);
   }
 
   public async initiateTransfer(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -124,6 +125,33 @@ export class TransfersController {
     } catch (error) {
       console.error(`[TransfersController] Error cancelling task ${req.params.taskId}:`, error);
       res.status(500).json({ message: 'Failed to cancel task.', error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  public async retryTransfer(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      // @ts-ignore
+      const userId = req.session?.userId;
+      if (!userId) {
+        res.status(401).json({ message: '用户未认证或会话无效。' });
+        return;
+      }
+
+      const { taskId } = req.params;
+      if (!taskId) {
+        res.status(400).json({ message: 'Task ID is required for retry.' });
+        return;
+      }
+
+      const task = await this.transfersService.retryTransferTask(taskId, userId);
+      if (task) {
+        res.status(202).json(task);
+      } else {
+        res.status(404).json({ message: `Failed to retry task ${taskId}. It may not exist, not be accessible, or not be retryable.` });
+      }
+    } catch (error) {
+      console.error(`[TransfersController] Error retrying task ${req.params.taskId}:`, error);
+      res.status(500).json({ message: 'Failed to retry task.', error: error instanceof Error ? error.message : String(error) });
     }
   }
 }

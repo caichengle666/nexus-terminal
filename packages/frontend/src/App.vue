@@ -12,6 +12,7 @@ import { useSessionStore } from './stores/session.store';
 import { useFavoritePathsStore } from './stores/favoritePaths.store';
 import { storeToRefs } from 'pinia';
 import UINotificationDisplay from './components/UINotificationDisplay.vue';
+import TaskNotificationCenter from './components/TaskNotificationCenter.vue';
 import FileEditorOverlay from './components/FileEditorOverlay.vue';
 import StyleCustomizer from './components/StyleCustomizer.vue';
 import FocusSwitcherConfigurator from './components/FocusSwitcherConfigurator.vue';
@@ -475,7 +476,7 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
       </div>
     </header>
 
-    <main :class="{ 'min-h-0 flex-1 overflow-hidden': isWorkspaceRoute }">
+    <main class="flex-1 bg-background text-foreground" :class="{ 'min-h-0 overflow-hidden': isWorkspaceRoute }">
       <!-- 使用 KeepAlive 包裹 RouterView，并指定缓存 WorkspaceView -->
       <RouterView v-slot="{ Component }">
         <KeepAlive :include="['WorkspaceView', 'ConnectionsView']">
@@ -486,6 +487,7 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
 
     <!-- 添加全局通知显示 -->
     <UINotificationDisplay />
+    <TaskNotificationCenter />
 
     <!-- 根据设置条件渲染全局文件编辑器弹窗 -->
     <FileEditorOverlay v-if="showPopupFileEditorBoolean || isMobile" :is-mobile="isMobile" />

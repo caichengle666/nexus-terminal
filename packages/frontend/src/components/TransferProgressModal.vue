@@ -4,15 +4,20 @@ import { ref, watch, onMounted, onUnmounted, computed } from 'vue'; // Added com
 import { useI18n } from 'vue-i18n';
 import apiClient from '../utils/apiClient';
 import { useConnectionsStore } from '../stores/connections.store'; // 请确认此路径是否正确
+import { useRdpTransferStore } from '../stores/rdpTransfer.store';
+import { useTransferStore } from '../stores/transfer.store';
 
 interface Props {
   visible: boolean;
+  embedded?: boolean;
 }
 
 const props = defineProps<Props>();
 const emit = defineEmits(['update:visible']);
 const { t, locale } = useI18n(); // +++ 解构出 locale +++
 const connectionsStore = useConnectionsStore();
+const rdpTransferStore = useRdpTransferStore();
+const transferStore = useTransferStore();
 
 // Helper function to get connection name by ID
 // 注意: 此函数假设 'connectionsStore.connections' 是一个包含连接对象的数组，
@@ -26,7 +31,11 @@ const getConnectionName = (connectionId: number): string => {
 };
 
 // Helper function to format the task title
-const formatTaskTitle = (task: TransferTask): string => {
+const formatTaskTitle = (task: TransferTask | LocalTransferViewTask): string => {
+  if (task.kind === 'local-upload') {
+    return `${task.filename} -> ${task.remoteTargetPath}`;
+  }
+
   const fileName = (task.subTasks && task.subTasks.length > 0)
     ? task.subTasks[0].sourceItemName
     : "[文件名未知]";
@@ -64,6 +73,7 @@ interface TransferSubTask {
 }
 
 interface TransferTask {
+  kind?: 'server-transfer';
   taskId: string;
   status: 'queued' | 'in-progress' | 'completed' | 'failed' | 'partially-completed' | 'cancelling' | 'cancelled'; // +++ 新增状态 +++
   createdAt: string | Date;
@@ -72,28 +82,105 @@ interface TransferTask {
   overallProgress?: number;
   sourceConnectionId?: number; 
   remoteTargetPath?: string; 
+  isLocal?: boolean;
+}
+
+interface LocalTransferViewTask {
+  kind: 'local-upload';
+  isLocal?: boolean;
+  taskId: string;
+  status: 'in-progress' | 'completed' | 'failed' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+  subTasks: [];
+  overallProgress: number;
+  remoteTargetPath: string;
+  filename: string;
+  totalBytes: number;
+  transferredBytes: number;
+  error?: string;
 }
 
 const transferTasks = ref<TransferTask[]>([]);
 const isLoading = ref(false);
 const errorLoading = ref<string | null>(null);
 const pollingIntervalId = ref<number | null>(null);
+const statusFilter = ref<'all' | 'active' | 'completed' | 'failed'>('all');
+const retryingTaskId = ref<string | null>(null);
 
-// Computed property for sorted and limited tasks
+const rdpTransferTasks = computed<TransferTask[]>(() => rdpTransferStore.records.map(record => ({
+  taskId: record.id,
+  status: record.status === 'transferring' ? 'in-progress' : record.status,
+  createdAt: record.createdAt,
+  updatedAt: record.updatedAt,
+  overallProgress: record.progress,
+  remoteTargetPath: record.direction === 'upload' ? 'RDP 上传' : 'RDP 下载',
+  isLocal: true,
+  subTasks: [{
+    subTaskId: record.id,
+    connectionId: 0,
+    sourceItemName: `${record.direction === 'upload' ? '↑' : '↓'} ${record.filename}`,
+    status: record.status === 'transferring' ? 'transferring' : record.status,
+    progress: record.progress,
+    message: record.message,
+    transferredBytes: record.transferredBytes,
+    totalBytes: record.totalBytes,
+    speedBytesPerSecond: record.speedBytesPerSecond,
+  }],
+})));
+
+const localTransferTasks = computed<LocalTransferViewTask[]>(() => transferStore.localTaskList.map(upload => ({
+  kind: 'local-upload',
+  taskId: upload.id,
+  status: upload.status === 'success'
+    ? 'completed'
+    : upload.status === 'error'
+      ? 'failed'
+      : upload.status === 'cancelled'
+        ? 'cancelled'
+        : 'in-progress',
+  createdAt: upload.createdAt,
+  updatedAt: upload.updatedAt,
+  subTasks: [],
+  overallProgress: upload.progress,
+  remoteTargetPath: upload.remotePath,
+  filename: upload.filename,
+  totalBytes: upload.totalBytes,
+  transferredBytes: upload.transferredBytes,
+  error: upload.error,
+})));
+
+const allTasks = computed<(TransferTask | LocalTransferViewTask)[]>(() => [
+  ...transferTasks.value,
+  ...rdpTransferTasks.value,
+  ...localTransferTasks.value,
+]);
+
+const filteredTasks = computed(() => allTasks.value.filter(task => {
+  if (statusFilter.value === 'active') return ['queued', 'in-progress', 'cancelling'].includes(task.status);
+  if (statusFilter.value === 'completed') return ['completed', 'partially-completed'].includes(task.status);
+  if (statusFilter.value === 'failed') return ['failed', 'cancelled'].includes(task.status);
+  return true;
+}));
+let isFetching = false;
+
 const displayedTasks = computed(() => {
-  // Create a new array to avoid mutating the original transferTasks ref directly during sort
-  return [...transferTasks.value]
+  return [...filteredTasks.value]
     .sort((a, b) => {
-      // Ensure createdAt is treated as a Date object for comparison
       const dateA = new Date(a.createdAt);
       const dateB = new Date(b.createdAt);
-      return dateB.getTime() - dateA.getTime(); // For descending order (newest first)
+      return dateB.getTime() - dateA.getTime();
     })
-    .slice(0, 5); // Limit to the 5 newest tasks
+    .slice(0, 50);
 });
 
-const fetchTransferTasks = async () => {
-  isLoading.value = true;
+const fetchTransferTasks = async (showLoading = false) => {
+  if (isFetching) return;
+
+  isFetching = true;
+  if (showLoading) {
+    isLoading.value = true;
+  }
   errorLoading.value = null;
   try {
     // 假设后端API路径为 /api/v1/transfers/status，且返回数据结构为 { data: TransferTask[] }
@@ -125,7 +212,10 @@ const fetchTransferTasks = async () => {
     console.error("Failed to fetch transfer tasks:", error);
     errorLoading.value = error.response?.data?.message || error.message || t('transferProgressModal.error.unknown', '未知错误');
   } finally {
-    isLoading.value = false;
+    isFetching = false;
+    if (showLoading) {
+      isLoading.value = false;
+    }
   }
 };
 
@@ -178,10 +268,13 @@ const formatEta = (subTask: TransferSubTask): string => {
 };
 
 onMounted(() => {
+  if (connectionsStore.connections.length === 0) {
+    void connectionsStore.fetchConnections();
+  }
   if (props.visible) {
-    fetchTransferTasks();
+    fetchTransferTasks(true);
     if (pollingIntervalId.value === null) {
-       pollingIntervalId.value = window.setInterval(fetchTransferTasks, 1500);
+       pollingIntervalId.value = window.setInterval(() => fetchTransferTasks(), 1500);
     }
   }
 });
@@ -196,9 +289,9 @@ onUnmounted(() => {
 watch(() => props.visible, (newVisible) => {
   // internalVisible.value = newVisible; // 由下面的watch处理
   if (newVisible) {
-    fetchTransferTasks(); // 模态框可见时立即获取一次数据
+    fetchTransferTasks(true); // 模态框可见时首次获取显示加载状态
     if (pollingIntervalId.value === null) { // 只有在没有定时器时才启动
-      pollingIntervalId.value = window.setInterval(fetchTransferTasks, 1500);
+      pollingIntervalId.value = window.setInterval(() => fetchTransferTasks(), 1500);
     }
   } else {
     if (pollingIntervalId.value !== null) {
@@ -227,12 +320,16 @@ const handleClose = () => {
   internalVisible.value = false;
 };
 
-const isTaskCancellable = (taskStatus: TransferTask['status']): boolean => {
-  return ['queued', 'in-progress', 'connecting', 'transferring', 'cancelling'].includes(taskStatus);
+const isTaskCancellable = (taskStatus: TransferTask['status'], isLocal = false): boolean => {
+  return !isLocal && ['queued', 'in-progress', 'connecting', 'transferring', 'cancelling'].includes(taskStatus);
 };
 
 const isTaskCancelling = (taskStatus: TransferTask['status']): boolean => {
   return taskStatus === 'cancelling';
+};
+
+const isTaskRetryable = (taskStatus: TransferTask['status'], isLocal = false): boolean => {
+  return !isLocal && ['failed', 'partially-completed', 'cancelled'].includes(taskStatus);
 };
 
 const handleCancelTask = async (taskId: string) => {
@@ -240,13 +337,15 @@ const handleCancelTask = async (taskId: string) => {
   // const confirmed = window.confirm(t('transferProgressModal.confirmCancel', '您确定要终止此传输任务吗？'));
   // if (!confirmed) return;
 
+  const cancelTask = transferTasks.value.find(t => t.taskId === taskId);
+  if (cancelTask?.isLocal) return;
+
   try {
-    // 更新UI，将任务状态临时设置为 'cancelling' 或禁用按钮
-    const task = transferTasks.value.find(t => t.taskId === taskId);
-    if (task) {
-
+    const localTask = transferStore.localTaskList.find(task => task.id === taskId);
+    if (localTask) {
+      localTask.cancel?.();
+      return;
     }
-
     await apiClient.post(`/transfers/cancel/${taskId}`);
     const taskBeingCancelled = transferTasks.value.find(t => t.taskId === taskId);
     if (taskBeingCancelled && ['queued', 'in-progress', 'connecting', 'transferring'].includes(taskBeingCancelled.status)) {
@@ -260,34 +359,67 @@ const handleCancelTask = async (taskId: string) => {
   }
 };
 
+const handleRetryTask = async (taskId: string) => {
+  const retryTask = transferTasks.value.find(t => t.taskId === taskId);
+  if (retryTask?.isLocal) return;
+  retryingTaskId.value = taskId;
+  try {
+    await apiClient.post(`/transfers/retry/${taskId}`);
+    await fetchTransferTasks();
+  } catch (error: any) {
+    console.error(`Failed to retry task ${taskId}:`, error);
+    errorLoading.value = error.response?.data?.message || error.message || t('transferProgressModal.error.retryFailed', '重试任务失败。');
+  } finally {
+    retryingTaskId.value = null;
+  }
+};
+
 </script>
 
 <template>
   <div
     v-if="internalVisible"
-    class="fixed inset-0 bg-overlay flex justify-center items-center z-50 p-4"
-    @click.self="handleClose"
+    :class="props.embedded ? 'flex h-full min-h-0 w-full' : 'fixed inset-0 bg-overlay flex justify-center items-center z-50 p-4'"
+    @click.self="props.embedded ? undefined : handleClose()"
   >
-    <div class="bg-background text-foreground p-6 rounded-lg shadow-xl border w-full max-w-3xl max-h-[85vh] flex flex-col" :style="{ borderColor: 'var(--border-color)' }">
+    <div :class="[
+      'bg-background text-foreground w-full flex flex-col',
+      props.embedded ? 'h-full min-h-0 p-3 border-0' : 'p-6 rounded-lg shadow-xl border max-w-3xl max-h-[85vh]'
+    ]" :style="{ borderColor: 'var(--border-color)' }">
       <!-- Header -->
       <h3 class="text-xl font-semibold text-center mb-6 flex-shrink-0">
         {{ t('transferProgressModal.title', '文件传输进度') }}
       </h3>
 
+      <div v-if="transferTasks.length > 0" class="flex flex-wrap gap-2 mb-4 flex-shrink-0">
+        <button
+          type="button"
+          v-for="filter in ['all', 'active', 'completed', 'failed'] as const"
+          :key="filter"
+          @click="statusFilter = filter"
+          :class="[
+            'px-3 py-1.5 text-xs rounded-md border transition-colors',
+            statusFilter === filter ? 'bg-primary text-white border-primary' : 'text-text-secondary hover:text-foreground hover:bg-background-alt'
+          ]"
+        >
+          {{ t(`transferProgressModal.filters.${filter}`) }}
+        </button>
+      </div>
+
       <!-- Content Area -->
       <div class="flex-grow overflow-y-auto mb-6 pr-2 space-y-4 custom-scrollbar">
-        <div v-if="isLoading && transferTasks.length === 0" class="text-center text-text-secondary py-10">
+        <div v-if="isLoading && allTasks.length === 0" class="text-center text-text-secondary py-10">
           <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
           {{ t('transferProgressModal.loading', '正在加载传输任务...') }}
         </div>
-        <div v-else-if="errorLoading" class="text-center text-red-500 bg-red-50 p-4 rounded-md">
+        <div v-else-if="errorLoading && localTransferTasks.length === 0" class="text-center text-red-500 bg-red-50 p-4 rounded-md">
           <p class="font-semibold">{{ t('transferProgressModal.errorLoadingTitle', '加载错误') }}</p>
           <p>{{ t('transferProgressModal.errorLoading', { error: errorLoading }) }}</p>
         </div>
-        <div v-else-if="!isLoading && transferTasks.length === 0" class="text-center text-text-secondary py-10">
+        <div v-else-if="!isLoading && displayedTasks.length === 0" class="text-center text-text-secondary py-10">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
@@ -297,6 +429,9 @@ const handleCancelTask = async (taskId: string) => {
           <div v-for="task in displayedTasks" :key="task.taskId" class="bg-background-alt p-3 rounded-lg border shadow-sm hover:shadow-md transition-shadow" :style="{ borderColor: 'var(--border-color)' }">
             <div class="flex justify-between items-start mb-2">
               <div>
+                <span class="mb-1 inline-block rounded px-2 py-0.5 text-xs font-medium" :class="task.kind === 'local-upload' ? 'bg-cyan-100 text-cyan-700' : 'bg-violet-100 text-violet-700'">
+                  {{ task.kind === 'local-upload' ? t('transferProgressModal.types.localUpload', '本地上传') : t('transferProgressModal.types.serverTransfer', '服务器间传输') }}
+                </span>
                 <span class="font-semibold text-md block">{{ t('transferProgressModal.task.idLabel', '任务') }}: {{ formatTaskTitle(task) }}</span>
                 <span class="text-xs text-text-muted">{{ t('transferProgressModal.task.createdAt', '创建于') }}: {{ formatDate(task.createdAt) }}</span>
               </div>
@@ -310,16 +445,30 @@ const handleCancelTask = async (taskId: string) => {
                 ]">
                   {{ getDisplayStatus(task.status) }}
                 </span>
-                <button
-                  v-if="isTaskCancellable(task.status)"
-                  @click="handleCancelTask(task.taskId)"
-                  :disabled="isTaskCancelling(task.status)"
-                  class="px-2 py-0.5 text-xs bg-red-500 hover:bg-red-600 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  :title="isTaskCancelling(task.status) ? t('transferProgressModal.cancellingTooltip', '终止中...') : t('transferProgressModal.cancelTaskTooltip', '终止任务')"
-                >
-                  <i v-if="isTaskCancelling(task.status)" class="fas fa-spinner fa-spin mr-1"></i>
-                  {{ isTaskCancelling(task.status) ? t('transferProgressModal.cancellingButton', '终止中') : t('transferProgressModal.cancelButton', '终止') }}
-                </button>
+                <div class="flex items-center gap-1">
+                  <button
+                    v-if="isTaskRetryable(task.status, task.isLocal)"
+                    type="button"
+                    @click="handleRetryTask(task.taskId)"
+                    :disabled="retryingTaskId === task.taskId"
+                    class="px-2 py-0.5 text-xs bg-primary hover:bg-primary/80 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    :title="t('transferProgressModal.retryTaskTooltip', '重试任务')"
+                  >
+                    <i :class="['fas', retryingTaskId === task.taskId ? 'fa-spinner fa-spin' : 'fa-rotate-right', 'mr-1']"></i>
+                    {{ retryingTaskId === task.taskId ? t('transferProgressModal.retryingButton', '重试中') : t('transferProgressModal.retryButton', '重试') }}
+                  </button>
+                  <button
+                    v-if="isTaskCancellable(task.status, task.isLocal)"
+                    type="button"
+                    @click="handleCancelTask(task.taskId)"
+                    :disabled="isTaskCancelling(task.status)"
+                    class="px-2 py-0.5 text-xs bg-red-500 hover:bg-red-600 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    :title="isTaskCancelling(task.status) ? t('transferProgressModal.cancellingTooltip', '终止中...') : t('transferProgressModal.cancelTaskTooltip', '终止任务')"
+                  >
+                    <i v-if="isTaskCancelling(task.status)" class="fas fa-spinner fa-spin mr-1"></i>
+                    {{ isTaskCancelling(task.status) ? t('transferProgressModal.cancellingButton', '终止中') : t('transferProgressModal.cancelButton', '终止') }}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -332,6 +481,10 @@ const handleCancelTask = async (taskId: string) => {
                 <div class="bg-primary h-1.5 rounded-full" :style="{ width: task.overallProgress + '%' }"></div>
               </div>
             </div>
+
+            <p v-if="task.kind === 'local-upload' && task.error" class="text-red-600">
+              {{ task.error }}
+            </p>
 
             <details v-if="task.subTasks && task.subTasks.length > 0" class="mt-2 group">
               <summary class="text-xs font-medium text-primary hover:underline cursor-pointer list-none">
@@ -382,7 +535,7 @@ const handleCancelTask = async (taskId: string) => {
       </div>
 
       <!-- Footer -->
-      <div class="flex justify-end items-center pt-4 mt-auto flex-shrink-0 border-t" :style="{ borderTopColor: 'var(--border-color)' }">
+      <div v-if="!props.embedded" class="flex justify-end items-center pt-4 mt-auto flex-shrink-0 border-t" :style="{ borderTopColor: 'var(--border-color)' }">
         <button
           @click="handleClose"
           class="px-4 py-2 bg-button text-button-text rounded-md shadow-sm hover:bg-button-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition duration-150 ease-in-out"

@@ -74,6 +74,7 @@ const currentSessionCommandInput = computed({
 });
 
 const mobileToolbarModuleById = new Map(mobileToolbarModules.map(module => [module.id, module]));
+const mobileActionItems = computed(() => mobileToolbarItems.value.filter(moduleId => moduleId !== 'commandInput'));
 const currentAiRuntime = computed(() => activeSessionId.value ? aiStore.sessionRuntimes[activeSessionId.value] : undefined);
 const isCurrentAiRunning = computed(() => !!currentAiRuntime.value?.isRunning);
 const hasCurrentAiError = computed(() => currentAiRuntime.value?.taskStatus === 'error' || !!currentAiRuntime.value?.errorMessage);
@@ -353,46 +354,48 @@ const handleQuickCommandExecute = (command: string) => {
 <template>
   <div :class="$attrs.class" class="flex items-center py-1.5 bg-background"> <!-- Bind $attrs.class, removed px-2 and gap-1 -->
     <template v-if="props.isMobile">
-      <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2">
-        <template v-for="moduleId in mobileToolbarItems" :key="moduleId">
+      <div class="mobile-command-content min-w-0 flex-1 px-2">
+        <div class="flex min-w-0 items-center gap-1">
           <input
-            v-if="moduleId === 'commandInput'"
             ref="commandInputRef"
             v-model="currentSessionCommandInput"
             type="text"
             :placeholder="t('commandInputBar.placeholder')"
-            class="h-10 min-w-[150px] flex-1 rounded-lg border border-border/50 bg-input px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/50"
+            class="h-10 min-w-0 flex-1 rounded-lg border border-border/50 bg-input px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/50"
             data-focus-id="commandInput"
             @keydown="handleCommandInputKeydown"
             @blur="handleCommandInputBlur"
           />
           <button
-            v-else
             type="button"
-            class="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-border/50 text-text-secondary transition-colors hover:bg-border hover:text-foreground"
+            class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-border/50 text-text-secondary transition-colors hover:bg-border hover:text-foreground"
+            title="配置底部工具栏"
+            aria-label="配置底部工具栏"
+            @click="showMobileToolbarConfigurator = true"
+          >
+            <i class="fas fa-sliders-h text-sm" aria-hidden="true" />
+          </button>
+        </div>
+        <div class="mt-1 flex min-w-0 items-center gap-1 overflow-x-auto pb-0.5">
+          <button
+            v-for="moduleId in mobileActionItems"
+            :key="moduleId"
+            type="button"
+            class="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-border/50 text-text-secondary transition-colors hover:bg-border hover:text-foreground"
             :class="moduleId === 'aiAssistant' && isCurrentAiRunning ? 'border-primary/60 bg-primary/10 text-primary' : ''"
             :title="mobileToolbarModuleById.get(moduleId)?.label"
             :aria-label="mobileToolbarModuleById.get(moduleId)?.label"
             @click="handleMobileToolbarModule(moduleId)"
           >
-            <i :class="[mobileToolbarModuleById.get(moduleId)?.icon, 'text-base']" aria-hidden="true" />
+            <i :class="[mobileToolbarModuleById.get(moduleId)?.icon, 'text-sm']" aria-hidden="true" />
             <span
               v-if="moduleId === 'aiAssistant' && (isCurrentAiRunning || hasCurrentAiError)"
               class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full"
               :class="hasCurrentAiError ? 'bg-error' : 'animate-pulse bg-primary'"
             />
           </button>
-        </template>
+        </div>
       </div>
-      <button
-        type="button"
-        class="mr-2 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-border/50 text-text-secondary transition-colors hover:bg-border hover:text-foreground"
-        title="配置底部工具栏"
-        aria-label="配置底部工具栏"
-        @click="showMobileToolbarConfigurator = true"
-      >
-        <i class="fas fa-sliders-h text-sm" aria-hidden="true" />
-      </button>
     </template>
 
     <div v-else class="flex-grow flex items-center bg-transparent relative gap-1 px-2 w-full"> <!-- Added px-2 here, ensure full width -->

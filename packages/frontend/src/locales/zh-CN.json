@@ -23,6 +23,23 @@
     "iosInstallDescription": "在 Safari 中打开共享菜单，然后选择“添加到主屏幕”。",
     "close": "关闭"
   },
+  "taskNotifications": {
+    "title": "任务通知",
+    "clear": "清空",
+    "empty": "暂无任务通知",
+    "retry": "重试",
+    "batchTitle": "批量操作",
+    "batchTesting": "正在测试 {total} 个 SSH 连接",
+    "batchConnecting": "正在发起 {total} 个 SSH 连接",
+    "batchDeleting": "正在删除 {total} 个连接",
+    "batchEditing": "正在刷新 {total} 个批量编辑结果",
+    "batchProgress": "已完成 {completed}/{total}",
+    "batchTestComplete": "测试完成：{successCount} 个成功，{errorCount} 个失败",
+    "batchConnectComplete": "连接请求已发起：{initiatedCount} 个成功，{errorCount} 个失败",
+    "batchDeleteComplete": "删除完成：{successCount} 个成功，{errorCount} 个失败",
+    "batchEditComplete": "批量编辑完成：{successCount} 个连接已更新",
+    "batchFailed": "批量操作失败"
+  },
   "styleCustomizer": {
     "title": "外观自定义",
     "uiStyles": "界面样式",
@@ -242,6 +259,14 @@
       "test": "测试",
       "testing": "测试中...",
       "clone": "克隆"
+    },
+    "filters": {
+      "viewLabel": "连接视图",
+      "all": "全部",
+      "favorites": "收藏",
+      "recent": "最近使用",
+      "addFavorite": "加入收藏",
+      "removeFavorite": "取消收藏"
     },
     "form": {
       "title": "添加新连接",
@@ -1025,8 +1050,31 @@
     "about": {
       "version": "版本",
       "checkingUpdate": "正在检查更新...",
+      "checkNow": "立即检查",
+      "downloadUpdate": "下载更新",
+      "downloadingUpdate": "正在下载更新 {progress}%",
+      "verifyingUpdate": "正在校验更新文件...",
+      "updateReady": "更新已下载",
+      "installUpdate": "打开安装程序",
+      "cancelUpdate": "取消",
+      "downloadFailed": "更新下载失败",
       "latestVersion": "已是最新版本",
       "updateAvailable": "发现新版本 {version}！",
+      "dockerTitle": "Docker 更新",
+      "dockerDescription": "请在部署目录执行以下命令拉取并重启最新镜像。",
+      "copyDockerCommand": "复制命令",
+      "copied": "已复制",
+      "refreshNow": "立即刷新",
+      "runtime": {
+        "electron": "Electron",
+        "docker": "Docker",
+        "pwa": "PWA",
+        "web": "Web"
+      },
+      "refreshHint": {
+        "web": "Web 版本通过刷新页面获取最新前端资源。",
+        "pwa": "PWA 版本通过刷新页面获取最新前端资源。"
+      },
       "error": {
         "checkFailed": "检查更新失败",
         "checkFailedShort": "检查失败",
@@ -1260,6 +1308,8 @@
       "connectingVnc": "正在连接 VNC...",
       "waiting": "等待服务器响应...",
       "connecting": "连接中...",
+      "standby": "远程桌面待命，点击连接开始会话",
+      "reconnecting": "正在重连（第 {attempt} 次，{delay} 秒后）...",
       "error": "错误",
       "connected": "已连接",
       "disconnecting": "正在断开连接...",
@@ -1273,9 +1323,41 @@
       "connectionFailed": "连接失败",
       "inputError": "设置输入监听器时出错。",
       "noConnection": "未提供连接信息。",
-      "tokenError": "获取令牌失败"
+      "tokenError": "获取令牌失败",
+      "gateway": "网关错误",
+      "authentication": "认证错误",
+      "timeout": "连接超时",
+      "network": "网络错误",
+      "protocol": "RDP 协议错误"
     },
-    "reconnectTooltip": "重新连接到远程桌面"
+    "reconnectTooltip": "重新连接到远程桌面",
+    "toolbar": {
+      "ctrlAltDelete": "发送 Ctrl+Alt+Delete",
+      "sendClipboard": "发送本地剪贴板",
+      "fit": "适应窗口",
+      "viewOnly": "只读模式",
+      "disconnect": "断开连接",
+      "clipboardStatus": "剪贴板状态",
+      "transferStatus": "文件和剪贴板传输状态"
+    },
+    "clipboard": {
+      "sent": "本地剪贴板已发送到远程桌面。",
+      "sendFailed": "无法读取或发送本地剪贴板。"
+    },
+    "files": {
+      "dropHere": "释放文件以上传到远程桌面",
+      "sent": "已向远程桌面发送 {count} 个文件。",
+      "sendFailed": "远程文件上传失败。",
+      "receiveFailed": "远程文件接收失败。",
+      "received": "已下载远程文件：{filename}"
+    }
+  },
+  "remoteDesktopPane": {
+    "searchPlaceholder": "搜索 RDP 名称、主机或用户...",
+    "groupLabel": "分组",
+    "allGroups": "全部分组",
+    "tagGroup": "标签 {id}",
+    "empty": "没有可用的 RDP 连接。请先在连接管理中添加一个 RDP 连接。"
   },
   "vncModal": {
     "title": "VNC 会话",
@@ -1563,9 +1645,19 @@
     "errorLoading": "加载传输任务失败：{error}",
     "error": {
       "unknown": "未知错误",
-      "cancelFailed": "终止任务失败。"
+      "cancelFailed": "终止任务失败。",
+      "retryFailed": "重试任务失败。"
     },
     "noTasks": "当前没有活动的传输任务。",
+    "filters": {
+      "all": "全部",
+      "active": "进行中",
+      "completed": "已完成",
+      "failed": "失败"
+    },
+    "retryTaskTooltip": "重试任务",
+    "retryButton": "重试",
+    "retryingButton": "重试中",
     "task": {
       "idLabel": "任务",
       "createdAt": "创建于",

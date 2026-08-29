@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, computed, defineAsyncComponent, ref, shallowRef, type PropType } from 'vue';
+import { onMounted, onBeforeUnmount, computed, defineAsyncComponent, ref, shallowRef, watch, type PropType } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { storeToRefs } from 'pinia';
-import { useLayoutStore, type LayoutNode } from '../stores/layout.store'; // +++ Import LayoutNode +++
+import { useLayoutStore, type LayoutNode, type PaneName } from '../stores/layout.store'; // +++ Import LayoutNode +++
 import { useDeviceDetection } from '../composables/useDeviceDetection';
 import { useConnectionsStore, type ConnectionInfo } from '../stores/connections.store';
 import AddConnectionFormComponent from '../components/AddConnectionForm.vue';
@@ -64,15 +64,87 @@ const activeEditorTabId = computed(() => {
   }
 });
 
-// +++ Add computed property for mobile terminal layout node +++
-const mobileLayoutNodeForTerminal = computed((): LayoutNode | null => {
-  return {
-    id: 'mobile-main-terminal-pane',
-    type: 'pane' as const,
-    component: 'terminal' as const,
-    size: 100,
-  };
+type MobilePaneOption = {
+  component: Exclude<PaneName, 'commandBar'>;
+  icon: string;
+  label: string;
+  requiresSession?: boolean;
+};
+
+const mobilePaneOptions = computed<MobilePaneOption[]>(() => [
+  { component: 'terminal', icon: 'fas fa-terminal', label: t('layout.pane.terminal', '终端'), requiresSession: true },
+  { component: 'connections', icon: 'fas fa-network-wired', label: t('layout.pane.connections', '连接') },
+  { component: 'fileManager', icon: 'fas fa-folder-open', label: t('layout.pane.fileManager', '文件'), requiresSession: true },
+  { component: 'editor', icon: 'fas fa-file-alt', label: t('layout.pane.editor', '编辑器'), requiresSession: true },
+  { component: 'remoteDesktop', icon: 'fas fa-desktop', label: t('layout.pane.remoteDesktop', 'RDP') },
+  { component: 'transferCenter', icon: 'fas fa-exchange-alt', label: t('layout.pane.transferCenter', '传输') },
+  { component: 'localTerminal', icon: 'fas fa-laptop-code', label: t('layout.pane.localTerminal', '本地终端') },
+  { component: 'localSystem', icon: 'fas fa-chart-line', label: t('layout.pane.localSystem', '监控') },
+  { component: 'statusMonitor', icon: 'fas fa-tachometer-alt', label: t('layout.pane.statusMonitor', '状态'), requiresSession: true },
+  { component: 'quickCommands', icon: 'fas fa-bolt', label: t('layout.pane.quickCommands', '快捷指令'), requiresSession: true },
+  { component: 'commandHistory', icon: 'fas fa-history', label: t('layout.pane.commandHistory', '历史'), requiresSession: true },
+  { component: 'dockerManager', icon: 'fab fa-docker', label: t('layout.pane.dockerManager', 'Docker') },
+  { component: 'suspendedSshSessions', icon: 'fas fa-pause-circle', label: t('layout.panes.suspendedSshSessions', '挂起会话') },
+  { component: 'aiAssistant', icon: 'fas fa-robot', label: t('layout.pane.aiAssistant', 'AI') },
+]);
+
+const mobilePrimaryPaneNames = new Set<MobilePaneOption['component']>([
+  'connections',
+  'terminal',
+  'fileManager',
+  'transferCenter',
+]);
+const mobilePrimaryPaneOptions = computed(() => mobilePaneOptions.value.filter(option => mobilePrimaryPaneNames.has(option.component)));
+const mobileSecondaryPaneOptions = computed(() => mobilePaneOptions.value.filter(option => !mobilePrimaryPaneNames.has(option.component)));
+
+const MOBILE_PANE_STORAGE_KEY = 'nexus_terminal_mobile_pane';
+const getStoredMobilePane = (): Exclude<PaneName, 'commandBar'> => {
+  if (typeof localStorage === 'undefined') return 'terminal';
+  try {
+    const storedPane = localStorage.getItem(MOBILE_PANE_STORAGE_KEY) as Exclude<PaneName, 'commandBar'> | null;
+    return storedPane && mobilePaneOptions.value.some(option => option.component === storedPane) ? storedPane : 'terminal';
+  } catch {
+    return 'terminal';
+  }
+};
+
+const mobilePane = ref<Exclude<PaneName, 'commandBar'>>(getStoredMobilePane());
+const isMobilePaneMenuOpen = ref(false);
+const mobilePaneRequiresSession = computed(() => mobilePaneOptions.value.find(option => option.component === mobilePane.value)?.requiresSession ?? false);
+const mobileLayoutNode = computed<LayoutNode>(() => ({
+  id: `mobile-${mobilePane.value}`,
+  type: 'pane',
+  component: mobilePane.value,
+  size: 100,
+}));
+
+const selectMobilePane = (option: MobilePaneOption) => {
+  if (option.requiresSession && !activeSessionId.value) return;
+  mobilePane.value = option.component;
+  isMobilePaneMenuOpen.value = false;
+};
+
+const toggleMobilePaneMenu = () => {
+  isMobilePaneMenuOpen.value = !isMobilePaneMenuOpen.value;
+};
+
+const closeMobilePaneMenu = () => {
+  isMobilePaneMenuOpen.value = false;
+};
+
+watch(mobilePane, (pane) => {
+  try {
+    localStorage.setItem(MOBILE_PANE_STORAGE_KEY, pane);
+  } catch {
+    // Ignore storage failures; the current session remains usable.
+  }
 });
+
+watch(activeSessionId, (nextSessionId) => {
+  if (!nextSessionId && mobilePaneRequiresSession.value) {
+    mobilePane.value = 'connections';
+  }
+}, { immediate: true });
 
 // --- UI 状态 (保持本地) ---
 const showAddEditForm = ref(false);
@@ -741,6 +813,7 @@ const closeFileManagerModal = () => {
           :is-root-renderer="true"
           :layout-node="layoutTree"
           :active-session-id="activeSessionId"
+          :is-mobile="isMobile"
           :layout-locked="layoutLockedBoolean"
           class="layout-renderer-wrapper"
           :editor-tabs="editorTabs"
@@ -754,22 +827,80 @@ const closeFileManagerModal = () => {
 
     <!-- --- 移动端布局 --- -->
     <template v-else>
+      <nav class="mobile-pane-switcher" :aria-label="t('layout.mobilePanes', '工作区面板')">
+        <button
+          v-for="option in mobilePrimaryPaneOptions"
+          :key="option.component"
+          type="button"
+          class="mobile-pane-tab"
+          :class="{ active: mobilePane === option.component }"
+          :disabled="option.requiresSession && !activeSessionId"
+          :title="option.label"
+          :aria-label="option.label"
+          :aria-current="mobilePane === option.component ? 'page' : undefined"
+          @click="selectMobilePane(option)"
+        >
+          <i :class="option.icon" aria-hidden="true"></i>
+          <span>{{ option.label }}</span>
+        </button>
+        <button
+          type="button"
+          class="mobile-pane-more"
+          :class="{ active: isMobilePaneMenuOpen || mobileSecondaryPaneOptions.some(option => option.component === mobilePane) }"
+          :aria-expanded="isMobilePaneMenuOpen"
+          :aria-label="t('layout.morePanes', '更多')"
+          @click="toggleMobilePaneMenu"
+        >
+          <i class="fas fa-ellipsis-h" aria-hidden="true"></i>
+          <span>{{ t('layout.morePanes', '更多') }}</span>
+        </button>
+      </nav>
+      <div v-if="isMobilePaneMenuOpen" class="mobile-pane-menu-backdrop" @click.self="closeMobilePaneMenu">
+        <section class="mobile-pane-menu" role="dialog" aria-modal="true" :aria-label="t('layout.morePanes', '更多')">
+          <div class="mobile-pane-menu__header">
+            <h2>{{ t('layout.morePanes', '更多面板') }}</h2>
+            <button type="button" class="mobile-pane-menu__close" :aria-label="t('common.close', '关闭')" @click="closeMobilePaneMenu">
+              <i class="fas fa-times" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div class="mobile-pane-menu__grid">
+            <button
+              v-for="option in mobileSecondaryPaneOptions"
+              :key="option.component"
+              type="button"
+              class="mobile-pane-menu__item"
+              :class="{ active: mobilePane === option.component }"
+              :disabled="option.requiresSession && !activeSessionId"
+              @click="selectMobilePane(option)"
+            >
+              <i :class="option.icon" aria-hidden="true"></i>
+              <span>{{ option.label }}</span>
+            </button>
+          </div>
+        </section>
+      </div>
       <div class="mobile-content-area">
-        <LayoutRenderer
-          v-if="activeSessionId && mobileLayoutNodeForTerminal"
-          :layout-node="mobileLayoutNodeForTerminal"
-          :active-session-id="activeSessionId"
-          :is-root-renderer="false"
-          :layout-locked="layoutLockedBoolean"
-          class="layout-renderer-wrapper flex-grow overflow-auto"
-          :editor-tabs="editorTabs"
-          :active-editor-tab-id="activeEditorTabId"
-        />
+        <template v-if="!mobilePaneRequiresSession || activeSessionId">
+          <KeepAlive>
+            <LayoutRenderer
+              :key="mobilePane"
+              :layout-node="mobileLayoutNode"
+              :active-session-id="activeSessionId"
+              :is-mobile="isMobile"
+              :is-root-renderer="false"
+              :layout-locked="layoutLockedBoolean"
+              class="layout-renderer-wrapper flex-grow overflow-auto"
+              :editor-tabs="editorTabs"
+              :active-editor-tab-id="activeEditorTabId"
+            />
+          </KeepAlive>
+        </template>
         <div v-else class="pane-placeholder">
           {{ t('workspace.noActiveSession', '没有活动的会话') }}
         </div>
       </div>
       <CommandInputBar
+        v-if="mobilePane === 'terminal'"
         class="mobile-command-bar"
         :is-mobile="isMobile"
         @send-command="handleSendCommand"
@@ -784,6 +915,7 @@ const closeFileManagerModal = () => {
       />
       <!-- +++ Use v-show for VirtualKeyboard and bind visibility +++ -->
       <VirtualKeyboard
+        v-if="mobilePane === 'terminal'"
         v-show="isVirtualKeyboardVisible"
         class="mobile-virtual-keyboard"
         @send-key="handleVirtualKeyPress"
@@ -918,10 +1050,175 @@ const closeFileManagerModal = () => {
   display: none;
 }
 
+.mobile-pane-switcher {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  min-width: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-color, #ccc);
+  background: var(--header-bg-color);
+  scrollbar-width: none;
+  padding: 0.25rem max(0.25rem, env(safe-area-inset-left)) 0.25rem max(0.25rem, env(safe-area-inset-right));
+}
+
+.mobile-pane-switcher::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-pane-tab {
+  display: inline-flex;
+  min-width: 3.5rem;
+  min-height: 2.5rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  padding: 0.35rem 0.55rem;
+  color: var(--text-color-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.mobile-pane-tab:hover:not(:disabled) {
+  background: var(--hover-bg-color);
+  color: var(--text-color);
+}
+
+.mobile-pane-tab.active {
+  border-color: color-mix(in srgb, var(--primary-color) 35%, transparent);
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  color: var(--primary-color);
+}
+
+.mobile-pane-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.mobile-pane-more {
+  display: inline-flex;
+  min-width: 4.5rem;
+  min-height: 2.5rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  padding: 0.35rem 0.55rem;
+  color: var(--text-color-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.mobile-pane-more.active {
+  border-color: color-mix(in srgb, var(--primary-color) 35%, transparent);
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  color: var(--primary-color);
+}
+
+.mobile-pane-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: flex-end;
+  background: rgb(0 0 0 / 45%);
+}
+
+.mobile-pane-menu {
+  width: 100%;
+  max-height: min(70dvh, 32rem);
+  overflow: hidden;
+  border-top: 1px solid var(--border-color);
+  border-radius: 1rem 1rem 0 0;
+  background: var(--app-bg-color);
+  padding: 0.75rem max(0.75rem, env(safe-area-inset-left)) max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-right));
+  box-shadow: 0 -1rem 2rem rgb(0 0 0 / 18%);
+}
+
+.mobile-pane-menu__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  color: var(--text-color);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.mobile-pane-menu__close {
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.6rem;
+  color: var(--text-color-secondary);
+}
+
+.mobile-pane-menu__close:hover,
+.mobile-pane-menu__item:hover:not(:disabled) {
+  background: var(--hover-bg-color);
+  color: var(--text-color);
+}
+
+.mobile-pane-menu__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  max-height: calc(min(70dvh, 32rem) - 5rem);
+  overflow-y: auto;
+}
+
+.mobile-pane-menu__item {
+  display: flex;
+  min-height: 3rem;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  color: var(--text-color);
+  text-align: left;
+  font-size: 0.8rem;
+}
+
+.mobile-pane-menu__item i {
+  width: 1.1rem;
+  flex: 0 0 auto;
+  color: var(--text-color-secondary);
+  text-align: center;
+}
+
+.mobile-pane-menu__item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-pane-menu__item.active {
+  border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  color: var(--primary-color);
+}
+
+.mobile-pane-menu__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 .mobile-content-area {
   display: flex; /* Use flex for the terminal container */
   flex-direction: column; /* Stack elements vertically if needed */
   flex-grow: 1; /* Allow this area to take up remaining space */
+  min-height: 0;
   overflow: hidden; /* Prevent overflow */
   position: relative; /* Needed for potential absolute positioning inside */
   /* Remove desktop margins/borders */

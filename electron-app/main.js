@@ -4,7 +4,11 @@ const url = require('url');
 const express = require('express'); 
 const http = require('http'); 
 const { spawn } = require('child_process');
+const { randomUUID } = require('crypto');
+const { createHash } = require('crypto');
+const https = require('https');
 const fs = require('fs');
+const os = require('os');
 const iconv = require('iconv-lite');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
@@ -18,6 +22,8 @@ let actualBackendUrlForFileDownloads; // 新增：用于文件下载的后端URL
 let tray = null;
 let isQuitting = false;
 let isAlwaysOnTop = false;
+let previousCpuTimes = null;
+const localTerminalSessions = new Map();
 const PROD_FRONTEND_PORT = 22457;
 const PROD_BACKEND_PORT = 22458;
 
@@ -44,7 +50,138 @@ app.commandLine.appendSwitch('disable-gpu-compositing');
 
 // 用于在 download-file-request 和 will-download 之间传递期望的文件名
 const pendingDownloadsInfo = new Map();
+let updateDownloadState = null;
+let completedUpdatePath = null;
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
+
+const allowedUpdateHosts = new Set([
+  'github.com',
+  'objects.githubusercontent.com',
+  'release-assets.githubusercontent.com',
+]);
+
+const validateUpdateUrl = (value) => {
+  const parsed = new URL(value);
+  if (parsed.protocol !== 'https:' || !allowedUpdateHosts.has(parsed.hostname)) {
+    throw new Error('更新资源必须来自 GitHub HTTPS 地址。');
+  }
+  return parsed;
+};
+
+const fetchUpdateText = (value, redirectCount = 0) => new Promise((resolve, reject) => {
+  if (redirectCount > 5) {
+    reject(new Error('更新校验文件重定向次数过多。'));
+    return;
+  }
+  const parsed = validateUpdateUrl(value);
+  const request = https.get(parsed, { headers: { 'User-Agent': 'Nexus-Terminal-Updater' } }, (response) => {
+    if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+      response.resume();
+      fetchUpdateText(new URL(response.headers.location, parsed).href, redirectCount + 1).then(resolve, reject);
+      return;
+    }
+    if (response.statusCode !== 200) {
+      response.resume();
+      reject(new Error(`获取更新校验文件失败（HTTP ${response.statusCode}）。`));
+      return;
+    }
+    let body = '';
+    response.setEncoding('utf8');
+    response.on('data', chunk => { body += chunk; });
+    response.on('end', () => resolve(body));
+  });
+  request.on('error', reject);
+});
+
+const downloadUpdateAsset = (value, targetPath, onProgress, redirectCount = 0) => new Promise((resolve, reject) => {
+  if (redirectCount > 5) {
+    reject(new Error('更新资源重定向次数过多。'));
+    return;
+  }
+  let parsed;
+  try {
+    parsed = validateUpdateUrl(value);
+  } catch (error) {
+    reject(error);
+    return;
+  }
+
+  const request = https.get(parsed, { headers: { 'User-Agent': 'Nexus-Terminal-Updater' } }, (response) => {
+    if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+      response.resume();
+      downloadUpdateAsset(new URL(response.headers.location, parsed).href, targetPath, onProgress, redirectCount + 1).then(resolve, reject);
+      return;
+    }
+    if (response.statusCode !== 200) {
+      response.resume();
+      reject(new Error(`下载更新失败（HTTP ${response.statusCode}）。`));
+      return;
+    }
+
+    const totalBytes = Number(response.headers['content-length']) || 0;
+    let receivedBytes = 0;
+    const hash = createHash('sha256');
+    const file = fs.createWriteStream(targetPath);
+    if (updateDownloadState) updateDownloadState.file = file;
+    file.on('error', error => {
+      response.destroy();
+      reject(error);
+    });
+    response.on('data', chunk => {
+      if (updateDownloadState?.cancelled) return;
+      receivedBytes += chunk.length;
+      hash.update(chunk);
+      file.write(chunk);
+      onProgress(receivedBytes, totalBytes);
+    });
+    response.on('end', () => {
+      file.end(() => resolve({ totalBytes, sha256: hash.digest('hex') }));
+    });
+    response.on('error', error => {
+      file.destroy();
+      reject(error);
+    });
+  });
+  if (updateDownloadState) updateDownloadState.request = request;
+  request.on('error', reject);
+});
+
+const extractExpectedChecksum = (text, filename) => {
+  const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const matchingLine = text.split(/\r?\n/).find(line => new RegExp(`(?:^|\\s)${escapedFilename}(?:\\s|$)`, 'i').test(line));
+  const hashMatch = (matchingLine || text).match(/\b[a-f0-9]{64}\b/i);
+  return hashMatch ? hashMatch[0].toLowerCase() : null;
+};
+
+const verifyUpdateSignature = (filePath) => new Promise(resolve => {
+  if (process.platform === 'win32') {
+    const escapedPath = filePath.replace(/'/g, "''");
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-AuthenticodeSignature -LiteralPath '${escapedPath}').Status.ToString()`], { windowsHide: true });
+    let output = '';
+    child.stdout.on('data', data => { output += data.toString(); });
+    child.on('close', code => {
+      const status = output.trim();
+      resolve({ status: status === 'Valid' ? 'valid' : (code === 0 ? 'invalid' : 'unavailable'), detail: status || '无法读取签名状态' });
+    });
+    child.on('error', error => resolve({ status: 'unavailable', detail: error.message }));
+    return;
+  }
+
+  if (process.platform === 'darwin') {
+    const child = spawn('spctl', ['--assess', '--type', 'install', '--verbose', filePath], { windowsHide: true });
+    let output = '';
+    child.stdout.on('data', data => { output += data.toString(); });
+    child.stderr.on('data', data => { output += data.toString(); });
+    child.on('close', code => {
+      const accepted = /accepted|valid/i.test(output) || code === 0;
+      resolve({ status: accepted ? 'valid' : 'invalid', detail: accepted ? 'Gatekeeper 验证通过' : '系统未能验证安装包签名' });
+    });
+    child.on('error', error => resolve({ status: 'unavailable', detail: error.message }));
+    return;
+  }
+
+  resolve({ status: 'unavailable', detail: 'Linux AppImage 当前没有统一签名接口' });
+});
 
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -157,11 +294,14 @@ async function createWindow() {
   mainWindow.setAlwaysOnTop(isAlwaysOnTop);
   createTray();
 
-  // 先显示前端内置的启动画面，避免等待后端和本地 HTTP 服务时出现白屏。
-  const startupPage = app.isPackaged
-    ? path.join(process.resourcesPath, 'packages/frontend/dist/index.html')
-    : path.join(__dirname, '..', 'packages/frontend/dist/index.html');
-  mainWindow.loadFile(startupPage).catch((error) => {
+  // 先显示轻量启动画面，避免在正式页面加载前初始化一整套 Vue 应用。
+  const startupHtml = `<!doctype html><html><head><meta charset="UTF-8"><style>
+    html,body{height:100%;margin:0;background:#101216;color:#f4f6fa;font:14px system-ui,-apple-system,"Segoe UI",sans-serif}
+    body{display:grid;place-content:center;justify-items:center;gap:10px}
+    .mark{width:56px;height:56px;border:3px solid #667085;border-top-color:#f4f6fa;border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style></head><body><div class="mark"></div><div>Nexus Terminal</div><div>正在启动客户端...</div></body></html>`;
+  mainWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(startupHtml)}`).catch((error) => {
     console.warn(`[Startup] Failed to load startup screen: ${error.message}`);
   });
   mainWindow.show();
@@ -679,6 +819,14 @@ app.on('window-all-closed', function () {
 app.on('before-quit', () => {
   isQuitting = true;
   console.log('Application is quitting...');
+  for (const { terminal } of localTerminalSessions.values()) {
+    try {
+      terminal.kill();
+    } catch (error) {
+      console.warn('Failed to close local terminal:', error);
+    }
+  }
+  localTerminalSessions.clear();
   if (backendRestartTimer) {
     clearTimeout(backendRestartTimer);
     backendRestartTimer = null;
@@ -729,6 +877,264 @@ ipcMain.on('minimize-window', () => {
 
 ipcMain.handle('get-app-version', () => require('./package.json').releaseVersion || app.getVersion());
 ipcMain.handle('get-platform', () => process.platform);
+
+ipcMain.handle('download-update', async (event, payload = {}) => {
+  if (updateDownloadState) return { ok: false, message: '已有更新正在下载。' };
+  if (!payload.url || typeof payload.url !== 'string') return { ok: false, message: '更新下载地址无效。' };
+
+  let parsedUrl;
+  try {
+    parsedUrl = validateUpdateUrl(payload.url);
+  } catch (error) {
+    return { ok: false, message: error.message };
+  }
+
+  const filename = path.basename(decodeURIComponent(parsedUrl.pathname)) || `nexus-terminal-${payload.version || 'update'}`;
+  const safeFilename = filename.replace(/[<>:"/\\|?*]/g, '_');
+  const updaterDir = path.join(app.getPath('temp'), 'nexus-terminal-updater');
+  const targetPath = path.join(updaterDir, safeFilename);
+  try {
+    fs.rmSync(updaterDir, { recursive: true, force: true });
+    fs.mkdirSync(updaterDir, { recursive: true });
+  } catch (error) {
+    return { ok: false, message: `无法准备更新目录：${error.message}` };
+  }
+  updateDownloadState = { request: null, file: null, cancelled: false, sender: event.sender };
+  completedUpdatePath = null;
+  const sendProgress = (status, extra = {}) => {
+    if (!event.sender.isDestroyed()) event.sender.send('update-progress', { status, ...extra });
+  };
+
+  try {
+    sendProgress('downloading', { receivedBytes: 0, totalBytes: 0, progress: 0 });
+    const result = await downloadUpdateAsset(payload.url, targetPath, (receivedBytes, totalBytes) => {
+      sendProgress('downloading', {
+        receivedBytes,
+        totalBytes,
+        progress: totalBytes > 0 ? Math.floor((receivedBytes / totalBytes) * 100) : null,
+      });
+    });
+    if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
+
+    let checksumVerified = false;
+    if (payload.checksumUrl) {
+      try {
+        const checksumText = await fetchUpdateText(payload.checksumUrl);
+        const expectedChecksum = extractExpectedChecksum(checksumText, safeFilename);
+        if (expectedChecksum && expectedChecksum !== result.sha256.toLowerCase()) {
+          throw new Error('更新文件 SHA-256 校验失败。');
+        }
+        checksumVerified = Boolean(expectedChecksum);
+      } catch (error) {
+        fs.rmSync(targetPath, { force: true });
+        throw error;
+      }
+    }
+
+    sendProgress('verifying', { sha256: result.sha256, checksumVerified });
+    const signature = await verifyUpdateSignature(targetPath);
+    if (signature.status === 'invalid') {
+      fs.rmSync(targetPath, { force: true });
+      throw new Error(`安装包签名无效：${signature.detail}`);
+    }
+    completedUpdatePath = targetPath;
+    sendProgress('ready', { sha256: result.sha256, checksumVerified, signature: signature.status });
+    return { ok: true, path: targetPath, sha256: result.sha256, checksumVerified, signature: signature.status };
+  } catch (error) {
+    if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
+    sendProgress(updateDownloadState.cancelled ? 'cancelled' : 'failed', { message: error.message });
+    return { ok: false, message: error.message };
+  } finally {
+    updateDownloadState = null;
+  }
+});
+
+ipcMain.handle('cancel-update', () => {
+  if (!updateDownloadState) return { ok: false, message: '没有正在进行的更新下载。' };
+  updateDownloadState.cancelled = true;
+  updateDownloadState.request?.destroy();
+  updateDownloadState.file?.destroy();
+  return { ok: true };
+});
+
+ipcMain.handle('install-update', async () => {
+  if (!completedUpdatePath || !fs.existsSync(completedUpdatePath)) {
+    return { ok: false, message: '没有可安装的更新文件。' };
+  }
+  const confirmation = await dialog.showMessageBox(mainWindow, {
+    type: 'question',
+    title: '安装 Nexus Terminal 更新',
+    message: `更新文件已下载：${path.basename(completedUpdatePath)}`,
+    detail: '即将打开系统安装程序。请确认文件来源和签名后继续。',
+    buttons: ['打开安装程序', '取消'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (confirmation.response !== 0) return { ok: false, cancelled: true, message: '已取消安装。' };
+  if (process.platform === 'linux') {
+    try { fs.chmodSync(completedUpdatePath, 0o755); } catch { /* shell.openPath will report failures */ }
+  }
+  const updatePath = completedUpdatePath;
+  const error = await shell.openPath(updatePath);
+  if (error) return { ok: false, message: error };
+  completedUpdatePath = null;
+  return { ok: true };
+});
+
+const getOwnedLocalTerminal = (event, terminalId) => {
+  const session = localTerminalSessions.get(terminalId);
+  if (!session || session.webContents.id !== event.sender.id) {
+    throw new Error('本地终端会话不存在或不可访问。');
+  }
+  return session.terminal;
+};
+
+ipcMain.handle('local-terminal-create', (event, options = {}) => {
+  let pty;
+  try {
+    pty = require('node-pty');
+  } catch (error) {
+    throw new Error(`本地终端依赖不可用: ${error.message}`);
+  }
+
+  const cols = Math.max(20, Math.min(Number(options.cols) || 80, 500));
+  const rows = Math.max(5, Math.min(Number(options.rows) || 24, 200));
+  const shell = process.platform === 'win32'
+    ? process.env.COMSPEC || 'cmd.exe'
+    : process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash');
+  const terminalId = randomUUID();
+  const terminal = pty.spawn(shell, [], {
+    name: 'xterm-256color',
+    cols,
+    rows,
+    cwd: os.homedir(),
+    env: { ...process.env, TERM: 'xterm-256color' },
+  });
+
+  localTerminalSessions.set(terminalId, { terminal, webContents: event.sender });
+  terminal.onData((data) => {
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('local-terminal-output', { terminalId, data });
+    }
+  });
+  terminal.onExit(({ exitCode }) => {
+    localTerminalSessions.delete(terminalId);
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('local-terminal-exit', { terminalId, exitCode });
+    }
+  });
+
+  return { terminalId };
+});
+
+ipcMain.handle('local-terminal-write', (event, { terminalId, data }) => {
+  if (typeof data !== 'string' || data.length > 64 * 1024) {
+    throw new Error('本地终端输入无效。');
+  }
+  getOwnedLocalTerminal(event, terminalId).write(data);
+});
+
+ipcMain.handle('local-terminal-resize', (event, { terminalId, cols, rows }) => {
+  const safeCols = Math.max(20, Math.min(Number(cols) || 80, 500));
+  const safeRows = Math.max(5, Math.min(Number(rows) || 24, 200));
+  getOwnedLocalTerminal(event, terminalId).resize(safeCols, safeRows);
+});
+
+ipcMain.handle('local-terminal-close', (event, terminalId) => {
+  const terminal = getOwnedLocalTerminal(event, terminalId);
+  localTerminalSessions.delete(terminalId);
+  terminal.kill();
+});
+
+const getCpuTimes = () => os.cpus().reduce((total, cpu) => {
+  const times = cpu.times;
+  return {
+    idle: total.idle + times.idle,
+    total: total.total + times.user + times.nice + times.sys + times.idle + times.irq,
+  };
+}, { idle: 0, total: 0 });
+
+const getLocalSystemStatus = () => {
+  const currentCpuTimes = getCpuTimes();
+  const previous = previousCpuTimes;
+  previousCpuTimes = currentCpuTimes;
+  const totalCpuDelta = previous ? currentCpuTimes.total - previous.total : 0;
+  const idleCpuDelta = previous ? currentCpuTimes.idle - previous.idle : 0;
+  const cpuPercent = totalCpuDelta > 0 ? Math.round((1 - idleCpuDelta / totalCpuDelta) * 1000) / 10 : 0;
+  const totalMemory = os.totalmem();
+
+  return {
+    platform: process.platform,
+    hostname: os.hostname(),
+    cpuModel: os.cpus()[0]?.model || 'Unknown CPU',
+    cpuPercent,
+    memoryTotal: totalMemory,
+    memoryUsed: totalMemory - os.freemem(),
+    uptimeSeconds: os.uptime(),
+  };
+};
+
+const runSystemCommand = (command, args) => new Promise((resolve, reject) => {
+  const child = spawn(command, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '';
+  let stderr = '';
+  const timeout = setTimeout(() => {
+    child.kill();
+    reject(new Error('本机系统信息查询超时。'));
+  }, 5000);
+
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+  child.on('error', (error) => {
+    clearTimeout(timeout);
+    reject(error);
+  });
+  child.on('close', (code) => {
+    clearTimeout(timeout);
+    if (code === 0) {
+      resolve(stdout);
+      return;
+    }
+    reject(new Error(stderr.trim() || `系统命令退出，状态码 ${code}。`));
+  });
+});
+
+const getLocalProcesses = async () => {
+  if (process.platform === 'win32') {
+    const output = await runSystemCommand('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      'Get-Process | Select-Object -First 200 Id,ProcessName,CPU,WorkingSet64 | ConvertTo-Json -Compress',
+    ]);
+    const rows = JSON.parse(output || '[]');
+    return (Array.isArray(rows) ? rows : [rows]).map((row) => ({
+      pid: Number(row.Id),
+      name: String(row.ProcessName || ''),
+      cpu: Number(row.CPU || 0),
+      memory: Number(row.WorkingSet64 || 0),
+    }));
+  }
+
+  const output = await runSystemCommand('ps', ['-axo', 'pid=,comm=,pcpu=,rss=']);
+  return output.split(/\r?\n/).flatMap((line) => {
+    const match = line.trim().match(/^(\d+)\s+(.+?)\s+(\d+(?:\.\d+)?)\s+(\d+)$/);
+    if (!match) return [];
+    return [{
+      pid: Number(match[1]),
+      name: match[2],
+      cpu: Number(match[3]),
+      memory: Number(match[4]) * 1024,
+    }];
+  });
+};
+
+ipcMain.handle('get-local-system-status', () => getLocalSystemStatus());
+ipcMain.handle('get-local-processes', () => getLocalProcesses());
 
 const commandExists = (command) => new Promise((resolve) => {
   const checker = process.platform === 'win32'

@@ -8,136 +8,170 @@ const emit = defineEmits<{
 // +++ Add state for modifier keys +++
 const isCtrlActive = ref(false);
 const isAltActive = ref(false);
+const isShiftActive = ref(false);
+const isCapsLockActive = ref(false);
 
 // +++ Function to toggle modifier state +++
-const toggleModifier = (modifier: 'ctrl' | 'alt') => {
+const toggleModifier = (modifier: 'ctrl' | 'alt' | 'shift' | 'caps') => {
   if (modifier === 'ctrl') {
     isCtrlActive.value = !isCtrlActive.value;
-    isAltActive.value = false; // Ctrl and Alt are mutually exclusive
   } else if (modifier === 'alt') {
     isAltActive.value = !isAltActive.value;
-    isCtrlActive.value = false; // Ctrl and Alt are mutually exclusive
+  } else if (modifier === 'shift') {
+    isShiftActive.value = !isShiftActive.value;
+  } else if (modifier === 'caps') {
+    isCapsLockActive.value = !isCapsLockActive.value;
   }
 };
 
 // +++ Modified sendKey function +++
 const sendKey = (keyDef: KeyDefinition) => {
   // Handle modifier key clicks
-  if (keyDef.type === 'modifier') {
-    toggleModifier(keyDef.label.toLowerCase() as 'ctrl' | 'alt');
+  if (keyDef.type === 'modifier' && keyDef.modifier) {
+    toggleModifier(keyDef.modifier);
     return; // Just toggle state, don't emit anything
   }
 
-  // Determine the sequence to send
-  let sequence = keyDef.sequence ?? keyDef.label; // Default to label if no sequence (e.g., for 'A')
+  const shouldShift = isShiftActive.value !== isCapsLockActive.value;
+  let sequence = shouldShift && keyDef.shiftSequence !== undefined
+    ? keyDef.shiftSequence
+    : keyDef.sequence ?? keyDef.label;
 
   if (isCtrlActive.value) {
-    // Handle Ctrl combinations (example: convert A-Z to control characters 1-26)
-    if (keyDef.type === 'char' && keyDef.label.length === 1 && keyDef.label >= 'A' && keyDef.label <= 'Z') {
-      sequence = String.fromCharCode(keyDef.label.charCodeAt(0) - 'A'.charCodeAt(0) + 1);
-    } else if (keyDef.label === 'Ctrl+C') { // Keep predefined Ctrl+C
-       sequence = '\x03';
+    const ctrlCharacter = keyDef.ctrlCharacter ?? keyDef.sequence;
+    if (ctrlCharacter && /^[a-z]$/i.test(ctrlCharacter)) {
+      sequence = String.fromCharCode(ctrlCharacter.toUpperCase().charCodeAt(0) - 'A'.charCodeAt(0) + 1);
     }
-    // Add more Ctrl combinations here if needed
-    console.log(`[VirtualKeyboard] Sending Ctrl + ${keyDef.label} as ${JSON.stringify(sequence)}`);
-  } else if (isAltActive.value) {
-    // Handle Alt combinations (typically prefix with ESC)
+  }
+  if (isAltActive.value) {
     sequence = '\x1b' + sequence;
-    console.log(`[VirtualKeyboard] Sending Alt + ${keyDef.label} as ${JSON.stringify(sequence)}`);
-  } else {
-     // Send the standard sequence
-     console.log(`[VirtualKeyboard] Sending key: ${JSON.stringify(sequence)}`);
   }
 
-  // Emit the final sequence
   emit('send-key', sequence);
 
-  // Reset modifier state after sending a combined key
-  if (isCtrlActive.value || isAltActive.value) {
-    isCtrlActive.value = false;
-    isAltActive.value = false;
-  }
+  isCtrlActive.value = false;
+  isAltActive.value = false;
+  isShiftActive.value = false;
 };
 
 // +++ Define key structure +++
 interface KeyDefinition {
+  id: string;
   label: string;
   sequence?: string; // Sequence if different from label
+  shiftSequence?: string;
+  ctrlCharacter?: string;
   type: 'modifier' | 'control' | 'char' | 'navigation' | 'special'; // Key type
+  modifier?: 'ctrl' | 'alt' | 'shift' | 'caps';
+  width?: 'wide' | 'extra-wide';
 }
 
-// +++ Updated key layout definition +++
-const keys: KeyDefinition[] = [
-  // Row 1: Modifiers and special controls
-  { label: 'Ctrl', type: 'modifier' },
-  { label: 'Alt', type: 'modifier' },
-  { label: 'Tab', sequence: '\t', type: 'control' },
-  { label: 'Esc', sequence: '\x1b', type: 'control' },
-  // Row 2: Navigation and common symbols
-  { label: '↑', sequence: '\x1b[A', type: 'navigation' },
-  { label: '↓', sequence: '\x1b[B', type: 'navigation' },
-  { label: '←', sequence: '\x1b[D', type: 'navigation' },
-  { label: '→', sequence: '\x1b[C', type: 'navigation' },
-  { label: 'Home', sequence: '\x1b[1~', type: 'navigation' }, // +++ Home +++
-  { label: 'End', sequence: '\x1b[4~', type: 'navigation' }, // +++ End +++
-  { label: 'PgUp', sequence: '\x1b[5~', type: 'navigation' }, // +++ PageUp +++
-  { label: 'PgDn', sequence: '\x1b[6~', type: 'navigation' }, // +++ PageDown +++
-  // Row 3: Function Keys (F1-F12)
-  { label: 'F1', sequence: '\x1b[11~', type: 'special' }, { label: 'F2', sequence: '\x1b[12~', type: 'special' },
-  { label: 'F3', sequence: '\x1b[13~', type: 'special' }, { label: 'F4', sequence: '\x1b[14~', type: 'special' },
-  { label: 'F5', sequence: '\x1b[15~', type: 'special' }, { label: 'F6', sequence: '\x1b[17~', type: 'special' },
-  { label: 'F7', sequence: '\x1b[18~', type: 'special' }, { label: 'F8', sequence: '\x1b[19~', type: 'special' },
-  { label: 'F9', sequence: '\x1b[20~', type: 'special' }, { label: 'F10', sequence: '\x1b[21~', type: 'special' },
-  { label: 'F11', sequence: '\x1b[23~', type: 'special' }, { label: 'F12', sequence: '\x1b[24~', type: 'special' },
-  // Row 4: Alphabet Keys (A-Z)
-  { label: 'A', type: 'char' }, { label: 'B', type: 'char' }, { label: 'C', type: 'char' },
-  { label: 'D', type: 'char' }, { label: 'E', type: 'char' }, { label: 'F', type: 'char' },
-  { label: 'G', type: 'char' }, { label: 'H', type: 'char' }, { label: 'I', type: 'char' },
-  { label: 'J', type: 'char' }, { label: 'K', type: 'char' }, { label: 'L', type: 'char' },
-  { label: 'M', type: 'char' }, { label: 'N', type: 'char' }, { label: 'O', type: 'char' },
-  { label: 'P', type: 'char' }, { label: 'Q', type: 'char' }, { label: 'R', type: 'char' },
-  { label: 'S', type: 'char' }, { label: 'T', type: 'char' }, { label: 'U', type: 'char' },
-  { label: 'V', type: 'char' }, { label: 'W', type: 'char' }, { label: 'X', type: 'char' },
-  { label: 'Y', type: 'char' }, { label: 'Z', type: 'char' },
-  // Add numbers or other symbols if needed
+const key = (id: string, label: string, sequence: string, type: KeyDefinition['type'], options: Partial<KeyDefinition> = {}): KeyDefinition => ({
+  id,
+  label,
+  sequence,
+  type,
+  ...options,
+});
+
+const letters = (value: string): KeyDefinition[] => [...value].map(letter => key(letter, letter, letter.toLowerCase(), 'char', {
+  shiftSequence: letter,
+  ctrlCharacter: letter,
+}));
+
+const functionKeys = Array.from({ length: 12 }, (_, index) => {
+  const number = index + 1;
+  const sequence = [11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24][index];
+  return key(`f${number}`, `F${number}`, `\x1b[${sequence}~`, 'special');
+});
+
+const keyboardRows: KeyDefinition[][] = [
+  [key('esc', 'Esc', '\x1b', 'control'), ...functionKeys],
+  [
+    key('backtick', '`', '`', 'char', { shiftSequence: '~' }),
+    ...[
+      ['1', '!'], ['2', '@'], ['3', '#'], ['4', '$'], ['5', '%'], ['6', '^'],
+      ['7', '&'], ['8', '*'], ['9', '('], ['0', ')'], ['minus', '-', '_'], ['equals', '=', '+'],
+    ].map(([id, label]) => key(id, label, id.length === 1 ? id : label, 'char', { shiftSequence: label })),
+    key('backspace', 'Backspace', '\x7f', 'control', { width: 'wide' }),
+  ],
+  [key('tab', 'Tab', '\t', 'control', { width: 'wide' }), ...letters('QWERTYUIOP'), key('left-bracket', '[', '[', 'char', { shiftSequence: '{' }), key('right-bracket', ']', ']', 'char', { shiftSequence: '}' }), key('backslash', '\\', '\\', 'char', { shiftSequence: '|' })],
+  [key('caps', 'Caps', '', 'modifier', { modifier: 'caps', width: 'wide' }), ...letters('ASDFGHJKL'), key('semicolon', ';', ';', 'char', { shiftSequence: ':' }), key('quote', "'", "'", 'char', { shiftSequence: '"' }), key('enter', 'Enter', '\r', 'control', { width: 'wide' })],
+  [key('left-shift', 'Shift', '', 'modifier', { modifier: 'shift', width: 'extra-wide' }), ...letters('ZXCVBNM'), key('comma', ',', ',', 'char', { shiftSequence: '<' }), key('period', '.', '.', 'char', { shiftSequence: '>' }), key('slash', '/', '/', 'char', { shiftSequence: '?' }), key('right-shift', 'Shift', '', 'modifier', { modifier: 'shift', width: 'extra-wide' })],
+  [
+    key('left-ctrl', 'Ctrl', '', 'modifier', { modifier: 'ctrl', width: 'wide' }),
+    key('left-alt', 'Alt', '', 'modifier', { modifier: 'alt', width: 'wide' }),
+    key('space', 'Space', ' ', 'char', { width: 'extra-wide' }),
+    key('right-alt', 'Alt', '', 'modifier', { modifier: 'alt', width: 'wide' }),
+    key('right-ctrl', 'Ctrl', '', 'modifier', { modifier: 'ctrl', width: 'wide' }),
+  ],
+  [
+    key('home', 'Home', '\x1b[1~', 'navigation'), key('end', 'End', '\x1b[4~', 'navigation'),
+    key('page-up', 'PgUp', '\x1b[5~', 'navigation'), key('page-down', 'PgDn', '\x1b[6~', 'navigation'),
+    key('insert', 'Ins', '\x1b[2~', 'navigation'), key('delete', 'Del', '\x1b[3~', 'navigation'),
+    key('left', '←', '\x1b[D', 'navigation'), key('up', '↑', '\x1b[A', 'navigation'),
+    key('down', '↓', '\x1b[B', 'navigation'), key('right', '→', '\x1b[C', 'navigation'),
+  ],
 ];
 </script>
 
 <template>
-  <!-- +++ Updated template loop and bindings +++ -->
-  <div class="virtual-keyboard-bar flex flex-wrap items-center justify-center gap-1 p-1 bg-background border-t border-border">
-    <button
-      v-for="keyDef in keys"
-      :key="keyDef.label"
-      @click="sendKey(keyDef)"
-      class="px-3 py-1.5 rounded border border-border bg-input text-foreground text-xs hover:bg-border focus:outline-none focus:ring-1 focus:ring-primary transition-colors duration-150"
-      :class="{
-        'bg-primary text-primary-foreground hover:bg-primary/90': // Style for active modifiers
-          (keyDef.label === 'Ctrl' && isCtrlActive) ||
-          (keyDef.label === 'Alt' && isAltActive)
-      }"
-      :title="keyDef.label"
-    >
-      {{ keyDef.label }}
-    </button>
+  <div class="virtual-keyboard-bar bg-background border-t border-border">
+    <div v-for="row in keyboardRows" :key="row[0].id" class="keyboard-row">
+      <button
+        v-for="keyDef in row"
+        :key="keyDef.id"
+        type="button"
+        @click="sendKey(keyDef)"
+        class="keyboard-key border border-border bg-input text-foreground hover:bg-border focus:outline-none focus:ring-1 focus:ring-primary transition-colors duration-150"
+        :class="{
+          'key-wide': keyDef.width === 'wide',
+          'key-extra-wide': keyDef.width === 'extra-wide',
+          'bg-primary text-primary-foreground hover:bg-primary/90':
+            (keyDef.modifier === 'ctrl' && isCtrlActive) ||
+            (keyDef.modifier === 'alt' && isAltActive) ||
+            (keyDef.modifier === 'shift' && isShiftActive) ||
+            (keyDef.modifier === 'caps' && isCapsLockActive)
+        }"
+        :title="keyDef.label"
+      >
+        {{ keyDef.label }}
+      </button>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .virtual-keyboard-bar {
-  /* Base styles */
-  flex-wrap: wrap; /* Allow wrapping */
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.375rem;
+  max-height: min(34dvh, 18rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 }
 
-button {
-  min-width: 40px; /* Ensure tappable area */
+.keyboard-row {
+  display: flex;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.keyboard-key {
+  min-width: 0;
+  min-height: 2.25rem;
+  flex: 1 1 0;
+  border-radius: 0.35rem;
+  padding: 0.3rem 0.15rem;
+  font-size: clamp(0.58rem, 2.2vw, 0.75rem);
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Optional: Add specific styles for modifier keys */
-/*
-button[title="Ctrl"], button[title="Alt"] {
-  font-weight: bold;
-}
-*/
+.keyboard-key.key-wide { flex-grow: 1.5; }
+.keyboard-key.key-extra-wide { flex-grow: 2.25; }
 </style>

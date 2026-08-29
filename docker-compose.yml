@@ -6,6 +6,7 @@ services:
       dockerfile: packages/frontend/Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_DEPLOYMENT_MODE: ${VITE_DEPLOYMENT_MODE:-docker}
     container_name: nexus-terminal-frontend
     ports:
       - "18111:80"

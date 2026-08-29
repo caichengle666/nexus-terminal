@@ -45,6 +45,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  isMobile: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 
@@ -94,6 +98,10 @@ const componentMap: Record<PaneName, Component> = {
   dockerManager: defineAsyncComponent(() => import('./DockerManager.vue')), // <--- 添加 dockerManager 映射
   suspendedSshSessions: defineAsyncComponent(() => import('../views/SuspendedSshSessionsView.vue')),
   aiAssistant: defineAsyncComponent(() => import('./AiTerminalAssistant.vue')),
+  remoteDesktop: defineAsyncComponent(() => import('./RemoteDesktopPane.vue')),
+  transferCenter: defineAsyncComponent(() => import('./TransferCenterPane.vue')),
+  localSystem: defineAsyncComponent(() => import('./LocalSystemPane.vue')),
+  localTerminal: defineAsyncComponent(() => import('./LocalTerminalPane.vue')),
 };
 
 // --- Computed ---
@@ -138,6 +146,10 @@ const paneLabels = computed(() => ({
   dockerManager: t('layout.pane.dockerManager', 'Docker 管理器'),
   suspendedSshSessions: t('layout.panes.suspendedSshSessions', '挂起会话管理'),
   aiAssistant: t('layout.pane.aiAssistant', 'AI 终端助手'),
+  remoteDesktop: t('layout.pane.remoteDesktop', '远程桌面'),
+  transferCenter: t('layout.pane.transferCenter', '传输中心'),
+  localSystem: t('layout.pane.localSystem', '本机监控'),
+  localTerminal: t('layout.pane.localTerminal', '本地终端'),
 }));
 
 
@@ -170,6 +182,7 @@ const componentProps = computed(() => {
            isConnected: currentActiveSession.wsManager.isConnected, // 恢复 isConnected
            isSftpReady: currentActiveSession.wsManager.isSftpReady // 恢复 isSftpReady
          },
+         isMobile: props.isMobile,
          class: 'pane-content', // class 可以保留，或者在模板中处理
          // FileManager 可能也需要转发事件，例如文件操作相关的，暂时省略
       };
@@ -216,6 +229,22 @@ const componentProps = computed(() => {
      return {
        class: 'flex flex-col flex-grow h-full overflow-auto', // 与 quickCommands 类似
      };
+   case 'remoteDesktop':
+     return {
+       class: 'pane-content',
+     };
+   case 'transferCenter':
+     return {
+       class: 'pane-content',
+     };
+   case 'localSystem':
+     return {
+       class: 'pane-content',
+     };
+   case 'localTerminal':
+     return {
+       class: 'pane-content',
+     };
    default:
      return { class: 'pane-content' };
  }
@@ -260,6 +289,7 @@ const sidebarProps = computed(() => (paneName: PaneName | null, side: 'left' | '
            isConnected: activeSession.value.wsManager.isConnected, // 直接传递 ref
            isSftpReady: activeSession.value.wsManager.isSftpReady  // 直接传递 ref
          },
+         isMobile: props.isMobile,
        };
      } else {
        return baseProps; // Return only base props if no active session
@@ -354,6 +384,8 @@ watch(sidebarPanes, (newVal) => {
 const getIconClasses = (paneName: PaneName): string[] => {
   switch (paneName) {
     case 'connections': return ['fas', 'fa-network-wired'];
+    case 'terminal': return ['fas', 'fa-terminal'];
+    case 'commandBar': return ['fas', 'fa-keyboard'];
     case 'fileManager': return ['fas', 'fa-folder-open'];
     case 'commandHistory': return ['fas', 'fa-history'];
     case 'quickCommands': return ['fas', 'fa-bolt'];
@@ -362,6 +394,10 @@ const getIconClasses = (paneName: PaneName): string[] => {
     case 'statusMonitor': return ['fas', 'fa-tachometer-alt'];
     case 'suspendedSshSessions': return ['fas', 'fa-pause-circle']; // 图标：暂停圈
     case 'aiAssistant': return ['fas', 'fa-robot'];
+    case 'remoteDesktop': return ['fas', 'fa-desktop'];
+    case 'transferCenter': return ['fas', 'fa-exchange-alt'];
+    case 'localSystem': return ['fas', 'fa-chart-line'];
+    case 'localTerminal': return ['fas', 'fa-laptop-code'];
     // Add other specific icons here if needed
     default: return ['fas', 'fa-question-circle']; // Default icon
   }
@@ -530,6 +566,7 @@ onBeforeUnmount(() => {
                         :layout-node="childNode"
                         :is-root-renderer="false"
                         :active-session-id="activeSessionId"
+                        :is-mobile="isMobile"
                         :editor-tabs="editorTabs"
                         :active-editor-tab-id="activeEditorTabId"
                         class="flex-grow overflow-auto"

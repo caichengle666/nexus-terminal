@@ -5,6 +5,7 @@ import { pipeline } from 'stream/promises';
 import { v4 as uuidv4 } from 'uuid';
 import { Client, FileEntry, SFTPWrapper, Stats } from 'ssh2';
 import { establishSshConnection, getConnectionDetails } from '../services/ssh.service';
+import { allDb, getDbInstance, runDb } from '../database/connection';
 import { InitiateTransferPayload, TransferSubTask, TransferTask } from './transfers.types';
 
 interface TransferEntry {
@@ -30,12 +31,19 @@ interface SftpEndpoint {
 export class TransfersService {
   private readonly transferTasks = new Map<string, TransferTask>();
   private readonly taskAbortControllers = new Map<string, AbortController>();
+  private readonly initializationPromise: Promise<void>;
+  private persistenceQueue: Promise<void> = Promise.resolve();
   private readonly maxConcurrentTargets = 2;
   private readonly inactivityTimeoutMs = 2 * 60 * 1000;
   private readonly metadataTimeoutMs = 30 * 1000;
   private readonly maxTaskHistory = 50;
 
+  constructor() {
+    this.initializationPromise = this.loadPersistedTasks();
+  }
+
   public async initiateNewTransfer(payload: InitiateTransferPayload, userId: string | number): Promise<TransferTask> {
+    await this.initializationPromise;
     const taskId = uuidv4();
     const now = new Date();
     const subTasks: TransferSubTask[] = [];
@@ -73,6 +81,7 @@ export class TransfersService {
     this.transferTasks.set(taskId, task);
     this.taskAbortControllers.set(taskId, abortController);
     this.pruneTaskHistory();
+    void this.persistTask(task);
 
     void this.processTransferTask(taskId, abortController.signal).catch(error => {
       console.error(`[TransfersService] Unhandled transfer task error ${taskId}:`, error);
@@ -85,6 +94,7 @@ export class TransfersService {
   }
 
   public async cancelTransferTask(taskId: string, userId: string | number): Promise<boolean> {
+    await this.initializationPromise;
     const task = this.transferTasks.get(taskId);
     const controller = this.taskAbortControllers.get(taskId);
     if (!task || task.userId !== userId || !controller || this.isFinalTaskStatus(task.status)) {
@@ -100,18 +110,127 @@ export class TransfersService {
       }
     }
     controller.abort();
+    void this.persistTask(task);
     return true;
   }
 
   public async getTransferTaskDetails(taskId: string, userId: string | number): Promise<TransferTask | null> {
+    await this.initializationPromise;
     const task = this.transferTasks.get(taskId);
     return task && task.userId === userId ? this.cloneTask(task) : null;
   }
 
   public async getAllTransferTasks(userId: string | number): Promise<TransferTask[]> {
+    await this.initializationPromise;
     return Array.from(this.transferTasks.values())
       .filter(task => task.userId === userId)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, this.maxTaskHistory)
       .map(task => this.cloneTask(task));
+  }
+
+  public async retryTransferTask(taskId: string, userId: string | number): Promise<TransferTask | null> {
+    await this.initializationPromise;
+    const task = this.transferTasks.get(taskId);
+    if (!task || task.userId !== userId || !['failed', 'partially-completed', 'cancelled'].includes(task.status)) {
+      return null;
+    }
+
+    return this.initiateNewTransfer({
+      ...task.payload,
+      connectionIds: [...task.payload.connectionIds],
+      sourceItems: task.payload.sourceItems.map(item => ({ ...item })),
+      transferMethod: 'sftp-relay',
+    }, userId);
+  }
+
+  private async loadPersistedTasks(): Promise<void> {
+    try {
+      const db = await getDbInstance();
+      const rows = await allDb<{
+        task_id: string;
+        user_id: string;
+        status: TransferTask['status'];
+        created_at: number;
+        updated_at: number;
+        overall_progress: number | null;
+        payload: string;
+        subtasks: string;
+      }>(db, 'SELECT task_id, user_id, status, created_at, updated_at, overall_progress, payload, subtasks FROM transfer_tasks ORDER BY updated_at DESC LIMIT ?', [this.maxTaskHistory]);
+
+      for (const row of rows) {
+        const task: TransferTask = {
+          taskId: row.task_id,
+          userId: JSON.parse(row.user_id),
+          status: row.status,
+          createdAt: new Date(row.created_at),
+          updatedAt: new Date(row.updated_at),
+          overallProgress: row.overall_progress ?? undefined,
+          payload: JSON.parse(row.payload),
+          subTasks: JSON.parse(row.subtasks),
+        };
+
+        if (!this.isFinalTaskStatus(task.status)) {
+          task.status = 'failed';
+          for (const subTask of task.subTasks) {
+            if (!this.isFinalSubTaskStatus(subTask.status)) {
+              subTask.status = 'failed';
+              subTask.message = '服务重启导致传输中断';
+              subTask.endTime = new Date();
+            }
+          }
+          task.updatedAt = new Date();
+        }
+        this.transferTasks.set(task.taskId, task);
+      }
+    } catch (error) {
+      console.error('[TransfersService] Failed to load persisted transfer tasks:', error);
+    }
+  }
+
+  private persistTask(task: TransferTask): Promise<void> {
+    const snapshot = this.cloneTask(task);
+    this.persistenceQueue = this.persistenceQueue
+      .catch(() => undefined)
+      .then(async () => {
+        const db = await getDbInstance();
+        await runDb(db, `
+          INSERT INTO transfer_tasks (task_id, user_id, status, created_at, updated_at, overall_progress, payload, subtasks)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(task_id) DO UPDATE SET
+            user_id = excluded.user_id,
+            status = excluded.status,
+            updated_at = excluded.updated_at,
+            overall_progress = excluded.overall_progress,
+            payload = excluded.payload,
+            subtasks = excluded.subtasks
+        `, [
+          snapshot.taskId,
+          JSON.stringify(snapshot.userId),
+          snapshot.status,
+          new Date(snapshot.createdAt).getTime(),
+          new Date(snapshot.updatedAt).getTime(),
+          snapshot.overallProgress ?? null,
+          JSON.stringify(snapshot.payload),
+          JSON.stringify(snapshot.subTasks),
+        ]);
+      })
+      .catch(error => {
+        console.error(`[TransfersService] Failed to persist task ${task.taskId}:`, error);
+      });
+    return this.persistenceQueue;
+  }
+
+  private deletePersistedTask(taskId: string): void {
+    this.persistenceQueue = this.persistenceQueue
+      .catch(() => undefined)
+      .then(async () => {
+        const db = await getDbInstance();
+        await runDb(db, 'DELETE FROM transfer_tasks WHERE task_id = ?', [taskId]);
+      })
+      .catch(error => {
+        console.error(`[TransfersService] Failed to delete persisted task ${taskId}:`, error);
+      });
   }
 
   private async processTransferTask(taskId: string, signal: AbortSignal): Promise<void> {
@@ -597,6 +716,7 @@ export class TransfersService {
     if (this.isFinalSubTaskStatus(status)) subTask.endTime = subTask.endTime ?? new Date();
     task.updatedAt = new Date();
     this.updateOverallTaskStatusBasedOnSubTasks(taskId);
+    if (this.isFinalSubTaskStatus(status)) void this.persistTask(task);
   }
 
   private updateOverallTaskStatus(taskId: string, status: TransferTask['status']): void {
@@ -604,6 +724,7 @@ export class TransfersService {
     if (!task) return;
     task.status = status;
     task.updatedAt = new Date();
+    void this.persistTask(task);
   }
 
   private updateOverallTaskStatusBasedOnSubTasks(taskId: string): void {
@@ -622,6 +743,7 @@ export class TransfersService {
     else if (completed + failed + cancelled === task.subTasks.length) task.status = 'partially-completed';
     else if (task.status !== 'cancelling') task.status = 'in-progress';
     task.updatedAt = new Date();
+    if (this.isFinalTaskStatus(task.status)) void this.persistTask(task);
   }
 
   private markTaskCancelled(taskId: string): void {
@@ -636,6 +758,7 @@ export class TransfersService {
     }
     task.status = 'cancelled';
     task.updatedAt = new Date();
+    void this.persistTask(task);
   }
 
   private cloneTask(task: TransferTask): TransferTask {
@@ -658,7 +781,9 @@ export class TransfersService {
       .filter(task => this.isFinalTaskStatus(task.status))
       .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime());
     while (this.transferTasks.size > this.maxTaskHistory && removableTasks.length > 0) {
-      this.transferTasks.delete(removableTasks.shift()!.taskId);
+      const taskId = removableTasks.shift()!.taskId;
+      this.transferTasks.delete(taskId);
+      this.deletePersistedTask(taskId);
     }
   }
 

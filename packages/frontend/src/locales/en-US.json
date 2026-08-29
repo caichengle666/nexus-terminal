@@ -23,6 +23,23 @@
     "iosInstallDescription": "Open the Share menu in Safari, then choose Add to Home Screen.",
     "close": "Close"
   },
+  "taskNotifications": {
+    "title": "Task notifications",
+    "clear": "Clear",
+    "empty": "No task notifications",
+    "retry": "Retry",
+    "batchTitle": "Batch operation",
+    "batchTesting": "Testing {total} SSH connections",
+    "batchConnecting": "Starting {total} SSH connections",
+    "batchDeleting": "Deleting {total} connections",
+    "batchEditing": "Refreshing results for {total} edited connections",
+    "batchProgress": "Completed {completed}/{total}",
+    "batchTestComplete": "Testing complete: {successCount} succeeded, {errorCount} failed",
+    "batchConnectComplete": "Connection requests started: {initiatedCount} succeeded, {errorCount} failed",
+    "batchDeleteComplete": "Deletion complete: {successCount} succeeded, {errorCount} failed",
+    "batchEditComplete": "Batch edit complete: {successCount} connections updated",
+    "batchFailed": "Batch operation failed"
+  },
   "styleCustomizer": {
     "title": "Appearance Customizer",
     "uiStyles": "UI Styles",
@@ -241,6 +258,14 @@
       "test": "Test",
       "testing": "Testing...",
       "clone": "Clone"
+    },
+    "filters": {
+      "viewLabel": "Connection view",
+      "all": "All",
+      "favorites": "Favorites",
+      "recent": "Recent",
+      "addFavorite": "Add to favorites",
+      "removeFavorite": "Remove from favorites"
     },
     "form": {
       "title": "Add New Connection",
@@ -1029,8 +1054,31 @@
     "about": {
       "version": "Version",
       "checkingUpdate": "Checking for update...",
+      "checkNow": "Check now",
+      "downloadUpdate": "Download update",
+      "downloadingUpdate": "Downloading update {progress}%",
+      "verifyingUpdate": "Verifying update file...",
+      "updateReady": "Update downloaded",
+      "installUpdate": "Open installer",
+      "cancelUpdate": "Cancel",
+      "downloadFailed": "Update download failed",
       "latestVersion": "Up to date",
       "updateAvailable": "Update available: {version}!",
+      "dockerTitle": "Docker update",
+      "dockerDescription": "Run the following command in the deployment directory to pull and restart the latest images.",
+      "copyDockerCommand": "Copy command",
+      "copied": "Copied",
+      "refreshNow": "Refresh now",
+      "runtime": {
+        "electron": "Electron",
+        "docker": "Docker",
+        "pwa": "PWA",
+        "web": "Web"
+      },
+      "refreshHint": {
+        "web": "Refresh the page to load the latest web assets.",
+        "pwa": "Refresh the page to load the latest PWA assets."
+      },
       "error": {
         "checkFailed": "Failed to check for updates",
         "checkFailedShort": "Check failed",
@@ -1260,6 +1308,8 @@
       "disconnected": "Disconnected",
       "unknownState": "Unknown State",
       "connecting": "Connecting...",
+      "standby": "Remote desktop is on standby. Connect to start a session.",
+      "reconnecting": "Reconnecting (attempt {attempt}, in {delay}s)...",
       "error": "Error"
     },
     "errors": {
@@ -1269,9 +1319,41 @@
       "connectionFailed": "Connection Failed",
       "inputError": "Error setting up input listeners.",
       "noConnection": "No connection information provided.",
-      "tokenError": "Failed to retrieve token"
+      "tokenError": "Failed to retrieve token",
+      "gateway": "Gateway error",
+      "authentication": "Authentication error",
+      "timeout": "Connection timed out",
+      "network": "Network error",
+      "protocol": "RDP protocol error"
     },
-    "reconnectTooltip": "Reconnect to the remote desktop"
+    "reconnectTooltip": "Reconnect to the remote desktop",
+    "toolbar": {
+      "ctrlAltDelete": "Send Ctrl+Alt+Delete",
+      "sendClipboard": "Send local clipboard",
+      "fit": "Fit to window",
+      "viewOnly": "View-only mode",
+      "disconnect": "Disconnect",
+      "clipboardStatus": "Clipboard status",
+      "transferStatus": "File and clipboard transfer status"
+    },
+    "clipboard": {
+      "sent": "Local clipboard sent to the remote desktop.",
+      "sendFailed": "Unable to read or send the local clipboard."
+    },
+    "files": {
+      "dropHere": "Drop files to upload to the remote desktop",
+      "sent": "Sent {count} file(s) to the remote desktop.",
+      "sendFailed": "Remote file upload failed.",
+      "receiveFailed": "Failed to receive the remote file.",
+      "received": "Downloaded remote file: {filename}"
+    }
+  },
+  "remoteDesktopPane": {
+    "searchPlaceholder": "Search RDP name, host, or user...",
+    "groupLabel": "Group",
+    "allGroups": "All groups",
+    "tagGroup": "Tag {id}",
+    "empty": "No RDP connections available. Add an RDP connection first."
   },
   "vncModal": {
     "title": "VNC Session",
@@ -1591,9 +1673,19 @@
     "errorLoading": "Failed to load transfer tasks: {error}",
     "error": {
       "unknown": "Unknown error",
-      "cancelFailed": "Failed to cancel task."
+      "cancelFailed": "Failed to cancel task.",
+      "retryFailed": "Failed to retry task."
     },
     "noTasks": "There are no active transfer tasks currently.",
+    "filters": {
+      "all": "All",
+      "active": "Active",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "retryTaskTooltip": "Retry task",
+    "retryButton": "Retry",
+    "retryingButton": "Retrying",
     "task": {
       "idLabel": "Task",
       "createdAt": "Created at",

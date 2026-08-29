@@ -75,6 +75,7 @@ export const tableDefinitions: TableDefinition[] = [
     { name: 'path_history', sql: schemaSql.createPathHistoryTableSQL },
     { name: 'quick_commands', sql: schemaSql.createQuickCommandsTableSQL },
     { name: 'favorite_paths', sql: schemaSql.createFavoritePathsTableSQL }, // Added Favorite Paths table
+    { name: 'transfer_tasks', sql: schemaSql.createTransferTasksTableSQL },
 
     // Appearance related tables (often depend on others or have init logic)
     {
