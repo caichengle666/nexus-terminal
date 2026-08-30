@@ -87,20 +87,19 @@ Windows 日常使用请下载 `Nexus Terminal Setup ...exe`，安装向导可自
 
 > 建议在 Debian（AMD64 架构）环境中部署，因本人无 ARM 设备，无法保证其兼容性。
 
-新建文件夹
+推荐直接执行一键安装命令。首次执行会安装容器，之后重复执行会自动拉取最新镜像并更新，`data` 和 `.env` 不会被覆盖。
 ```bash
-mkdir ./nexus-terminal && cd ./nexus-terminal
+curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash
 ```
 
-
-下载仓库中的 [**docker-compose.yml**](https://raw.githubusercontent.com/Heavrnl/nexus-terminal/refs/heads/main/docker-compose.yml) 和 [**.env**](https://raw.githubusercontent.com/Heavrnl/nexus-terminal/refs/heads/main/.env) 文件到当前目录。
+默认安装目录为 `/opt/nexus-terminal`。如需指定目录或版本，可以使用：
 ```bash
-wget https://raw.githubusercontent.com/Heavrnl/nexus-terminal/refs/heads/main/docker-compose.yml -O docker-compose.yml && wget https://raw.githubusercontent.com/Heavrnl/nexus-terminal/refs/heads/main/.env -O .env
+curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --dir /srv/nexus-terminal --tag 0.9.22.15
 ```
 > ⚠️ **注意：**
 >
-> * **arm64 用户**请将 `docker-compose.yml` 中的镜像 `guacamole/guacd:latest` 替换为 `guacamole/guacd:1.6.0-RC1`。
-> * **armv7 用户**请参考下方注意事项。
+> * 一键脚本会自动为 **ARM64** 使用兼容的 `guacamole/guacd:1.6.0-RC1` 镜像。
+> * 当前项目镜像不提供 **ARMv7** 架构，请使用 AMD64 或 ARM64 主机。
 
 
 
@@ -142,19 +141,12 @@ sudo systemctl restart docker
 
 ### 2️⃣ 启动服务
 
-```bash
-docker compose up -d
-```
+一键脚本会自动启动服务。手动部署时仍可使用 `docker compose up -d`。
 
 ### 3️⃣ 更新
-注意：docker-compose 运行不需要拉取仓库源码，除非你打算自己build，否则只需要在项目目录执行以下命令即可更新。
-```bash
-docker compose down
-```
+推荐再次执行一键安装命令，脚本会校验配置、备份当前 Compose 和 `.env`，拉取最新镜像后平滑更新容器。也可以在安装目录手动执行：
 ```bash
 docker compose pull
-```
-```bash
 docker compose up -d
 ```
 ## 📚 使用指南

@@ -69,25 +69,23 @@ For regular Windows use, download `Nexus Terminal Setup ...exe`; the installer l
 
 > It is recommended to deploy in a Debian (AMD64 architecture) environment. Since I do not have an ARM device, compatibility with ARM is not guaranteed.
 
-Create a new folder
+Use the one-line installer. The first run installs the containers; running it again pulls the latest images and updates them while preserving `data` and `.env`.
+
+
 ```bash
-mkdir ./nexus-terminal && cd ./nexus-terminal
+curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash
 ```
 
----
-
-Download the [**docker-compose.yml**](https://raw.githubusercontent.com/Heavrnl/nexus-terminal/refs/heads/main/docker-compose.yml) and [**.env**](https://raw.githubusercontent.com/Heavrnl/nexus-terminal/refs/heads/main/.env) files from the repository to your current directory.
-
-
+The default installation directory is `/opt/nexus-terminal`. To choose a directory or image tag:
 ```bash
-wget https://raw.githubusercontent.com/Heavrnl/nexus-terminal/refs/heads/main/docker-compose.yml -O docker-compose.yml && wget https://raw.githubusercontent.com/Heavrnl/nexus-terminal/refs/heads/main/.env -O .env
+curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --dir /srv/nexus-terminal --tag 0.9.22.15
 ```
 
 
 > ⚠️ **Note:**
 >
-> * For **arm64** users, replace `guacamole/guacd:latest` with `guacamole/guacd:1.6.0-RC1` in the `docker-compose.yml` file.
-> * For **armv7** users, please refer to the additional notes below.
+> * The one-line script automatically uses the compatible `guacamole/guacd:1.6.0-RC1` image on **ARM64**.
+> * The project images do not provide **ARMv7** builds. Use an AMD64 or ARM64 host.
 
 Configure nginx
 ```conf
@@ -124,19 +122,12 @@ sudo systemctl restart docker
 
 ### 2️⃣ Start the Service
 
-```bash
-docker compose up -d
-```
+The one-line installer starts the service automatically. For a manual deployment, run `docker compose up -d` from the installation directory.
 
 ### 3️⃣ Update
-Note: Running with docker-compose does not require pulling the source code unless you plan to build it yourself. Simply execute the following commands in the project directory to update.
-```bash
-docker compose down
-```
+Run the one-line installer again. It validates the downloaded Compose file, backs up the current Compose and `.env`, pulls the latest images, and updates the containers without replacing `data`. You can also update manually:
 ```bash
 docker compose pull
-```
-```bash
 docker compose up -d
 ```
 ## 📚 Usage Guide
