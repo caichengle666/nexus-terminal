@@ -62,7 +62,7 @@ const openCenter = () => {
 </script>
 
 <template>
-  <div class="fixed z-[1090]" :style="{ left: buttonPosition.x + 'px', top: buttonPosition.y + 'px' }">
+  <div class="task-notification-center fixed z-[1090]" :style="{ left: buttonPosition.x + 'px', top: buttonPosition.y + 'px' }">
     <button
       type="button"
       class="relative flex h-10 w-10 items-center justify-center rounded-full border border-border bg-header text-foreground shadow-lg hover:bg-hover"
@@ -112,3 +112,10 @@ const openCenter = () => {
     </section>
   </div>
 </template>
+
+<style scoped>
+.task-notification-center {
+  -webkit-app-region: no-drag;
+  user-select: none;
+}
+</style>
