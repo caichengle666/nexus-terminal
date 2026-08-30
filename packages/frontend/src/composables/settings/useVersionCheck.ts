@@ -32,7 +32,8 @@ const getPlatformDownloadAsset = (assets: ReleaseAsset[]): ReleaseAsset | null =
   const findAsset = (pattern: RegExp) => assets.find(asset => pattern.test(asset.name)) || null;
 
   if (/windows/.test(platform)) {
-    return findAsset(isArm64
+    return findAsset(/setup.*\.exe$/i)
+      || findAsset(isArm64
       ? /(?:portable|windows|win).*?(?:arm64|aarch64).*\.exe$/i
       : /portable.*\.exe$/i)
       || findAsset(/\.exe$/i);
@@ -55,6 +56,10 @@ const getPlatformDownloadAsset = (assets: ReleaseAsset[]): ReleaseAsset | null =
   return null;
 };
 
+const getWindowsPortableAsset = (assets: ReleaseAsset[]): ReleaseAsset | null => {
+  return assets.find(asset => /portable.*\.zip$/i.test(asset.name)) || null;
+};
+
 const getChecksumAsset = (assets: ReleaseAsset[]): ReleaseAsset | null => {
   return assets.find(asset => /(?:sha256|sha-256|checksums?|checksum)[^/]*$/i.test(asset.name)) || null;
 };
@@ -63,6 +68,7 @@ const appVersion = ref(pkg.version);
 const latestVersion = ref<string | null>(null);
 const latestReleaseUrl = ref<string | null>(null);
 const updateDownloadUrl = ref<string | null>(null);
+const updatePortableUrl = ref<string | null>(null);
 const updateChecksumUrl = ref<string | null>(null);
 const isCheckingVersion = ref(false);
 const versionCheckError = ref<string | null>(null);
@@ -106,6 +112,7 @@ export function useVersionCheck() {
     latestVersion.value = null;
     latestReleaseUrl.value = null;
     updateDownloadUrl.value = null;
+    updatePortableUrl.value = null;
     updateChecksumUrl.value = null;
     versionCheckPromise = (async () => {
       try {
@@ -115,8 +122,10 @@ export function useVersionCheck() {
           latestVersion.value = response.data.tag_name;
           latestReleaseUrl.value = response.data.html_url || null;
           const downloadAsset = getPlatformDownloadAsset(response.data.assets || []);
+          const portableAsset = getWindowsPortableAsset(response.data.assets || []);
           const checksumAsset = getChecksumAsset(response.data.assets || []);
           updateDownloadUrl.value = downloadAsset?.browser_download_url || null;
+          updatePortableUrl.value = portableAsset?.browser_download_url || null;
           updateChecksumUrl.value = checksumAsset?.browser_download_url || null;
         } else {
           throw new Error('Invalid API response format');
@@ -149,6 +158,7 @@ export function useVersionCheck() {
     const result = await electronApi.downloadUpdate({
       url: updateDownloadUrl.value,
       checksumUrl: updateChecksumUrl.value,
+      fallbackUrl: updatePortableUrl.value,
       version: latestVersion.value,
       proxy,
     });
@@ -192,6 +202,7 @@ export function useVersionCheck() {
     latestVersion,
     latestReleaseUrl,
     updateDownloadUrl,
+    updatePortableUrl,
     updateChecksumUrl,
     updateDownloadStatus,
     updateDownloadProgress,

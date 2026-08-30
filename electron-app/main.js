@@ -83,6 +83,7 @@ app.commandLine.appendSwitch('disable-gpu-compositing');
 const pendingDownloadsInfo = new Map();
 let updateDownloadState = null;
 let completedUpdatePath = null;
+let completedUpdateKind = null;
 let updateProxyAgent = null;
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
 
@@ -421,7 +422,15 @@ const verifyUpdateSignature = (filePath) => new Promise(resolve => {
     child.stdout.on('data', data => { output += data.toString(); });
     child.on('close', code => {
       const status = output.trim();
-      resolve({ status: status === 'Valid' ? 'valid' : (code === 0 ? 'invalid' : 'unavailable'), detail: status || '无法读取签名状态' });
+      if (status === 'Valid') {
+        resolve({ status: 'valid', detail: status });
+        return;
+      }
+      if (status === 'NotSigned' || code !== 0) {
+        resolve({ status: 'unavailable', detail: status || '无法读取签名状态' });
+        return;
+      }
+      resolve({ status: 'invalid', detail: status || '签名校验失败' });
     });
     child.on('error', error => resolve({ status: 'unavailable', detail: error.message }));
     return;
@@ -1160,6 +1169,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   }
   updateDownloadState = { request: null, file: null, requests: [], cancelled: false, sender: event.sender };
   completedUpdatePath = null;
+  completedUpdateKind = null;
   updateProxyAgent = await buildUpdateProxyAgent(payload.proxy);
   const sendProgress = (status, extra = {}) => {
     if (!event.sender.isDestroyed()) event.sender.send('update-progress', { status, ...extra });
@@ -1167,39 +1177,68 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
 
   try {
     sendProgress('downloading', { receivedBytes: 0, totalBytes: 0, progress: 0 });
-    const result = await downloadUpdateAsset(payload.url, targetPath, (receivedBytes, totalBytes) => {
-      sendProgress('downloading', {
-        receivedBytes,
-        totalBytes,
-        progress: totalBytes > 0 ? Math.floor((receivedBytes / totalBytes) * 100) : null,
+    let result;
+    let updatePath = targetPath;
+    let fallbackUsed = false;
+    try {
+      result = await downloadUpdateAsset(payload.url, targetPath, (receivedBytes, totalBytes) => {
+        sendProgress('downloading', {
+          receivedBytes,
+          totalBytes,
+          progress: totalBytes > 0 ? Math.floor((receivedBytes / totalBytes) * 100) : null,
+        });
       });
-    });
+    } catch (primaryError) {
+      if (process.platform !== 'win32' || typeof payload.fallbackUrl !== 'string' || updateDownloadState.cancelled) {
+        throw primaryError;
+      }
+      const fallbackUrl = validateUpdateUrl(payload.fallbackUrl);
+      const fallbackFilename = path.basename(decodeURIComponent(fallbackUrl.pathname));
+      const fallbackPath = path.join(updaterDir, fallbackFilename.replace(/[<>:"/\\|?*]/g, '_'));
+      sendProgress('downloading', { receivedBytes: 0, totalBytes: 0, progress: 0, fallback: true });
+      result = await downloadUpdateAsset(payload.fallbackUrl, fallbackPath, (receivedBytes, totalBytes) => {
+        sendProgress('downloading', {
+          receivedBytes,
+          totalBytes,
+          progress: totalBytes > 0 ? Math.floor((receivedBytes / totalBytes) * 100) : null,
+          fallback: true,
+        });
+      });
+      updatePath = fallbackPath;
+      fallbackUsed = true;
+      completedUpdateKind = 'portable';
+      console.warn(`[Updater] Installer download failed, portable ZIP fallback selected: ${primaryError.message}`);
+    }
     if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
 
     let checksumVerified = false;
     if (payload.checksumUrl) {
       try {
         const checksumText = await fetchUpdateText(payload.checksumUrl);
-        const expectedChecksum = extractExpectedChecksum(checksumText, safeFilename);
+        const expectedChecksum = extractExpectedChecksum(checksumText, path.basename(updatePath));
         if (expectedChecksum && expectedChecksum !== result.sha256.toLowerCase()) {
           throw new Error('更新文件 SHA-256 校验失败。');
         }
         checksumVerified = Boolean(expectedChecksum);
       } catch (error) {
-        fs.rmSync(targetPath, { force: true });
+        fs.rmSync(updatePath, { force: true });
         throw error;
       }
     }
 
-    sendProgress('verifying', { sha256: result.sha256, checksumVerified });
-    const signature = await verifyUpdateSignature(targetPath);
+    sendProgress('verifying', { sha256: result.sha256, checksumVerified, fallback: fallbackUsed });
+    const signature = await verifyUpdateSignature(updatePath);
     if (signature.status === 'invalid') {
-      fs.rmSync(targetPath, { force: true });
+      fs.rmSync(updatePath, { force: true });
       throw new Error(`安装包签名无效：${signature.detail}`);
     }
-    completedUpdatePath = targetPath;
-    sendProgress('ready', { sha256: result.sha256, checksumVerified, signature: signature.status });
-    return { ok: true, path: targetPath, sha256: result.sha256, checksumVerified, signature: signature.status };
+    completedUpdatePath = updatePath;
+    if (fallbackUsed && process.platform === 'win32') {
+      const folderError = await shell.openPath(path.dirname(updatePath));
+      if (folderError) console.warn(`[Updater] 无法打开便携版下载目录：${folderError}`);
+    }
+    sendProgress('ready', { sha256: result.sha256, checksumVerified, signature: signature.status, fallback: fallbackUsed });
+    return { ok: true, path: updatePath, sha256: result.sha256, checksumVerified, signature: signature.status, fallback: fallbackUsed };
   } catch (error) {
     if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
     sendProgress(updateDownloadState.cancelled ? 'cancelled' : 'failed', { message: error.message });
@@ -1223,16 +1262,38 @@ ipcMain.handle('install-update', async () => {
   if (!completedUpdatePath || !fs.existsSync(completedUpdatePath)) {
     return { ok: false, message: '没有可安装的更新文件。' };
   }
+  const isPortable = completedUpdateKind === 'portable';
   const confirmation = await dialog.showMessageBox(mainWindow, {
     type: 'question',
     title: '安装 Nexus Terminal 更新',
     message: `更新文件已下载：${path.basename(completedUpdatePath)}`,
-    detail: '即将打开系统安装程序。请确认文件来源和签名后继续。',
-    buttons: ['打开安装程序', '取消'],
+    detail: isPortable ? '安装器不可用，将解压便携版到临时目录并打开新版本。' : '即将打开系统安装程序。请确认文件来源和签名后继续。',
+    buttons: [isPortable ? '打开便携版' : '打开安装程序', '取消'],
     defaultId: 0,
     cancelId: 1,
   });
   if (confirmation.response !== 0) return { ok: false, cancelled: true, message: '已取消安装。' };
+  if (isPortable && process.platform === 'win32') {
+    const extractPath = path.join(path.dirname(completedUpdatePath), `portable-${Date.now()}`);
+    const escapedZip = completedUpdatePath.replace(/'/g, "''");
+    const escapedDestination = extractPath.replace(/'/g, "''");
+    const command = `Expand-Archive -LiteralPath '${escapedZip}' -DestinationPath '${escapedDestination}' -Force`;
+    const extraction = await new Promise(resolve => {
+      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true });
+      let output = '';
+      child.stderr.on('data', data => { output += data.toString(); });
+      child.on('close', code => resolve(code === 0 ? null : (output.trim() || '解压便携版失败。')));
+      child.on('error', error => resolve(error.message));
+    });
+    if (extraction) return { ok: false, message: extraction };
+    const portableExecutable = path.join(extractPath, 'Nexus Terminal.exe');
+    if (!fs.existsSync(portableExecutable)) return { ok: false, message: '便携版解压成功，但找不到 Nexus Terminal.exe。' };
+    const error = await shell.openPath(portableExecutable);
+    if (error) return { ok: false, message: error };
+    completedUpdatePath = null;
+    completedUpdateKind = null;
+    return { ok: true, fallback: true };
+  }
   if (process.platform === 'linux') {
     try { fs.chmodSync(completedUpdatePath, 0o755); } catch { /* shell.openPath will report failures */ }
   }
@@ -1240,6 +1301,7 @@ ipcMain.handle('install-update', async () => {
   const error = await shell.openPath(updatePath);
   if (error) return { ok: false, message: error };
   completedUpdatePath = null;
+  completedUpdateKind = null;
   return { ok: true };
 });
 
