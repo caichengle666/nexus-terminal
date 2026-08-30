@@ -1,6 +1,6 @@
 {
   "name": "@nexus-terminal/frontend",
-  "version": "0.9.22.16",
+  "version": "0.9.22.17",
   "private": true,
   "type": "module",
   "scripts": {
