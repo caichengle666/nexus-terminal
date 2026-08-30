@@ -76,6 +76,11 @@ Use the one-line installer. The first run installs the containers; running it ag
 curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash
 ```
 
+The script opens an interactive installer. The installation directory, image tag, and confirmation all have defaults, so pressing Enter through the prompts completes the default installation. On a headless server, add `--non-interactive`:
+```bash
+curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --non-interactive
+```
+
 The default installation directory is `/opt/nexus-terminal`. To choose a directory or image tag:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --dir /srv/nexus-terminal --tag 0.9.22.15

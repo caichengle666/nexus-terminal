@@ -92,6 +92,11 @@ Windows 日常使用请下载 `Nexus Terminal Setup ...exe`，安装向导可自
 curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash
 ```
 
+脚本会进入交互安装界面，安装目录、镜像标签和确认项均有默认值，直接连续按回车即可完成默认安装。服务器没有终端时可追加 `--non-interactive`：
+```bash
+curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --non-interactive
+```
+
 默认安装目录为 `/opt/nexus-terminal`。如需指定目录或版本，可以使用：
 ```bash
 curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --dir /srv/nexus-terminal --tag 0.9.22.15

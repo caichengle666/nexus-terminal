@@ -14,6 +14,8 @@ REPOSITORY="${NEXUS_REPOSITORY:-$DEFAULT_REPOSITORY}"
 REF="${NEXUS_REF:-$DEFAULT_REF}"
 REQUESTED_TAG=""
 DRY_RUN=0
+NON_INTERACTIVE=0
+FORCE_INTERACTIVE=0
 SUDO=""
 TEMP_DIR=""
 LOCK_DIR=""
@@ -35,6 +37,8 @@ Nexus Terminal 一键安装/更新脚本
   --dir PATH       安装目录，默认 /opt/nexus-terminal
   --tag TAG        镜像标签，例如 latest、0.9.22.15
   --ref REF        下载 Compose 的 Git 分支或标签，默认 main
+  --non-interactive  无终端提示，直接使用默认值或现有配置
+  --interactive    强制进入交互模式，没有终端时失败
   --dry-run        只下载并校验，不修改文件、不拉取镜像
   -h, --help       显示帮助
 
@@ -87,6 +91,15 @@ parse_args() {
         REF="$2"
         shift 2
         ;;
+      --non-interactive)
+        NON_INTERACTIVE=1
+        shift
+        ;;
+      --interactive)
+        FORCE_INTERACTIVE=1
+        NON_INTERACTIVE=0
+        shift
+        ;;
       --dry-run)
         DRY_RUN=1
         shift
@@ -134,6 +147,65 @@ prepare_dependencies() {
 
   run_as_root docker info >/dev/null 2>&1 || die "Docker 未运行，或当前用户没有访问 Docker 的权限。"
   run_as_root docker compose version >/dev/null 2>&1 || die "未找到 Docker Compose 插件，请安装 Docker Compose v2。"
+}
+
+has_interactive_terminal() {
+  [[ "$NON_INTERACTIVE" -eq 0 ]] && { [[ -t 0 ]] || [[ -r /dev/tty && -w /dev/tty ]]; }
+}
+
+tty_print() {
+  printf '%s' "$*" > /dev/tty
+}
+
+tty_read() {
+  local variable_name="$1"
+  IFS= read -r "$variable_name" < /dev/tty
+}
+
+read_existing_image_tag() {
+  if run_as_root test -f "$INSTALL_DIR/.env"; then
+    run_as_root awk -F= '$1 == "NEXUS_IMAGE_TAG" { value=$2 } END { gsub(/[[:space:]]/, "", value); print value }' "$INSTALL_DIR/.env" 2>/dev/null || true
+  fi
+}
+
+prompt_for_install_options() {
+  if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
+    return
+  fi
+  if ! has_interactive_terminal; then
+    [[ "$FORCE_INTERACTIVE" -eq 1 ]] && die "已要求交互模式，但当前没有可用终端。"
+    return
+  fi
+
+  local action="安装"
+  run_as_root test -f "$INSTALL_DIR/docker-compose.yml" && action="更新"
+
+  tty_print "\nNexus Terminal 一键${action}\n"
+  tty_print "直接回车将使用默认值。\n\n"
+  tty_print "安装目录 [${INSTALL_DIR}]: "
+  local input=""
+  tty_read input || die "无法读取安装目录。"
+  [[ -n "$input" ]] && INSTALL_DIR="$input"
+
+  local default_tag="${REQUESTED_TAG:-$(read_existing_image_tag)}"
+  default_tag="${default_tag:-latest}"
+  tty_print "镜像标签 [${default_tag}]: "
+  input=""
+  tty_read input || die "无法读取镜像标签。"
+  [[ -n "$input" ]] && REQUESTED_TAG="$input"
+
+  local selected_tag="${REQUESTED_TAG:-$(read_existing_image_tag)}"
+  selected_tag="${selected_tag:-latest}"
+  tty_print "\n即将使用：\n"
+  tty_print "  安装目录: ${INSTALL_DIR}\n"
+  tty_print "  镜像标签: ${selected_tag}\n"
+  tty_print "  数据目录: ${INSTALL_DIR}/data（保留现有数据）\n\n"
+  tty_print "确认继续？[Y/n]: "
+  input=""
+  tty_read input || die "无法读取确认选项。"
+  case "$input" in
+    n|N|no|NO|No) die "用户取消安装。" ;;
+  esac
 }
 
 download_file() {
@@ -331,6 +403,8 @@ main() {
   validate_args
   prepare_privileges
   prepare_dependencies
+  prompt_for_install_options
+  validate_args
   acquire_lock
   prepare_temp_files
   validate_compose
