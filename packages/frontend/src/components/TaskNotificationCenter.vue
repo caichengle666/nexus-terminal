@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from 'vue-i18n';
 import { useUiNotificationsStore } from '../stores/uiNotifications.store';
@@ -8,6 +8,37 @@ const { t } = useI18n();
 const notificationsStore = useUiNotificationsStore();
 const { taskNotifications, unreadTaskCount } = storeToRefs(notificationsStore);
 const isOpen = ref(false);
+const buttonPosition = ref({ x: 16, y: 16 });
+const isDragging = ref(false);
+const dragOffset = ref({ x: 0, y: 0 });
+
+const clampPosition = (x: number, y: number) => ({
+  x: Math.max(0, Math.min(window.innerWidth - 40, x)),
+  y: Math.max(0, Math.min(window.innerHeight - 40, y)),
+});
+
+onMounted(() => {
+  const savedPosition = localStorage.getItem('task-notification-center-position');
+  if (!savedPosition) return;
+  try {
+    const position = JSON.parse(savedPosition);
+    if (typeof position.x === 'number' && typeof position.y === 'number') buttonPosition.value = clampPosition(position.x, position.y);
+  } catch { localStorage.removeItem('task-notification-center-position'); }
+});
+
+const startDrag = (event: PointerEvent) => {
+  isDragging.value = true;
+  dragOffset.value = { x: event.clientX - buttonPosition.value.x, y: event.clientY - buttonPosition.value.y };
+  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+};
+const moveDrag = (event: PointerEvent) => {
+  if (isDragging.value) buttonPosition.value = clampPosition(event.clientX - dragOffset.value.x, event.clientY - dragOffset.value.y);
+};
+const endDrag = () => {
+  if (!isDragging.value) return;
+  isDragging.value = false;
+  localStorage.setItem('task-notification-center-position', JSON.stringify(buttonPosition.value));
+};
 
 const statusIcon = (status: string) => {
   if (status === 'running') return 'fas fa-spinner fa-spin';
@@ -24,19 +55,25 @@ const statusClass = (status: string) => ({
 });
 
 const openCenter = () => {
+  if (isDragging.value) return;
   isOpen.value = !isOpen.value;
   if (isOpen.value) notificationsStore.markTaskNotificationsRead();
 };
 </script>
 
 <template>
-  <div class="fixed bottom-4 right-4 z-[1090]">
+  <div class="fixed z-[1090]" :style="{ left: buttonPosition.x + 'px', top: buttonPosition.y + 'px' }">
     <button
       type="button"
       class="relative flex h-10 w-10 items-center justify-center rounded-full border border-border bg-header text-foreground shadow-lg hover:bg-hover"
       :title="t('taskNotifications.title')"
       :aria-label="t('taskNotifications.title')"
       :aria-expanded="isOpen"
+      :class="{ 'cursor-grabbing': isDragging, 'cursor-grab': !isDragging }"
+      @pointerdown="startDrag"
+      @pointermove="moveDrag"
+      @pointerup="endDrag"
+      @pointercancel="endDrag"
       @click="openCenter"
     >
       <i class="fas fa-bell" aria-hidden="true"></i>
@@ -45,7 +82,7 @@ const openCenter = () => {
       </span>
     </button>
 
-    <section v-if="isOpen" class="absolute bottom-12 right-0 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border bg-background text-foreground shadow-2xl" role="dialog" :aria-label="t('taskNotifications.title')">
+    <section v-if="isOpen" class="absolute left-0 top-12 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border bg-background text-foreground shadow-2xl" role="dialog" :aria-label="t('taskNotifications.title')">
       <header class="flex items-center justify-between border-b border-border bg-header px-3 py-2">
         <h2 class="text-sm font-semibold">{{ t('taskNotifications.title') }}</h2>
         <button type="button" class="text-xs text-text-secondary hover:text-foreground" @click="notificationsStore.clearTaskNotifications">

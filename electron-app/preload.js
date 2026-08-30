@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternalRdp: (connectionDetails) => ipcRenderer.invoke('open-external-rdp-connection', connectionDetails),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
   openPath: (targetPath) => ipcRenderer.invoke('open-path', targetPath),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
   // 从渲染进程向主进程发送消息
   sendMessage: (channel, data) => {
     // 添加了 'download-file-request' 用于下载
