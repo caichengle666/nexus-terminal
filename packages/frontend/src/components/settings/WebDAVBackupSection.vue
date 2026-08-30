@@ -75,8 +75,16 @@
         <hr class="border-border/50" />
         <div class="settings-section-content">
           <h3 class="text-base font-semibold text-foreground mb-3">{{ $t('settings.webdavBackup.backupTitle', '备份操作') }}</h3>
+          <div class="max-w-md">
+            <label class="block text-sm font-medium text-foreground mb-1">{{ $t('settings.webdavBackup.backupPassphrase', '备份密码') }}</label>
+            <input v-model="backupPassphrase" type="password" minlength="8" autocomplete="new-password"
+                   :placeholder="$t('settings.webdavBackup.backupPassphrasePlaceholder', '至少 8 个字符')"
+                   class="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                   :disabled="backingUp || restoring" />
+            <p class="mt-1 text-xs text-text-secondary">{{ $t('settings.webdavBackup.backupPassphraseHint', '完整备份包含 data 目录和加密密钥，请妥善保存此密码。') }}</p>
+          </div>
           <div class="flex items-center space-x-3 mb-4">
-            <button @click="handleCreateBackup" :disabled="backingUp"
+            <button @click="handleCreateBackup" :disabled="backingUp || backupPassphrase.length < 8"
                     class="px-4 py-2 bg-primary text-white rounded-md shadow-sm hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out text-sm font-medium inline-flex items-center">
               <svg v-if="backingUp" class="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -97,11 +105,12 @@
               <div class="flex-1 min-w-0">
                 <p class="text-foreground truncate">{{ file.name }}</p>
                 <p class="text-text-secondary text-xs mt-0.5">
-                  {{ formatSize(file.size) }} &middot; {{ file.lastModified }}
+                  {{ file.format === 'full' ? $t('settings.webdavBackup.fullEncrypted', '完整加密备份') : $t('settings.webdavBackup.legacyBackup', '旧版数据库备份') }}
+                  &middot; {{ formatSize(file.size) }} &middot; {{ file.lastModified }}
                 </p>
               </div>
               <div class="flex items-center space-x-2 ml-4 flex-shrink-0">
-                <button @click="handleRestoreBackup(file.name)" :disabled="restoring"
+                <button @click="handleRestoreBackup(file)" :disabled="restoring || (file.encrypted && backupPassphrase.length < 8)"
                         class="px-3 py-1.5 bg-primary/10 text-primary rounded hover:bg-primary/20 focus:outline-none transition text-xs font-medium disabled:opacity-50">
                   {{ $t('settings.webdavBackup.restore', '恢复') }}
                 </button>
@@ -143,7 +152,8 @@ const backingUp = ref(false);
 const loadingList = ref(false);
 const backupMessage = ref('');
 const backupSuccess = ref(false);
-const backupList = ref<Array<{ name: string; size: number; lastModified: string }>>([]);
+const backupPassphrase = ref('');
+const backupList = ref<Array<{ name: string; size: number; lastModified: string; format: 'full' | 'legacy'; encrypted: boolean }>>([]);
 const restoring = ref(false);
 const deletingFile = ref('');
 const useProxy = ref(false);
@@ -268,10 +278,18 @@ async function fetchProxies() {
 }
 
 async function handleCreateBackup() {
+  if (backupPassphrase.value.length < 8) {
+    backupMessage.value = t('settings.webdavBackup.passphraseTooShort', '备份密码至少需要 8 个字符。');
+    backupSuccess.value = false;
+    return;
+  }
   backingUp.value = true;
   backupMessage.value = '';
   try {
-    const res = await axios.post('/api/v1/webdav-backup/run', { proxyId: currentProxyId() });
+    const res = await axios.post('/api/v1/webdav-backup/run', {
+      passphrase: backupPassphrase.value,
+      proxyId: currentProxyId(),
+    });
     backupMessage.value = t('settings.webdavBackup.backupCreated', {
       name: res.data.fileName,
       size: formatSize(res.data.size),
@@ -303,14 +321,23 @@ async function handleRefreshList() {
   await fetchBackupList();
 }
 
-async function handleRestoreBackup(fileName: string) {
-  if (!confirm(t('settings.webdavBackup.confirmRestore', { name: fileName }))) {
+async function handleRestoreBackup(file: { name: string; encrypted: boolean }) {
+  if (file.encrypted && backupPassphrase.value.length < 8) {
+    backupMessage.value = t('settings.webdavBackup.passphraseRequired', '恢复完整备份前请输入备份密码。');
+    backupSuccess.value = false;
+    return;
+  }
+  if (!confirm(t('settings.webdavBackup.confirmRestore', { name: file.name }))) {
     return;
   }
   restoring.value = true;
   backupMessage.value = '';
   try {
-    const res = await axios.post('/api/v1/webdav-backup/restore', { fileName, proxyId: currentProxyId() });
+    const res = await axios.post('/api/v1/webdav-backup/restore', {
+      fileName: file.name,
+      passphrase: file.encrypted ? backupPassphrase.value : undefined,
+      proxyId: currentProxyId(),
+    });
     backupMessage.value = t('settings.webdavBackup.restoreSuccess', { message: res.data.message });
     backupSuccess.value = true;
   } catch (err: any) {

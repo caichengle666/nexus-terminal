@@ -202,8 +202,9 @@ docker compose up -d
 1.  **双文件管理器**：可以在布局中添加两个文件管理器组件（实验性功能，可能存在不稳定情况）。
 2.  **多文本编辑器**：在同一布局中添加多个文本编辑器的功能尚未实现。
 3. ARMv7 用户请使用此处的 [docker-compose.yml](https://github.com/Heavrnl/nexus-terminal/blob/main/doc/arm/docker-compose.yml)。由于 Apache Guacamole 未提供 guacd 的 ARMv7 架构镜像，所以禁用 RDP 功能，相关镜像暂时不再拉取。
-4. 关于数据备份，请自行备份目录下的 data 文件夹，本项目不提供相关备份功能。
-5. 由于浏览器限制，非https或者localhost无法复制终端内容，请使用https访问
+4. WebDAV 完整备份会加密保存整个 `data` 目录，包括数据库、`data/.env` 加密密钥、AI 会话、主题、背景、上传文件和挂起日志。恢复完整备份需要输入创建备份时设置的备份密码；恢复前系统会自动创建当前数据的安全快照。
+5. 旧版数据库 ZIP 备份仍可恢复，但不包含 `data` 目录中的文件，建议使用新的 `.zip.enc` 完整备份格式。
+6. 由于浏览器限制，非https或者localhost无法复制终端内容，请使用https访问
 
 
 ## 💐 致谢

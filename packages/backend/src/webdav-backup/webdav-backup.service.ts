@@ -6,15 +6,23 @@ import AdmZip from 'adm-zip';
 import { HttpProxyAgent } from 'http-proxy-agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
-const archiver = require('archiver');
-import { allDb, getDbInstance, runDb } from '../database/connection';
+import { allDb, closeDbInstance, getDbInstance, runDb } from '../database/connection';
 import { settingsRepository } from '../settings/settings.repository';
 import * as ProxyRepository from '../proxies/proxy.repository';
 import { decrypt } from '../utils/crypto';
+import { getBackendDataPath } from '../utils/paths';
+import {
+  createFullBackup,
+  extractFullBackup,
+  isFullBackupBuffer,
+  MIN_BACKUP_PASSPHRASE_LENGTH,
+} from './backup-archive';
 
 const WEBDAV_CONFIG_KEY = 'webdavBackupConfig';
 const BACKUP_DIR = '/nexus-terminal-backups';
-const BACKUP_FILE_NAME_PATTERN = /^nexus-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.zip$/;
+const LEGACY_BACKUP_FILE_NAME_PATTERN = /^nexus-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.zip$/;
+const FULL_BACKUP_FILE_NAME_PATTERN = /^nexus-full-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.zip\.enc$/;
+const BACKUP_FILE_NAME_PATTERN = new RegExp(`(?:${LEGACY_BACKUP_FILE_NAME_PATTERN.source})|(?:${FULL_BACKUP_FILE_NAME_PATTERN.source})`);
 const BACKUP_TABLES = [
   'settings', 'connections', 'proxies', 'ssh_keys',
   'tags', 'connection_tags', 'quick_commands', 'quick_command_tags',
@@ -46,6 +54,8 @@ export interface BackupFileInfo {
   name: string;
   size: number;
   lastModified: string;
+  format: 'full' | 'legacy';
+  encrypted: boolean;
 }
 
 // ---------- Config helpers ----------
@@ -141,79 +151,21 @@ function getBackupRemotePath(fileName: string): string {
   return path.posix.join(BACKUP_DIR, fileName);
 }
 
-async function collectBackupData(): Promise<Record<string, any>> {
-  const db = await getDbInstance();
-  const backup: Record<string, any> = {};
-
-  for (const table of BACKUP_TABLES) {
-    try {
-      const rows = await new Promise<any[]>((resolve, reject) => {
-        db.all(`SELECT * FROM ${table}`, (err: any, rows: any[]) => {
-          if (err) reject(err);
-          else resolve(rows);
-        });
-      });
-      backup[table] = rows;
-    } catch (err: any) {
-      console.warn(`[WebDAV Backup] 无法读取表 ${table}: ${err.message}`);
-      backup[table] = [];
-    }
-  }
-
-  if (backup.users) {
-    backup.users = backup.users.map((u: any) => ({
-      ...u,
-      hashed_password: undefined,
-      two_factor_secret: undefined,
-    }));
-  }
-
-  backup._meta = {
-    version: '1.0',
-    exportedAt: new Date().toISOString(),
-    description: 'Nexus Terminal 完整数据备份',
-  };
-
-  return backup;
-}
-
-export async function createBackup(proxyId?: number | null): Promise<{ fileName: string; size: number }> {
+export async function createBackup(passphrase: string, proxyId?: number | null): Promise<{ fileName: string; size: number; fileCount: number }> {
   const config = await getWebDavConfigForRequest(proxyId);
   const client = await createWebDavClient(config);
   await ensureBackupDir(client);
 
-  const data = await collectBackupData();
-  const jsonContent = JSON.stringify(data, null, 2);
-
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-backup-'));
-  const jsonFile = path.join(tmpDir, 'nexus-backup.json');
-  fs.writeFileSync(jsonFile, jsonContent, 'utf-8');
-
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const zipName = `nexus-backup-${timestamp}.zip`;
-  const zipPath = path.join(tmpDir, zipName);
+  const fileName = `nexus-full-backup-${timestamp}.zip.enc`;
+  const db = await getDbInstance();
+  await runDb(db, 'PRAGMA wal_checkpoint(TRUNCATE)');
+  const archive = await createFullBackup(getBackendDataPath(), passphrase);
+  const remotePath = path.posix.join(BACKUP_DIR, fileName).replace(/\\/g, '/');
+  await client.putFileContents(remotePath, archive.buffer, { overwrite: true });
 
-  await new Promise<void>((resolve, reject) => {
-    const output = fs.createWriteStream(zipPath);
-    const arch = require('archiver') as any;
-    const archive = arch('zip', { zlib: { level: 9 } });
-    output.on('close', resolve);
-    archive.on('error', reject);
-    archive.pipe(output);
-    archive.file(jsonFile, { name: 'nexus-backup.json' });
-    archive.finalize();
-  });
-
-  const fileBuffer = fs.readFileSync(zipPath);
-  const remotePath = path.posix.join(BACKUP_DIR, zipName).replace(/\\/g, '/');
-  await client.putFileContents(remotePath, fileBuffer, { overwrite: true });
-
-  const stats = fs.statSync(zipPath);
-  const size = stats.size;
-
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-  console.log(`[WebDAV Backup] 备份完成: ${zipName} (${(size / 1024).toFixed(1)} KB)`);
-  return { fileName: zipName, size };
+  console.log(`[WebDAV Backup] 完整备份完成: ${fileName} (${(archive.buffer.length / 1024).toFixed(1)} KB, ${archive.fileCount} 个文件)`);
+  return { fileName, size: archive.buffer.length, fileCount: archive.fileCount };
 }
 
 export async function listBackups(proxyId?: number | null): Promise<BackupFileInfo[]> {
@@ -228,6 +180,8 @@ export async function listBackups(proxyId?: number | null): Promise<BackupFileIn
       name: item.basename,
       size: item.size || 0,
       lastModified: item.lastmod || '',
+      format: FULL_BACKUP_FILE_NAME_PATTERN.test(item.basename) ? ('full' as const) : ('legacy' as const),
+      encrypted: FULL_BACKUP_FILE_NAME_PATTERN.test(item.basename),
     }))
     .sort((a, b) => b.name.localeCompare(a.name));
 
@@ -250,8 +204,7 @@ export async function deleteBackup(fileName: string, proxyId?: number | null): P
   await client.deleteFile(remotePath);
 }
 
-export async function restoreFromBackup(fileName: string, proxyId?: number | null): Promise<{ tables: string[]; message: string }> {
-  const buffer = await downloadBackup(fileName, proxyId);
+async function restoreLegacyBackup(buffer: Buffer, fileName: string): Promise<{ tables: string[]; message: string; requiresRestart: boolean; format: 'legacy' }> {
   let data: Record<string, any>;
 
   try {
@@ -318,7 +271,72 @@ export async function restoreFromBackup(fileName: string, proxyId?: number | nul
     throw error;
   }
 
-  return { tables: restoreTables, message: `已从 ${fileName} 恢复 ${restoreTables.length} 个表的数据。` };
+  return {
+    tables: restoreTables,
+    message: `已从 ${fileName} 恢复 ${restoreTables.length} 个表的数据。旧版备份未包含完整 data 目录。`,
+    requiresRestart: true,
+    format: 'legacy',
+  };
+}
+
+async function replaceDataDirectory(stagedDataPath: string): Promise<void> {
+  const targetDataPath = getBackendDataPath();
+  const safetyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-restore-safety-'));
+  const previousDataPath = path.join(safetyRoot, 'data');
+  let movedCurrentData = false;
+  let installedNewData = false;
+
+  try {
+    await closeDbInstance();
+    if (fs.existsSync(targetDataPath)) {
+      fs.renameSync(targetDataPath, previousDataPath);
+      movedCurrentData = true;
+    }
+    fs.renameSync(stagedDataPath, targetDataPath);
+    installedNewData = true;
+  } catch (error) {
+    if (installedNewData && fs.existsSync(targetDataPath)) {
+      fs.rmSync(targetDataPath, { recursive: true, force: true });
+    }
+    if (movedCurrentData && fs.existsSync(previousDataPath)) {
+      fs.renameSync(previousDataPath, targetDataPath);
+    }
+    throw error;
+  } finally {
+    fs.rmSync(safetyRoot, { recursive: true, force: true });
+  }
+}
+
+export async function restoreFromBackup(
+  fileName: string,
+  passphrase?: string,
+  proxyId?: number | null,
+): Promise<{ tables: string[]; message: string; requiresRestart: boolean; format: 'full' | 'legacy'; fileCount?: number }> {
+  const buffer = await downloadBackup(fileName, proxyId);
+
+  if (!isFullBackupBuffer(buffer)) {
+    return restoreLegacyBackup(buffer, fileName);
+  }
+
+  if (!passphrase || passphrase.length < MIN_BACKUP_PASSPHRASE_LENGTH) {
+    throw new Error(`完整备份需要至少 ${MIN_BACKUP_PASSPHRASE_LENGTH} 个字符的备份密码。`);
+  }
+
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-full-restore-'));
+  try {
+    const extracted = extractFullBackup(buffer, passphrase, temporaryDirectory);
+    const safetyBackup = await createBackup(passphrase, proxyId);
+    await replaceDataDirectory(extracted.dataPath);
+    return {
+      tables: [],
+      message: `已恢复完整 data 目录（${extracted.manifest.fileCount} 个文件）。恢复前的安全快照为 ${safetyBackup.fileName}。服务即将重启以加载恢复的数据。`,
+      requiresRestart: true,
+      format: 'full',
+      fileCount: extracted.manifest.fileCount,
+    };
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 }
 
 export async function testConnection(client?: WebDAVClient): Promise<boolean> {

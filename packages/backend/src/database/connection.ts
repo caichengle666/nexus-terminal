@@ -129,6 +129,16 @@ export const getDbInstance = (): Promise<sqlite3.Database> => {
     return dbInstancePromise;
 };
 
+export const closeDbInstance = async (): Promise<void> => {
+    if (!dbInstancePromise) return;
+
+    const db = await dbInstancePromise;
+    await new Promise<void>((resolve, reject) => {
+        db.close((error) => error ? reject(error) : resolve());
+    });
+    dbInstancePromise = null;
+};
+
 
 process.on('SIGINT', async () => { 
     if (dbInstancePromise) {

@@ -11,6 +11,7 @@ import {
   createWebDavClient,
   WebDavBackupConfig,
 } from './webdav-backup.service';
+import { MIN_BACKUP_PASSPHRASE_LENGTH } from './backup-archive';
 
 export const webdavBackupController = {
   async getConfig(req: Request, res: Response): Promise<void> {
@@ -91,10 +92,15 @@ export const webdavBackupController = {
 
   async runBackup(req: Request, res: Response): Promise<void> {
     try {
+      const { passphrase } = req.body ?? {};
+      if (typeof passphrase !== 'string' || passphrase.length < MIN_BACKUP_PASSPHRASE_LENGTH) {
+        res.status(400).json({ message: `备份密码至少需要 ${MIN_BACKUP_PASSPHRASE_LENGTH} 个字符。` });
+        return;
+      }
       const proxyId = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'proxyId')
         ? normalizeProxyId(req.body.proxyId)
         : undefined;
-      const result = await createBackup(proxyId);
+      const result = await createBackup(passphrase, proxyId);
       res.json({ message: '备份成功', ...result });
     } catch (error: any) {
       console.error('[WebDAV] 备份执行失败:', error);
@@ -135,7 +141,7 @@ export const webdavBackupController = {
 
   async restoreBackup(req: Request, res: Response): Promise<void> {
     try {
-      const { fileName } = req.body;
+      const { fileName, passphrase } = req.body;
       if (!fileName) {
         res.status(400).json({ message: '缺少文件名' });
         return;
@@ -143,8 +149,17 @@ export const webdavBackupController = {
       const proxyId = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'proxyId')
         ? normalizeProxyId(req.body.proxyId)
         : undefined;
-      const result = await restoreFromBackup(fileName, proxyId);
-      res.json({ message: result.message, tables: result.tables });
+      const result = await restoreFromBackup(fileName, passphrase, proxyId);
+      res.json({
+        message: result.message,
+        tables: result.tables,
+        format: result.format,
+        fileCount: result.fileCount,
+        requiresRestart: result.requiresRestart,
+      });
+      if (result.requiresRestart) {
+        setTimeout(() => process.exit(0), 500);
+      }
     } catch (error: any) {
       console.error('[WebDAV] 恢复备份失败:', error);
       res.status(500).json({ message: error.message || '恢复备份失败' });
