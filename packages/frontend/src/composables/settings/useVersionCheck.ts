@@ -139,7 +139,7 @@ export function useVersionCheck() {
     return versionCheckPromise;
   };
 
-  const downloadUpdate = async () => {
+  const downloadUpdate = async (proxy?: { type?: string; host?: string; port?: number; username?: string }) => {
     if (runtimeKind.value !== 'electron' || !electronApi?.downloadUpdate || !updateDownloadUrl.value) return;
     updateDownloadStatus.value = 'downloading';
     updateDownloadProgress.value = 0;
@@ -150,6 +150,7 @@ export function useVersionCheck() {
       url: updateDownloadUrl.value,
       checksumUrl: updateChecksumUrl.value,
       version: latestVersion.value,
+      proxy,
     });
     if (!result?.ok && result?.message) {
       updateDownloadStatus.value = 'failed';

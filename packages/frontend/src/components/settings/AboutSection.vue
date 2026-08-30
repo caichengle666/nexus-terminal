@@ -34,7 +34,7 @@
              type="button"
              :disabled="updateDownloadStatus === 'downloading' || updateDownloadStatus === 'verifying'"
              :title="$t('settings.about.downloadUpdate')"
-             @click="downloadUpdate"
+             @click="downloadUpdate(selectedProxy)"
              class="inline-flex items-center text-xs ml-2 px-2 py-0.5 rounded-full bg-warning text-white hover:bg-warning/80">
             <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-1 h-3 w-3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
             {{ $t('settings.about.updateAvailable', { version: latestVersion }) }}
@@ -66,6 +66,13 @@
             原作者：Heavrnl
           </button>
        </div>
+       <div v-if="runtimeKind === 'electron'" class="flex flex-wrap items-center gap-2 text-sm text-text-secondary">
+         <label for="update-proxy" class="text-text-secondary">下载代理</label>
+         <select id="update-proxy" :value="selectedProxyId" @change="onProxyChange" class="rounded border border-border bg-background px-2 py-1 text-xs text-foreground">
+           <option value="">不使用代理</option>
+           <option v-for="p in proxiesStore.proxies" :key="p.id" :value="String(p.id)">{{ p.name }} ({{ p.type }} {{ p.host }}:{{ p.port }})</option>
+         </select>
+       </div>
        <div v-if="runtimeKind === 'docker'" class="rounded-md border border-border bg-header/40 p-3 text-sm">
          <p class="font-medium text-foreground">{{ $t('settings.about.dockerTitle') }}</p>
          <p class="mt-1 text-text-secondary">{{ $t('settings.about.dockerDescription') }}</p>
@@ -93,9 +100,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useVersionCheck } from '../../composables/settings/useVersionCheck';
+import { useProxiesStore } from '../../stores/proxies.store';
 
 const { t } = useI18n(); // $t is available in template, but t can be used in script if needed
 
@@ -120,6 +128,17 @@ const {
 
 const copyStatus = ref<'idle' | 'copied' | 'error'>('idle');
 
+const proxiesStore = useProxiesStore();
+const selectedProxyId = ref<string>(localStorage.getItem('nexus-download-proxy-id') || '');
+const selectedProxy = computed(() => {
+  const proxy = proxiesStore.proxies.find(item => String(item.id) === selectedProxyId.value);
+  return proxy ? { type: proxy.type, host: proxy.host, port: proxy.port, username: proxy.username || undefined } : undefined;
+});
+const onProxyChange = (event: Event) => {
+  selectedProxyId.value = (event.target as HTMLSelectElement).value;
+  localStorage.setItem('nexus-download-proxy-id', selectedProxyId.value);
+};
+
 const openExternal = (url: string) => {
   const electronApi = (window as any).electronAPI;
   if (electronApi?.openExternal) {
@@ -142,6 +161,7 @@ const copyDockerUpgradeCommand = async () => {
 const reloadPage = () => window.location.reload();
 
 onMounted(async () => {
+  if (proxiesStore.proxies.length === 0 && !proxiesStore.isLoading) void proxiesStore.fetchProxies();
   if (!latestVersion.value && !isCheckingVersion.value) {
     await checkLatestVersion();
   }

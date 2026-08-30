@@ -7,6 +7,37 @@ const { spawn } = require('child_process');
 const { randomUUID } = require('crypto');
 const { createHash } = require('crypto');
 const https = require('https');
+const getBackendNodeModulesPath = () => {
+  if (app.isPackaged) return path.join(process.resourcesPath, 'packages', 'backend', 'dist', 'node_modules');
+  return path.join(__dirname, '..', 'packages', 'backend', 'node_modules');
+};
+
+const resolveBackendProxyModule = (name) => {
+  try {
+    return require.resolve(name, { paths: [getBackendNodeModulesPath()] });
+  } catch {
+    return null;
+  }
+};
+
+const proxyModuleCache = new Map();
+const loadBackendProxyAgent = async (name) => {
+  if (proxyModuleCache.has(name)) return proxyModuleCache.get(name);
+  const entry = resolveBackendProxyModule(name);
+  if (!entry) {
+    proxyModuleCache.set(name, null);
+    return null;
+  }
+  try {
+    const module = await import(url.pathToFileURL(entry).href);
+    const agent = module.HttpsProxyAgent || module.SocksProxyAgent || null;
+    proxyModuleCache.set(name, agent);
+    return agent;
+  } catch {
+    proxyModuleCache.set(name, null);
+    return null;
+  }
+};
 const fs = require('fs');
 const os = require('os');
 const iconv = require('iconv-lite');
@@ -52,6 +83,7 @@ app.commandLine.appendSwitch('disable-gpu-compositing');
 const pendingDownloadsInfo = new Map();
 let updateDownloadState = null;
 let completedUpdatePath = null;
+let updateProxyAgent = null;
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
 
 const allowedUpdateHosts = new Set([
@@ -68,6 +100,22 @@ const UPDATE_CONCURRENCY = 6;
 const UPDATE_MIRRORS = ['https://proxy.gitwarp.top', 'https://gh.gitwarp.top'];
 const UPDATE_USER_AGENT = 'Nexus-Terminal-Updater';
 
+const buildUpdateProxyAgent = async (proxy) => {
+  if (!proxy || !proxy.host || !proxy.port) return null;
+  const auth = proxy.username ? `${proxy.username}:${proxy.password || ''}@` : '';
+  if (proxy.type === 'HTTP') {
+    const Agent = await loadBackendProxyAgent('https-proxy-agent');
+    if (!Agent) return null;
+    try { return new Agent(`http://${auth}${proxy.host}:${proxy.port}`); } catch { return null; }
+  }
+  if (proxy.type === 'SOCKS5') {
+    const Agent = await loadBackendProxyAgent('socks-proxy-agent');
+    if (!Agent) return null;
+    try { return new Agent(`socks5://${auth}${proxy.host}:${proxy.port}`); } catch { return null; }
+  }
+  return null;
+};
+
 const validateUpdateUrl = (value) => {
   const parsed = new URL(value);
   if (parsed.protocol !== 'https:' || !allowedUpdateHosts.has(parsed.hostname)) {
@@ -82,7 +130,7 @@ const fetchUpdateText = (value, redirectCount = 0) => new Promise((resolve, reje
     return;
   }
   const parsed = validateUpdateUrl(value);
-  const request = https.get(parsed, { headers: { 'User-Agent': 'Nexus-Terminal-Updater' } }, (response) => {
+  const request = https.get(parsed, { headers: { 'User-Agent': 'Nexus-Terminal-Updater' }, ...(updateProxyAgent ? { agent: updateProxyAgent } : {}) }, (response) => {
     if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
       response.resume();
       fetchUpdateText(new URL(response.headers.location, parsed).href, redirectCount + 1).then(resolve, reject);
@@ -113,7 +161,7 @@ const followRedirect = (value, method, headers, redirectCount = 0) => new Promis
     reject(error);
     return;
   }
-  const request = https.request(parsed, { method, headers }, (response) => {
+  const request = https.request(parsed, { method, headers, ...(updateProxyAgent ? { agent: updateProxyAgent } : {}) }, (response) => {
     if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
       response.resume();
       followRedirect(new URL(response.headers.location, parsed).href, method, headers, redirectCount + 1).then(resolve, reject);
@@ -153,6 +201,7 @@ const downloadSingleSegment = (value, start, end, fd, onData, redirectCount = 0)
   const request = https.request(parsed, {
     method: 'GET',
     headers: { 'User-Agent': UPDATE_USER_AGENT, 'Accept-Encoding': 'identity', 'Range': `bytes=${start}-${end}` },
+    ...(updateProxyAgent ? { agent: updateProxyAgent } : {}),
   }, (response) => {
     if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
       response.resume();
@@ -202,7 +251,7 @@ const downloadSingleStream = (value, targetPath, onProgress, redirectCount = 0) 
     return;
   }
   const partPath = `${targetPath}.part`;
-  const request = https.get(parsed, { headers: { 'User-Agent': UPDATE_USER_AGENT } }, (response) => {
+  const request = https.get(parsed, { headers: { 'User-Agent': UPDATE_USER_AGENT }, ...(updateProxyAgent ? { agent: updateProxyAgent } : {}) }, (response) => {
     if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
       response.resume();
       downloadSingleStream(new URL(response.headers.location, parsed).href, targetPath, onProgress, redirectCount + 1).then(resolve, reject);
@@ -1111,6 +1160,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   }
   updateDownloadState = { request: null, file: null, requests: [], cancelled: false, sender: event.sender };
   completedUpdatePath = null;
+  updateProxyAgent = await buildUpdateProxyAgent(payload.proxy);
   const sendProgress = (status, extra = {}) => {
     if (!event.sender.isDestroyed()) event.sender.send('update-progress', { status, ...extra });
   };
@@ -1156,6 +1206,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     return { ok: false, message: error.message };
   } finally {
     updateDownloadState = null;
+    updateProxyAgent = null;
   }
 });
 
