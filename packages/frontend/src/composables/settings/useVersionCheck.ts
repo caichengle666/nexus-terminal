@@ -56,8 +56,10 @@ const getPlatformDownloadAsset = (assets: ReleaseAsset[]): ReleaseAsset | null =
   return null;
 };
 
-const getWindowsPortableAsset = (assets: ReleaseAsset[]): ReleaseAsset | null => {
-  return assets.find(asset => /portable.*\.zip$/i.test(asset.name)) || null;
+const getWindowsPortableAsset = (assets: ReleaseAsset[], isArm64: boolean): ReleaseAsset | null => {
+  const armAsset = assets.find(asset => /portable.*(?:arm64|aarch64).*\.zip$/i.test(asset.name));
+  if (isArm64 && armAsset) return armAsset;
+  return assets.find(asset => /portable.*\.zip$/i.test(asset.name) && !/(?:arm64|aarch64)/i.test(asset.name)) || armAsset || null;
 };
 
 const getChecksumAsset = (assets: ReleaseAsset[]): ReleaseAsset | null => {
@@ -122,7 +124,10 @@ export function useVersionCheck() {
           latestVersion.value = response.data.tag_name;
           latestReleaseUrl.value = response.data.html_url || null;
           const downloadAsset = getPlatformDownloadAsset(response.data.assets || []);
-          const portableAsset = getWindowsPortableAsset(response.data.assets || []);
+          const userAgentData = (navigator as Navigator & { userAgentData?: { architecture?: string } }).userAgentData;
+          const architecture = `${userAgentData?.architecture || ''} ${navigator.userAgent}`.toLowerCase();
+          const isArm64 = /arm64|aarch64|apple silicon/.test(architecture);
+          const portableAsset = getWindowsPortableAsset(response.data.assets || [], isArm64);
           const checksumAsset = getChecksumAsset(response.data.assets || []);
           updateDownloadUrl.value = downloadAsset?.browser_download_url || null;
           updatePortableUrl.value = portableAsset?.browser_download_url || null;
@@ -155,16 +160,21 @@ export function useVersionCheck() {
     updateDownloadError.value = null;
     updateChecksumVerified.value = false;
     updateSignatureStatus.value = null;
-    const result = await electronApi.downloadUpdate({
-      url: updateDownloadUrl.value,
-      checksumUrl: updateChecksumUrl.value,
-      fallbackUrl: updatePortableUrl.value,
-      version: latestVersion.value,
-      proxy,
-    });
-    if (!result?.ok && result?.message) {
+    try {
+      const result = await electronApi.downloadUpdate({
+        url: updateDownloadUrl.value,
+        checksumUrl: updateChecksumUrl.value,
+        fallbackUrl: updatePortableUrl.value,
+        version: latestVersion.value,
+        proxy,
+      });
+      if (!result?.ok && result?.message) {
+        updateDownloadStatus.value = 'failed';
+        updateDownloadError.value = result.message;
+      }
+    } catch (error) {
       updateDownloadStatus.value = 'failed';
-      updateDownloadError.value = result?.message || '更新下载失败。';
+      updateDownloadError.value = error instanceof Error ? error.message : '更新下载失败。';
     }
   };
 

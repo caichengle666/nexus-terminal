@@ -1174,6 +1174,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   const sendProgress = (status, extra = {}) => {
     if (!event.sender.isDestroyed()) event.sender.send('update-progress', { status, ...extra });
   };
+  let fallbackPath = null;
 
   try {
     sendProgress('downloading', { receivedBytes: 0, totalBytes: 0, progress: 0 });
@@ -1194,7 +1195,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
       }
       const fallbackUrl = validateUpdateUrl(payload.fallbackUrl);
       const fallbackFilename = path.basename(decodeURIComponent(fallbackUrl.pathname));
-      const fallbackPath = path.join(updaterDir, fallbackFilename.replace(/[<>:"/\\|?*]/g, '_'));
+      fallbackPath = path.join(updaterDir, fallbackFilename.replace(/[<>:"/\\|?*]/g, '_'));
       sendProgress('downloading', { receivedBytes: 0, totalBytes: 0, progress: 0, fallback: true });
       result = await downloadUpdateAsset(payload.fallbackUrl, fallbackPath, (receivedBytes, totalBytes) => {
         sendProgress('downloading', {
@@ -1241,6 +1242,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     return { ok: true, path: updatePath, sha256: result.sha256, checksumVerified, signature: signature.status, fallback: fallbackUsed };
   } catch (error) {
     if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
+    if (fallbackPath && fallbackPath !== targetPath) cleanupUpdatePartial(fallbackPath);
     sendProgress(updateDownloadState.cancelled ? 'cancelled' : 'failed', { message: error.message });
     return { ok: false, message: error.message };
   } finally {
@@ -1286,8 +1288,19 @@ ipcMain.handle('install-update', async () => {
       child.on('error', error => resolve(error.message));
     });
     if (extraction) return { ok: false, message: extraction };
-    const portableExecutable = path.join(extractPath, 'Nexus Terminal.exe');
-    if (!fs.existsSync(portableExecutable)) return { ok: false, message: '便携版解压成功，但找不到 Nexus Terminal.exe。' };
+    const findPortableExecutable = (directory) => {
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const entryPath = path.join(directory, entry.name);
+        if (entry.isFile() && entry.name.toLowerCase() === 'nexus terminal.exe') return entryPath;
+        if (entry.isDirectory()) {
+          const nested = findPortableExecutable(entryPath);
+          if (nested) return nested;
+        }
+      }
+      return null;
+    };
+    const portableExecutable = findPortableExecutable(extractPath);
+    if (!portableExecutable || !fs.existsSync(portableExecutable)) return { ok: false, message: '便携版解压成功，但找不到 Nexus Terminal.exe。' };
     const error = await shell.openPath(portableExecutable);
     if (error) return { ok: false, message: error };
     completedUpdatePath = null;
