@@ -42,6 +42,7 @@ const fs = require('fs');
 const os = require('os');
 const iconv = require('iconv-lite');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const { installPortableUpdate } = require('./updater-service');
 
 let mainWindow;
 let expressApp;
@@ -1276,36 +1277,15 @@ ipcMain.handle('install-update', async () => {
   });
   if (confirmation.response !== 0) return { ok: false, cancelled: true, message: '已取消安装。' };
   if (isPortable && process.platform === 'win32') {
-    const extractPath = path.join(path.dirname(completedUpdatePath), `portable-${Date.now()}`);
-    const escapedZip = completedUpdatePath.replace(/'/g, "''");
-    const escapedDestination = extractPath.replace(/'/g, "''");
-    const command = `Expand-Archive -LiteralPath '${escapedZip}' -DestinationPath '${escapedDestination}' -Force`;
-    const extraction = await new Promise(resolve => {
-      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true });
-      let output = '';
-      child.stderr.on('data', data => { output += data.toString(); });
-      child.on('close', code => resolve(code === 0 ? null : (output.trim() || '解压便携版失败。')));
-      child.on('error', error => resolve(error.message));
+    const result = await installPortableUpdate({
+      archivePath: completedUpdatePath,
+      updaterDir: path.dirname(completedUpdatePath),
+      shell,
     });
-    if (extraction) return { ok: false, message: extraction };
-    const findPortableExecutable = (directory) => {
-      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-        const entryPath = path.join(directory, entry.name);
-        if (entry.isFile() && entry.name.toLowerCase() === 'nexus terminal.exe') return entryPath;
-        if (entry.isDirectory()) {
-          const nested = findPortableExecutable(entryPath);
-          if (nested) return nested;
-        }
-      }
-      return null;
-    };
-    const portableExecutable = findPortableExecutable(extractPath);
-    if (!portableExecutable || !fs.existsSync(portableExecutable)) return { ok: false, message: '便携版解压成功，但找不到 Nexus Terminal.exe。' };
-    const error = await shell.openPath(portableExecutable);
-    if (error) return { ok: false, message: error };
+    if (!result.ok) return result;
     completedUpdatePath = null;
     completedUpdateKind = null;
-    return { ok: true, fallback: true };
+    return result;
   }
   if (process.platform === 'linux') {
     try { fs.chmodSync(completedUpdatePath, 0o755); } catch { /* shell.openPath will report failures */ }
