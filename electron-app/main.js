@@ -786,6 +786,11 @@ ipcMain.on('minimize-window', () => {
 
 ipcMain.handle('get-app-version', () => require('./package.json').releaseVersion || app.getVersion());
 ipcMain.handle('get-platform', () => process.platform);
+ipcMain.handle('get-installation-kind', () => {
+  if (process.platform !== 'win32') return 'system';
+  const markerPath = path.join(path.dirname(app.getPath('exe')), '.Portable');
+  return fs.existsSync(markerPath) ? 'portable' : 'system';
+});
 
 ipcMain.handle('download-update', async (event, payload = {}) => {
   if (updateDownloadState) return { ok: false, message: '已有更新正在下载。' };
@@ -810,6 +815,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   updateDownloadState = { request: null, file: null, requests: [], cancelled: false, sender: event.sender };
   completedUpdatePath = null;
   completedUpdateKind = null;
+  if (process.platform === 'win32' && /\.zip$/i.test(safeFilename)) completedUpdateKind = 'portable';
   updateProxyAgent = await buildUpdateProxyAgent(payload.proxy);
   const sendProgress = (status, extra = {}) => {
     if (!event.sender.isDestroyed()) event.sender.send('update-progress', { status, ...extra });

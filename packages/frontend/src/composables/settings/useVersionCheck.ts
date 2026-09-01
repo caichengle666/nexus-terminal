@@ -22,11 +22,11 @@ const isVersionNewer = (latest: string, current: string) => {
   return false;
 };
 
-const getPlatformDownloadAsset = (assets: ReleaseAsset[]): ReleaseAsset | null => {
+const getPlatformDownloadAsset = (assets: ReleaseAsset[], nativePlatform?: string): ReleaseAsset | null => {
   const userAgentData = (navigator as Navigator & {
     userAgentData?: { platform?: string; architecture?: string };
   }).userAgentData;
-  const platform = `${navigator.userAgent} ${userAgentData?.platform || ''}`.toLowerCase();
+  const platform = `${nativePlatform || ''} ${navigator.userAgent} ${userAgentData?.platform || ''}`.toLowerCase();
   const architecture = `${userAgentData?.architecture || ''} ${navigator.userAgent}`.toLowerCase();
   const isArm64 = /arm64|aarch64|apple silicon/.test(architecture);
   const findAsset = (pattern: RegExp) => assets.find(asset => pattern.test(asset.name)) || null;
@@ -80,6 +80,8 @@ const updateDownloadError = ref<string | null>(null);
 const updateChecksumVerified = ref(false);
 const updateSignatureStatus = ref<'valid' | 'invalid' | 'unavailable' | null>(null);
 let versionCheckPromise: Promise<void> | null = null;
+let nativePlatform: string | null = null;
+let installationKind: 'system' | 'portable' = 'system';
 
 export function useVersionCheck() {
   const { t } = useI18n();
@@ -101,6 +103,10 @@ export function useVersionCheck() {
     try {
       const version = await (window as any).electronAPI?.getAppVersion?.();
       if (typeof version === 'string' && version.trim()) appVersion.value = version.trim();
+      const platform = await (window as any).electronAPI?.getPlatform?.();
+      if (typeof platform === 'string' && platform.trim()) nativePlatform = platform.trim().toLowerCase();
+      const kind = await (window as any).electronAPI?.getInstallationKind?.();
+      if (kind === 'portable' || kind === 'system') installationKind = kind;
     } catch (error) {
       console.warn('[VersionCheck] Unable to read Electron app version, using frontend fallback.', error);
     }
@@ -123,11 +129,14 @@ export function useVersionCheck() {
         if (response.data && response.data.tag_name) {
           latestVersion.value = response.data.tag_name;
           latestReleaseUrl.value = response.data.html_url || null;
-          const downloadAsset = getPlatformDownloadAsset(response.data.assets || []);
+          const assets = response.data.assets || [];
+          const downloadAsset = installationKind === 'portable' && nativePlatform === 'win32'
+            ? getWindowsPortableAsset(assets, /arm64|aarch64/.test(`${navigator.userAgent} ${navigator.platform}`.toLowerCase()))
+            : getPlatformDownloadAsset(assets, nativePlatform || undefined);
           const userAgentData = (navigator as Navigator & { userAgentData?: { architecture?: string } }).userAgentData;
           const architecture = `${userAgentData?.architecture || ''} ${navigator.userAgent}`.toLowerCase();
           const isArm64 = /arm64|aarch64|apple silicon/.test(architecture);
-          const portableAsset = getWindowsPortableAsset(response.data.assets || [], isArm64);
+          const portableAsset = getWindowsPortableAsset(assets, isArm64);
           const checksumAsset = getChecksumAsset(response.data.assets || []);
           updateDownloadUrl.value = downloadAsset?.browser_download_url || null;
           updatePortableUrl.value = portableAsset?.browser_download_url || null;
