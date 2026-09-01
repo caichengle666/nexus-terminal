@@ -92,6 +92,7 @@ const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可
 const buildUpdateProxyAgent = (proxy) => updateDownloadService.buildProxyAgent(proxy, loadBackendProxyAgent);
 const validateUpdateUrl = updateNetwork.validateUpdateUrl;
 const fetchUpdateText = updateNetwork.fetchUpdateText;
+const cleanupUpdatePartial = updateDownloadService.cleanupPartial;
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.setSkipTaskbar(false);
@@ -827,6 +828,14 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     let result;
     let updatePath = targetPath;
     let fallbackUsed = false;
+    let checksumText = null;
+    if (payload.checksumUrl) {
+      checksumText = await fetchUpdateText(payload.checksumUrl, updateProxyAgent);
+    }
+    const getExpectedChecksum = filePath => checksumText
+      ? extractExpectedChecksum(checksumText, path.basename(filePath))
+      : null;
+    const expectedPrimaryChecksum = getExpectedChecksum(targetPath);
     const downloadContext = {
       agent: updateProxyAgent,
       isCancelled: () => updateDownloadState?.cancelled,
@@ -843,7 +852,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
           totalBytes,
           progress: totalBytes > 0 ? Math.floor((receivedBytes / totalBytes) * 100) : null,
         });
-      });
+      }, { allowMirrors: Boolean(expectedPrimaryChecksum) });
     } catch (primaryError) {
       if (process.platform !== 'win32' || typeof payload.fallbackUrl !== 'string' || updateDownloadState.cancelled) {
         throw primaryError;
@@ -851,6 +860,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
       const fallbackUrl = validateUpdateUrl(payload.fallbackUrl);
       const fallbackFilename = path.basename(decodeURIComponent(fallbackUrl.pathname));
       fallbackPath = path.join(updaterDir, fallbackFilename.replace(/[<>:"/\\|?*]/g, '_'));
+      const expectedFallbackChecksum = getExpectedChecksum(fallbackPath);
       sendProgress('downloading', { receivedBytes: 0, totalBytes: 0, progress: 0, fallback: true });
       result = await updateDownloadService.downloadAsset(payload.fallbackUrl, fallbackPath, downloadContext, (receivedBytes, totalBytes) => {
         sendProgress('downloading', {
@@ -859,7 +869,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
           progress: totalBytes > 0 ? Math.floor((receivedBytes / totalBytes) * 100) : null,
           fallback: true,
         });
-      });
+      }, { allowMirrors: Boolean(expectedFallbackChecksum) });
       updatePath = fallbackPath;
       fallbackUsed = true;
       completedUpdateKind = 'portable';
@@ -867,20 +877,14 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     }
     if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
 
-    let checksumVerified = false;
-    if (payload.checksumUrl) {
-      try {
-        const checksumText = await fetchUpdateText(payload.checksumUrl, updateProxyAgent);
-        const expectedChecksum = extractExpectedChecksum(checksumText, path.basename(updatePath));
-        if (expectedChecksum && expectedChecksum !== result.sha256.toLowerCase()) {
-          throw new Error('更新文件 SHA-256 校验失败。');
-        }
-        checksumVerified = Boolean(expectedChecksum);
-      } catch (error) {
-        fs.rmSync(updatePath, { force: true });
-        throw error;
-      }
+    const expectedChecksum = getExpectedChecksum(updatePath);
+    if (payload.checksumUrl && !expectedChecksum) {
+      throw new Error(`校验文件中没有找到 ${path.basename(updatePath)} 的 SHA-256。`);
     }
+    if (expectedChecksum && expectedChecksum !== result.sha256.toLowerCase()) {
+      throw new Error('更新文件 SHA-256 校验失败。');
+    }
+    const checksumVerified = Boolean(expectedChecksum);
 
     sendProgress('verifying', { sha256: result.sha256, checksumVerified, fallback: fallbackUsed });
     const signature = await verifyUpdateSignature(updatePath);
@@ -934,7 +938,6 @@ ipcMain.handle('install-update', async () => {
     const result = await installPortableUpdate({
       archivePath: completedUpdatePath,
       updaterDir: path.dirname(completedUpdatePath),
-      shell,
     });
     if (!result.ok) return result;
     completedUpdatePath = null;

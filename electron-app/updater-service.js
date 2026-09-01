@@ -3,7 +3,13 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const findPortableExecutable = (directory) => {
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = fs.readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
     const entryPath = path.join(directory, entry.name);
     if (entry.isFile() && entry.name.toLowerCase() === 'nexus terminal.exe') return entryPath;
     if (entry.isDirectory()) {
@@ -25,20 +31,33 @@ const extractPortableUpdate = (archivePath, destinationPath) => new Promise(reso
   child.on('error', error => resolve(error.message));
 });
 
-const installPortableUpdate = async ({ archivePath, updaterDir, shell }) => {
+const installPortableUpdate = async ({ archivePath, updaterDir }) => {
   const extractPath = path.join(updaterDir, `portable-${Date.now()}`);
   const extraction = await extractPortableUpdate(archivePath, extractPath);
-  if (extraction) return { ok: false, message: extraction };
+  if (extraction) {
+    fs.rmSync(extractPath, { recursive: true, force: true });
+    return { ok: false, message: extraction };
+  }
   const executable = findPortableExecutable(extractPath);
-  if (!executable) return { ok: false, message: '便携版解压成功，但找不到 Nexus Terminal.exe。' };
-  const escapedExecutable = executable.replace(/"/g, '\\"');
-  const child = spawn('cmd.exe', ['/d', '/s', '/c', `timeout /t 1 /nobreak >nul & start "" "${escapedExecutable}"`], {
-    detached: true,
-    windowsHide: true,
-    stdio: 'ignore',
+  if (!executable) {
+    fs.rmSync(extractPath, { recursive: true, force: true });
+    return { ok: false, message: '便携版解压成功，但找不到 Nexus Terminal.exe。' };
+  }
+  return new Promise(resolve => {
+    const child = spawn(executable, [], {
+      detached: true,
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    child.once('error', error => {
+      fs.rmSync(extractPath, { recursive: true, force: true });
+      resolve({ ok: false, message: `启动便携版失败：${error.message}` });
+    });
+    child.once('spawn', () => {
+      child.unref();
+      resolve({ ok: true, fallback: true });
+    });
   });
-  child.unref();
-  return { ok: true, fallback: true };
 };
 
 module.exports = { installPortableUpdate };

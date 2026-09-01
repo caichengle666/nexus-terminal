@@ -105,7 +105,13 @@ const downloadParallel = async (value, targetPath, totalBytes, context, onProgre
   const chunkCount = Math.max(1, Math.min(MAX_SEGMENTS, Math.ceil(totalBytes / segmentSize)));
   let meta = null;
   try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch { /* resume metadata unavailable */ }
-  if (!meta || meta.url !== value || meta.totalBytes !== totalBytes || meta.chunkCount !== chunkCount) {
+  if (!meta
+    || meta.url !== value
+    || meta.totalBytes !== totalBytes
+    || meta.chunkCount !== chunkCount
+    || !Array.isArray(meta.segments)
+    || meta.segments.length !== chunkCount
+    || meta.segments.some(segment => !Number.isInteger(segment.downloaded) || segment.downloaded < 0)) {
     fs.rmSync(partPath, { force: true });
     const segments = Array.from({ length: chunkCount }, (_, index) => ({ start: index * segmentSize, end: Math.min(totalBytes - 1, index * segmentSize + segmentSize - 1), downloaded: 0 }));
     meta = { url: value, totalBytes, chunkCount, segmentSize, segments }; fs.writeFileSync(metaPath, JSON.stringify(meta));
@@ -117,7 +123,11 @@ const downloadParallel = async (value, targetPath, totalBytes, context, onProgre
       const segment = meta.segments[next++]; const expected = segment.end - segment.start + 1;
       if (segment.downloaded >= expected) continue;
       try {
-        await downloadSegment(value, segment.start + segment.downloaded, segment.end, fd, context, delta => { segment.downloaded += delta; onProgress(aggregated(), totalBytes); });
+        await downloadSegment(value, segment.start + segment.downloaded, segment.end, fd, context, delta => {
+          segment.downloaded += delta;
+          fs.writeFileSync(metaPath, JSON.stringify(meta));
+          onProgress(aggregated(), totalBytes);
+        });
         fs.writeFileSync(metaPath, JSON.stringify(meta));
       } catch (error) { failed = true; throw error; }
     }
@@ -134,9 +144,10 @@ const downloadParallel = async (value, targetPath, totalBytes, context, onProgre
   } finally { if (fd !== null) try { fs.closeSync(fd); } catch { /* best effort */ } }
 };
 
-const downloadAsset = async (value, targetPath, context, onProgress) => {
+const downloadAsset = async (value, targetPath, context, onProgress, options = {}) => {
   let lastError = null;
-  for (const source of [value, ...MIRRORS.map(mirror => `${mirror}/${value}`)]) {
+  const sources = options.allowMirrors ? [value, ...MIRRORS.map(mirror => `${mirror}/${value}`)] : [value];
+  for (const source of sources) {
     try {
       const result = await probe(source, context);
       return result.rangeSupported ? await downloadParallel(source, targetPath, result.totalBytes, context, onProgress) : await downloadStream(source, targetPath, context, onProgress);

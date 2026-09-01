@@ -3,7 +3,8 @@ const { spawn } = require('child_process');
 const extractExpectedChecksum = (text, filename) => {
   const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const matchingLine = text.split(/\r?\n/).find(line => new RegExp(`(?:^|\\s)${escapedFilename}(?:\\s|$)`, 'i').test(line));
-  const hashMatch = (matchingLine || text).match(/\b[a-f0-9]{64}\b/i);
+  if (!matchingLine) return null;
+  const hashMatch = matchingLine.match(/\b[a-f0-9]{64}\b/i);
   return hashMatch ? hashMatch[0].toLowerCase() : null;
 };
 

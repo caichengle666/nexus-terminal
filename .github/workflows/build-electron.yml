@@ -143,6 +143,14 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
+      - name: Create SHA-256 manifest
+        shell: bash
+        run: |
+          : > SHA256SUMS.txt
+          while IFS= read -r -d '' file; do
+            (cd "$(dirname "$file")" && sha256sum -- "$(basename "$file")") >> SHA256SUMS.txt
+          done < <(find Nexus-Terminal-Windows-Installer Nexus-Terminal-Windows-Portable-Unpacked Nexus-Terminal-macOS-arm64 -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' \) -print0 | sort -z)
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
@@ -151,3 +159,4 @@ jobs:
             Nexus-Terminal-Windows-Installer/*.exe
             Nexus-Terminal-Windows-Portable-Unpacked/*.zip
             Nexus-Terminal-macOS-arm64/*.dmg
+            SHA256SUMS.txt
