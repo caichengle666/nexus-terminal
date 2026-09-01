@@ -31,8 +31,13 @@ const installPortableUpdate = async ({ archivePath, updaterDir, shell }) => {
   if (extraction) return { ok: false, message: extraction };
   const executable = findPortableExecutable(extractPath);
   if (!executable) return { ok: false, message: '便携版解压成功，但找不到 Nexus Terminal.exe。' };
-  const error = await shell.openPath(executable);
-  if (error) return { ok: false, message: error };
+  const escapedExecutable = executable.replace(/"/g, '\\"');
+  const child = spawn('cmd.exe', ['/d', '/s', '/c', `timeout /t 1 /nobreak >nul & start "" "${escapedExecutable}"`], {
+    detached: true,
+    windowsHide: true,
+    stdio: 'ignore',
+  });
+  child.unref();
   return { ok: true, fallback: true };
 };
 

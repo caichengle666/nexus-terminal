@@ -924,8 +924,8 @@ ipcMain.handle('install-update', async () => {
     type: 'question',
     title: '安装 Nexus Terminal 更新',
     message: `更新文件已下载：${path.basename(completedUpdatePath)}`,
-    detail: isPortable ? '安装器不可用，将解压便携版到临时目录并打开新版本。' : '即将打开系统安装程序。请确认文件来源和签名后继续。',
-    buttons: [isPortable ? '打开便携版' : '打开安装程序', '取消'],
+    detail: isPortable ? '将解压便携版并启动新版本。当前程序会先退出，请保存正在进行的工作。' : '即将打开系统安装程序。请先保存工作，确认后当前程序将退出。',
+    buttons: [isPortable ? '关闭并打开便携版' : '关闭并打开安装程序', '取消'],
     defaultId: 0,
     cancelId: 1,
   });
@@ -939,6 +939,7 @@ ipcMain.handle('install-update', async () => {
     if (!result.ok) return result;
     completedUpdatePath = null;
     completedUpdateKind = null;
+    setTimeout(() => app.quit(), 150);
     return result;
   }
   if (process.platform === 'linux') {
@@ -949,6 +950,7 @@ ipcMain.handle('install-update', async () => {
   if (error) return { ok: false, message: error };
   completedUpdatePath = null;
   completedUpdateKind = null;
+  setTimeout(() => app.quit(), 150);
   return { ok: true };
 });
 
