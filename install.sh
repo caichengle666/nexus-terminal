@@ -35,7 +35,7 @@ Nexus Terminal 一键安装/更新脚本
 
 参数:
   --dir PATH       安装目录，默认 /opt/nexus-terminal
-  --tag TAG        镜像标签，例如 latest、0.9.22.18
+  --tag TAG        镜像标签，例如 latest、0.9.22.19
   --ref REF        下载 Compose 的 Git 分支或标签，默认 main
   --non-interactive  无终端提示，直接使用默认值或现有配置
   --interactive    强制进入交互模式，没有终端时失败
