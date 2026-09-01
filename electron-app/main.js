@@ -864,7 +864,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     let checksumVerified = false;
     if (payload.checksumUrl) {
       try {
-        const checksumText = await fetchUpdateText(payload.checksumUrl);
+        const checksumText = await fetchUpdateText(payload.checksumUrl, updateProxyAgent);
         const expectedChecksum = extractExpectedChecksum(checksumText, path.basename(updatePath));
         if (expectedChecksum && expectedChecksum !== result.sha256.toLowerCase()) {
           throw new Error('更新文件 SHA-256 校验失败。');

@@ -83,7 +83,7 @@ curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/i
 
 The default installation directory is `/opt/nexus-terminal`. To choose a directory or image tag:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --dir /srv/nexus-terminal --tag 0.9.22.19
+curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --dir /srv/nexus-terminal --tag 0.9.22.20
 ```
 
 

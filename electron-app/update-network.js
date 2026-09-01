@@ -25,8 +25,8 @@ const requestWithRedirect = (value, options = {}, redirectCount = 0) => new Prom
   request.end();
 });
 
-const fetchUpdateText = async value => {
-  const { response } = await requestWithRedirect(value, { method: 'GET' });
+const fetchUpdateText = async (value, agent = null) => {
+  const { response } = await requestWithRedirect(value, { method: 'GET', agent });
   if (response.statusCode !== 200) { response.resume(); throw new Error(`获取更新校验文件失败（HTTP ${response.statusCode}）。`); }
   let body = '';
   response.setEncoding('utf8');
