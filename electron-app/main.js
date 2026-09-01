@@ -44,6 +44,7 @@ const iconv = require('iconv-lite');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { installPortableUpdate } = require('./updater-service');
 const { extractExpectedChecksum, verifyUpdateSignature } = require('./update-verification');
+const updateNetwork = require('./update-network');
 
 let mainWindow;
 let expressApp;
@@ -89,19 +90,13 @@ let completedUpdateKind = null;
 let updateProxyAgent = null;
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
 
-const allowedUpdateHosts = new Set([
-  'github.com',
-  'objects.githubusercontent.com',
-  'release-assets.githubusercontent.com',
-  'proxy.gitwarp.top',
-  'gh.gitwarp.top',
-]);
+const allowedUpdateHosts = updateNetwork.ALLOWED_HOSTS;
 
 const UPDATE_SEGMENT_SIZE = 4 * 1024 * 1024;
 const UPDATE_MAX_SEGMENTS = 32;
 const UPDATE_CONCURRENCY = 6;
-const UPDATE_MIRRORS = ['https://proxy.gitwarp.top', 'https://gh.gitwarp.top'];
-const UPDATE_USER_AGENT = 'Nexus-Terminal-Updater';
+const UPDATE_MIRRORS = updateNetwork.MIRRORS;
+const UPDATE_USER_AGENT = updateNetwork.USER_AGENT;
 
 const buildUpdateProxyAgent = async (proxy) => {
   if (!proxy || !proxy.host || !proxy.port) return null;
@@ -119,13 +114,7 @@ const buildUpdateProxyAgent = async (proxy) => {
   return null;
 };
 
-const validateUpdateUrl = (value) => {
-  const parsed = new URL(value);
-  if (parsed.protocol !== 'https:' || !allowedUpdateHosts.has(parsed.hostname)) {
-    throw new Error('更新资源必须来自 GitHub HTTPS 地址。');
-  }
-  return parsed;
-};
+const validateUpdateUrl = updateNetwork.validateUpdateUrl;
 
 const fetchUpdateText = (value, redirectCount = 0) => new Promise((resolve, reject) => {
   if (redirectCount > 5) {
