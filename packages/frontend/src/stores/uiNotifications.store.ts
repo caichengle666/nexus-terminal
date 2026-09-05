@@ -24,7 +24,10 @@ export interface TaskNotification {
   retry?: () => void | Promise<void>;
 }
 
+type StoredTaskNotification = Omit<TaskNotification, 'retry'>;
+
 const TASK_NOTIFICATIONS_STORAGE_KEY = 'nexus.taskNotifications';
+const DISMISSED_TASK_NOTIFICATIONS_STORAGE_KEY = 'nexus.dismissedTaskNotifications';
 let taskAudioContext: AudioContext | null = null;
 
 const isTerminalTaskStatus = (status: TaskNotificationStatus) => status !== 'running';
@@ -58,29 +61,57 @@ const playTaskCompletionSound = () => {
   }
 };
 
+const isStoredTaskNotification = (task: unknown): task is StoredTaskNotification => (
+  !!task && typeof task === 'object'
+  && typeof (task as TaskNotification).id === 'string'
+  && typeof (task as TaskNotification).title === 'string'
+  && typeof (task as TaskNotification).message === 'string'
+  && typeof (task as TaskNotification).status === 'string'
+  && typeof (task as TaskNotification).createdAt === 'number'
+  && typeof (task as TaskNotification).updatedAt === 'number'
+  && typeof (task as TaskNotification).read === 'boolean'
+);
+
 const loadTaskNotifications = (): TaskNotification[] => {
   try {
     const stored = JSON.parse(localStorage.getItem(TASK_NOTIFICATIONS_STORAGE_KEY) || '[]');
     if (!Array.isArray(stored)) return [];
-    return stored.filter((task): task is TaskNotification => (
-      task && typeof task.id === 'string' && typeof task.title === 'string'
-      && typeof task.message === 'string' && typeof task.status === 'string'
-      && typeof task.createdAt === 'number' && typeof task.updatedAt === 'number'
-      && typeof task.read === 'boolean'
-    )).slice(0, 50);
+    return stored.filter(isStoredTaskNotification).slice(0, 50);
   } catch {
     return [];
+  }
+};
+
+const loadDismissedTaskNotifications = (): Record<string, StoredTaskNotification> => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DISMISSED_TASK_NOTIFICATIONS_STORAGE_KEY) || '{}');
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+    return Object.fromEntries(
+      Object.entries(stored)
+        .filter(([, task]) => isStoredTaskNotification(task))
+        .slice(-50),
+    ) as Record<string, StoredTaskNotification>;
+  } catch {
+    return {};
   }
 };
 
 export const useUiNotificationsStore = defineStore('uiNotifications', () => {
   const notifications = ref<UINotification[]>([]);
   const taskNotifications = ref<TaskNotification[]>(loadTaskNotifications());
+  const dismissedTaskNotifications = loadDismissedTaskNotifications();
   let nextId = 0;
 
   const persistTaskNotifications = () => {
+    if (typeof localStorage === 'undefined') return;
     const serializableTasks = taskNotifications.value.map(({ retry: _retry, ...task }) => task);
     localStorage.setItem(TASK_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(serializableTasks));
+  };
+
+  const persistDismissedTaskNotifications = () => {
+    if (typeof localStorage === 'undefined') return;
+    const entries = Object.entries(dismissedTaskNotifications).slice(-50);
+    localStorage.setItem(DISMISSED_TASK_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
   };
 
   /**
@@ -133,14 +164,52 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
       updatedAt: now,
       read: false,
     };
+    delete dismissedTaskNotifications[entry.id];
     taskNotifications.value = [entry, ...taskNotifications.value].slice(0, 50);
     persistTaskNotifications();
+    persistDismissedTaskNotifications();
     return entry.id;
   };
 
   const updateTaskNotification = (id: string, updates: Partial<Omit<TaskNotification, 'id' | 'createdAt'>>) => {
     const index = taskNotifications.value.findIndex(task => task.id === id);
-    if (index === -1) return;
+    if (index === -1) {
+      const dismissedTask = dismissedTaskNotifications[id];
+      if (!dismissedTask) return;
+      const restoredTask = { ...dismissedTask, ...updates, updatedAt: Date.now() };
+      if (restoredTask.status === 'running') {
+        if (dismissedTask.status === 'running') {
+          dismissedTaskNotifications[id] = restoredTask;
+          persistDismissedTaskNotifications();
+          return;
+        }
+        delete dismissedTaskNotifications[id];
+        addTaskNotification({
+          id,
+          title: restoredTask.title,
+          message: restoredTask.message,
+          status: restoredTask.status,
+          kind: restoredTask.kind,
+          progress: restoredTask.progress,
+          retry: updates.retry,
+        });
+        persistDismissedTaskNotifications();
+        return;
+      }
+      delete dismissedTaskNotifications[id];
+      addTaskNotification({
+        id,
+        title: restoredTask.title,
+        message: restoredTask.message,
+        status: restoredTask.status,
+        kind: restoredTask.kind,
+        progress: restoredTask.progress,
+        retry: updates.retry,
+      });
+      playTaskCompletionSound();
+      persistDismissedTaskNotifications();
+      return;
+    }
     const previousStatus = taskNotifications.value[index].status;
     taskNotifications.value[index] = {
       ...taskNotifications.value[index],
@@ -154,6 +223,26 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
   };
 
   const upsertTaskNotification = (task: Omit<TaskNotification, 'createdAt' | 'updatedAt' | 'read'>) => {
+    const dismissedTask = dismissedTaskNotifications[task.id];
+    if (dismissedTask) {
+      if (task.status === 'running') {
+        if (dismissedTask.status === 'running') {
+          dismissedTaskNotifications[task.id] = { ...dismissedTask, ...task, updatedAt: Date.now() };
+          persistDismissedTaskNotifications();
+          return task.id;
+        }
+        delete dismissedTaskNotifications[task.id];
+        persistDismissedTaskNotifications();
+      } else if (dismissedTask.status !== 'running') {
+        return task.id;
+      } else {
+        delete dismissedTaskNotifications[task.id];
+        const restoredId = addTaskNotification(task);
+        playTaskCompletionSound();
+        persistDismissedTaskNotifications();
+        return restoredId;
+      }
+    }
     const existing = taskNotifications.value.find(item => item.id === task.id);
     if (existing) {
       updateTaskNotification(task.id, task);
@@ -168,8 +257,12 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
   };
 
   const clearTaskNotifications = () => {
+    taskNotifications.value.forEach(({ retry: _retry, ...task }) => {
+      dismissedTaskNotifications[task.id] = task;
+    });
     taskNotifications.value = [];
     persistTaskNotifications();
+    persistDismissedTaskNotifications();
   };
 
   const unreadTaskCount = computed(() => taskNotifications.value.filter(task => !task.read).length);

@@ -31,7 +31,7 @@ const getPlatformDownloadAsset = (assets: ReleaseAsset[], nativePlatform?: strin
   const isArm64 = /arm64|aarch64|apple silicon/.test(architecture);
   const findAsset = (pattern: RegExp) => assets.find(asset => pattern.test(asset.name)) || null;
 
-  if (/windows/.test(platform)) {
+  if (/windows|win32/.test(platform)) {
     return findAsset(/setup.*\.exe$/i)
       || findAsset(isArm64
       ? /(?:portable|windows|win).*?(?:arm64|aarch64).*\.exe$/i
@@ -39,7 +39,7 @@ const getPlatformDownloadAsset = (assets: ReleaseAsset[], nativePlatform?: strin
       || findAsset(/\.exe$/i);
   }
 
-  if (/macintosh|mac os x|macos/.test(platform)) {
+  if (/macintosh|mac os x|macos|darwin/.test(platform)) {
     return findAsset(isArm64
       ? /(?:macos|darwin).*?(?:arm64|apple silicon).*\.dmg$/i
       : /(?:macos|darwin).*?(?:x64|intel|amd64).*\.dmg$/i)
@@ -122,10 +122,20 @@ export function useVersionCheck() {
     updateDownloadUrl.value = null;
     updatePortableUrl.value = null;
     updateChecksumUrl.value = null;
+    if (updateDownloadStatus.value !== 'downloading' && updateDownloadStatus.value !== 'verifying') {
+      updateDownloadStatus.value = 'idle';
+      updateDownloadProgress.value = null;
+      updateDownloadError.value = null;
+      updateChecksumVerified.value = false;
+      updateSignatureStatus.value = null;
+    }
     versionCheckPromise = (async () => {
       try {
         await loadActualAppVersion();
-        const response = await axios.get('https://api.github.com/repos/caichengle666/nexus-terminal/releases/latest');
+        const response = await axios.get('https://api.github.com/repos/caichengle666/nexus-terminal/releases/latest', {
+          timeout: 15000,
+          headers: { Accept: 'application/vnd.github+json' },
+        });
         if (response.data && response.data.tag_name) {
           latestVersion.value = response.data.tag_name;
           latestReleaseUrl.value = response.data.html_url || null;
@@ -163,7 +173,16 @@ export function useVersionCheck() {
   };
 
   const downloadUpdate = async (proxy?: { type?: string; host?: string; port?: number; username?: string }) => {
-    if (runtimeKind.value !== 'electron' || !electronApi?.downloadUpdate || !updateDownloadUrl.value) return;
+    if (runtimeKind.value !== 'electron' || !electronApi?.downloadUpdate) {
+      updateDownloadStatus.value = 'failed';
+      updateDownloadError.value = '当前运行环境不支持自动更新。';
+      return;
+    }
+    if (!updateDownloadUrl.value) {
+      updateDownloadStatus.value = 'failed';
+      updateDownloadError.value = '没有找到适用于当前平台的更新文件。';
+      return;
+    }
     updateDownloadStatus.value = 'downloading';
     updateDownloadProgress.value = 0;
     updateDownloadError.value = null;
@@ -177,9 +196,9 @@ export function useVersionCheck() {
         version: latestVersion.value,
         proxy,
       });
-      if (!result?.ok && result?.message) {
+      if (!result?.ok) {
         updateDownloadStatus.value = 'failed';
-        updateDownloadError.value = result.message;
+        updateDownloadError.value = result?.message || '更新下载失败。';
       }
     } catch (error) {
       updateDownloadStatus.value = 'failed';
@@ -188,7 +207,17 @@ export function useVersionCheck() {
   };
 
   const cancelUpdate = async () => {
-    await electronApi?.cancelUpdate?.();
+    try {
+      const result = await electronApi?.cancelUpdate?.();
+      if (result?.ok) {
+        updateDownloadStatus.value = 'cancelled';
+        updateDownloadProgress.value = null;
+        updateDownloadError.value = null;
+      }
+    } catch (error) {
+      updateDownloadStatus.value = 'failed';
+      updateDownloadError.value = error instanceof Error ? error.message : '取消更新失败。';
+    }
   };
 
   const installUpdate = async () => {

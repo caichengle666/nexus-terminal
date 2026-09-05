@@ -42,7 +42,10 @@ const requestWithRedirect = (value, options = {}, redirectCount = 0) => new Prom
       settled = true;
       response.resume();
       let redirectUrl;
-      try { redirectUrl = resolveRedirectUrl(response.headers.location, parsed); } catch (error) { return fail(error); }
+      try { redirectUrl = resolveRedirectUrl(response.headers.location, parsed); } catch (error) {
+        reject(error);
+        return;
+      }
       return requestWithRedirect(redirectUrl, options, redirectCount + 1).then(resolve, reject);
     }
     settled = true;
