@@ -10,6 +10,7 @@ import { useLayoutStore } from './stores/layout.store';
 import { useFocusSwitcherStore } from './stores/focusSwitcher.store';
 import { useSessionStore } from './stores/session.store';
 import { useFavoritePathsStore } from './stores/favoritePaths.store';
+import { useTransferStore } from './stores/transfer.store';
 import { storeToRefs } from 'pinia';
 import UINotificationDisplay from './components/UINotificationDisplay.vue';
 import TaskNotificationCenter from './components/TaskNotificationCenter.vue';
@@ -37,6 +38,7 @@ const sessionStore = useSessionStore(); // +++ 实例化 Session Store +++
 const dialogStore = useDialogStore(); // +++ 实例化 DialogStore +++
 const { state: dialogState } = storeToRefs(dialogStore); 
 const favoritePathsStore = useFavoritePathsStore(); // +++ 实例化 favoritePathsStore +++
+const transferStore = useTransferStore();
 const { isAuthenticated } = storeToRefs(authStore);
 const { showPopupFileEditorBoolean } = storeToRefs(settingsStore);
 const { isStyleCustomizerVisible } = storeToRefs(appearanceStore);
@@ -111,6 +113,9 @@ onMounted(() => {
 watch(isAuthenticated, (loggedIn) => {
   if (loggedIn) {
     favoritePathsStore.initializeFavoritePaths(t);
+    transferStore.startServerPolling();
+  } else {
+    transferStore.stopServerPolling();
   }
 }, { immediate: true });
 

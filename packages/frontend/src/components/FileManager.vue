@@ -742,6 +742,47 @@ const handlePaste = () => {
 // --- 文件上传触发器 (定义在此处，供 Composable 使用) ---
 const triggerFileUpload = () => { fileInputRef.value?.click(); };
 
+const downloadResponseAsBlob = async (response: Response, onProgress: (progress?: number) => void) => {
+    const contentLength = Number(response.headers.get('content-length'));
+    if (!response.body) {
+        const blob = await response.blob();
+        onProgress(100);
+        return blob;
+    }
+
+    const reader = response.body.getReader();
+    const chunks: BlobPart[] = [];
+    let receivedBytes = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        chunks.push(value);
+        receivedBytes += value.byteLength;
+        onProgress(Number.isFinite(contentLength) && contentLength > 0
+            ? Math.min(100, Math.round((receivedBytes / contentLength) * 100))
+            : undefined);
+    }
+    onProgress(100);
+    return new Blob(chunks);
+};
+
+const getDownloadFilename = (response: Response, fallback: string) => {
+    const contentDisposition = response.headers.get('content-disposition');
+    const filenameMatch = contentDisposition?.match(/filename\*?=(?:UTF-8''|"|)([^";]+)/i);
+    return (filenameMatch?.[1] || fallback).replace(/"/g, '');
+};
+
+const readDownloadError = async (response: Response) => {
+    try {
+        const errorData = await response.json() as { message?: string };
+        if (errorData.message) return errorData.message;
+    } catch {
+        // Fall back to the HTTP status when the server does not return JSON.
+    }
+    return `服务器返回 ${response.status} ${response.statusText}`;
+};
+
 // --- 下载触发器 (定义在此处，供 Composable 使用) ---
 const triggerDownload = (items: FileListItem[]) => { // 修改：接受 FileListItem 数组
     // 恢复使用 props.wsDeps.isConnected
@@ -770,22 +811,40 @@ const triggerDownload = (items: FileListItem[]) => { // 修改：接受 FileList
 
         const downloadPath = currentSftpManager.value!.joinPath(currentSftpManager.value!.currentPath.value, item.filename);
         const downloadUrl = `/api/v1/sftp/download?connectionId=${currentConnectionId}&remotePath=${encodeURIComponent(downloadPath)}`;
-        console.log(`[FileManager ${props.sessionId}-${props.instanceId}] Triggering download for ${item.filename}: ${downloadUrl}`);
+        const taskId = uiNotificationsStore.addTaskNotification({
+            id: `sftp-download:${props.sessionId}:${Date.now()}:${item.filename}`,
+            kind: 'transfer',
+            title: '文件下载',
+            message: `正在下载 ${item.filename}`,
+            status: 'running',
+            progress: 0,
+        });
 
-        // 为每个文件创建一个链接并点击
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        // --- 修正：移除文件名中的双引号以兼容 Chrome ---
-        const safeFilename = item.filename.replace(/"/g, ''); // 移除所有双引号
-        link.setAttribute('download', safeFilename);
-        // --- 结束修正 ---
-        document.body.appendChild(link);
-        link.click();
-
-        // 稍微延迟移除链接，以确保下载开始
-        setTimeout(() => {
-            document.body.removeChild(link);
-        }, 100);
+        void fetch(downloadUrl)
+            .then(async response => {
+                if (!response.ok) throw new Error(await readDownloadError(response));
+                const blob = await downloadResponseAsBlob(response, progress => {
+                    uiNotificationsStore.updateTaskNotification(taskId, { progress });
+                });
+                const link = document.createElement('a');
+                const objectUrl = URL.createObjectURL(blob);
+                link.href = objectUrl;
+                link.setAttribute('download', getDownloadFilename(response, item.filename));
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(objectUrl);
+                uiNotificationsStore.updateTaskNotification(taskId, {
+                    status: 'success',
+                    progress: 100,
+                    message: `${item.filename} 下载完成`,
+                });
+            })
+            .catch(error => {
+                const message = error instanceof Error ? error.message : '文件下载失败';
+                console.error(`[FileManager ${props.sessionId}-${props.instanceId}] Download failed for ${item.filename}:`, error);
+                uiNotificationsStore.updateTaskNotification(taskId, { status: 'error', message });
+            });
     });
 };
 
@@ -812,60 +871,46 @@ const triggerDownloadDirectory = (item: FileListItem) => {
     }
 
     const directoryPath = currentSftpManager.value.joinPath(currentSftpManager.value.currentPath.value, item.filename);
-    // 定义新的后端 API 端点 URL (稍后实现)
     const downloadUrl = `/api/v1/sftp/download-directory?connectionId=${currentConnectionId}&remotePath=${encodeURIComponent(directoryPath)}`;
 
     console.log(`[FileManager ${props.sessionId}-${props.instanceId}] Attempting directory download for ${item.filename}: ${downloadUrl}`);
 
-    // --- 修改：使用 fetch 尝试下载，并处理后端未实现的情况 ---
-    fetch(downloadUrl)
-        .then(async response => {
-            if (response.ok) {
-                // 后端实现成功，尝试触发下载
-                const blob = await response.blob();
-                // 从 Content-Disposition 头获取文件名 (需要后端设置)
-                const contentDisposition = response.headers.get('content-disposition');
-                let filename = `${item.filename}.zip`; // 默认文件名
-                if (contentDisposition) {
-                    const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
-                    if (filenameMatch && filenameMatch.length > 1) {
-                        filename = filenameMatch[1];
-                    }
-                }
+    const taskId = uiNotificationsStore.addTaskNotification({
+        id: `sftp-download-directory:${props.sessionId}:${Date.now()}:${item.filename}`,
+        kind: 'transfer',
+        title: '文件夹下载',
+        message: `正在打包下载 ${item.filename}`,
+        status: 'running',
+        progress: 0,
+    });
 
+    void fetch(downloadUrl)
+        .then(async response => {
+            if (!response.ok) throw new Error(await readDownloadError(response));
+            const blob = await downloadResponseAsBlob(response, progress => {
+                uiNotificationsStore.updateTaskNotification(taskId, { progress });
+            });
+            const filename = getDownloadFilename(response, `${item.filename}.zip`);
                 const link = document.createElement('a');
-                link.href = URL.createObjectURL(blob);
-                // --- 修正：移除 ZIP 文件名中的双引号以兼容 Chrome ---
-                const safeZipFilename = filename.replace(/"/g, '');
-                link.setAttribute('download', safeZipFilename);
-                // --- 结束修正 ---
+                const objectUrl = URL.createObjectURL(blob);
+                link.href = objectUrl;
+                link.setAttribute('download', filename);
                 document.body.appendChild(link);
                 link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(link.href); // 释放对象 URL
+                link.remove();
+                URL.revokeObjectURL(objectUrl);
                 console.log(`[FileManager ${props.sessionId}-${props.instanceId}] Directory download triggered for: ${filename}`);
-            } else {
-                // 处理错误，例如 404 Not Found
-                console.error(`[FileManager ${props.sessionId}-${props.instanceId}] Directory download failed: ${response.status} ${response.statusText}`);
-                // 尝试读取错误信息体
-                let errorMsg = `Server responded with status ${response.status}`;
-                try {
-                    const errorData = await response.json(); // 假设后端返回 JSON 错误
-                    errorMsg = errorData.message || errorMsg;
-                } catch (e) {
-                    // 如果响应体不是 JSON 或读取失败
-                    try {
-                       const textError = await response.text();
-                       if (textError) errorMsg = textError;
-                    } catch (e2) { /* ignore */}
-                }
-
-            }
+            uiNotificationsStore.updateTaskNotification(taskId, {
+                status: 'success',
+                progress: 100,
+                message: `${item.filename} 下载完成`,
+            });
         })
         .catch(error => {
             console.error(`[FileManager ${props.sessionId}-${props.instanceId}] Network error during directory download:`, error);
+            const message = error instanceof Error ? error.message : '文件夹下载失败';
+            uiNotificationsStore.updateTaskNotification(taskId, { status: 'error', message });
         });
-    
 };
 
 

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
+import { useUiNotificationsStore } from './uiNotifications.store';
 
 export type RdpTransferDirection = 'upload' | 'download';
 export type RdpTransferStatus = 'transferring' | 'completed' | 'failed' | 'cancelled';
@@ -35,6 +36,7 @@ const loadHistory = (): RdpTransferRecord[] => {
 export const useRdpTransferStore = defineStore('rdpTransfer', () => {
   const records = ref<RdpTransferRecord[]>(loadHistory());
   const activeRecords = computed(() => records.value.filter(record => record.status === 'transferring'));
+  const uiNotificationsStore = useUiNotificationsStore();
 
   const persist = () => {
     if (typeof localStorage === 'undefined') return;
@@ -46,6 +48,21 @@ export const useRdpTransferStore = defineStore('rdpTransfer', () => {
     if (!record) return;
     Object.assign(record, changes, { updatedAt: new Date().toISOString() });
     persist();
+    const status = record.status === 'transferring'
+      ? 'running'
+      : record.status === 'completed'
+        ? 'success'
+        : record.status === 'cancelled'
+          ? 'cancelled'
+          : 'error';
+    uiNotificationsStore.upsertTaskNotification({
+      id: `rdp-transfer:${record.id}`,
+      kind: 'transfer',
+      title: `RDP ${record.direction === 'upload' ? '文件上传' : '文件下载'}`,
+      message: `${record.filename}${record.message ? ` · ${record.message}` : ''}`,
+      status,
+      progress: record.progress,
+    });
   };
 
   const begin = (input: Omit<RdpTransferRecord, 'status' | 'transferredBytes' | 'createdAt' | 'updatedAt'>) => {
@@ -60,6 +77,14 @@ export const useRdpTransferStore = defineStore('rdpTransfer', () => {
     records.value.unshift(record);
     records.value = records.value.slice(0, MAX_HISTORY);
     persist();
+    uiNotificationsStore.upsertTaskNotification({
+      id: `rdp-transfer:${record.id}`,
+      kind: 'transfer',
+      title: `RDP ${record.direction === 'upload' ? '文件上传' : '文件下载'}`,
+      message: `${record.filename} · 0%`,
+      status: 'running',
+      progress: record.progress,
+    });
     return record.id;
   };
 

@@ -16,6 +16,7 @@ export interface TaskNotification {
   title: string;
   message: string;
   status: TaskNotificationStatus;
+  kind?: 'transfer' | 'file-operation' | 'ai' | 'other';
   progress?: number;
   createdAt: number;
   updatedAt: number;
@@ -24,6 +25,38 @@ export interface TaskNotification {
 }
 
 const TASK_NOTIFICATIONS_STORAGE_KEY = 'nexus.taskNotifications';
+let taskAudioContext: AudioContext | null = null;
+
+const isTerminalTaskStatus = (status: TaskNotificationStatus) => status !== 'running';
+
+const playTaskCompletionSound = () => {
+  try {
+    const AudioContextConstructor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextConstructor) return;
+    taskAudioContext ??= new AudioContextConstructor();
+    const context = taskAudioContext;
+    const playTone = () => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.18);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.2);
+    };
+    if (context.state === 'suspended') {
+      void context.resume().then(playTone).catch(() => undefined);
+    } else {
+      playTone();
+    }
+  } catch {
+    // Audio is optional and must never affect task state updates.
+  }
+};
 
 const loadTaskNotifications = (): TaskNotification[] => {
   try {
@@ -108,12 +141,25 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
   const updateTaskNotification = (id: string, updates: Partial<Omit<TaskNotification, 'id' | 'createdAt'>>) => {
     const index = taskNotifications.value.findIndex(task => task.id === id);
     if (index === -1) return;
+    const previousStatus = taskNotifications.value[index].status;
     taskNotifications.value[index] = {
       ...taskNotifications.value[index],
       ...updates,
       updatedAt: Date.now(),
     };
     persistTaskNotifications();
+    if (previousStatus === 'running' && updates.status && isTerminalTaskStatus(updates.status)) {
+      playTaskCompletionSound();
+    }
+  };
+
+  const upsertTaskNotification = (task: Omit<TaskNotification, 'createdAt' | 'updatedAt' | 'read'>) => {
+    const existing = taskNotifications.value.find(item => item.id === task.id);
+    if (existing) {
+      updateTaskNotification(task.id, task);
+      return task.id;
+    }
+    return addTaskNotification(task);
   };
 
   const markTaskNotificationsRead = () => {
@@ -141,6 +187,7 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
     unreadTaskCount,
     addTaskNotification,
     updateTaskNotification,
+    upsertTaskNotification,
     markTaskNotificationsRead,
     clearTaskNotifications,
   };

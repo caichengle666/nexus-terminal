@@ -98,6 +98,34 @@ export function createSftpActionsManager(
     const instanceSessionId = sessionId; // 保存会话 ID 用于日志
     const uiNotificationsStore = useUiNotificationsStore(); // 初始化 UI 通知 store
     const initialLoadDone = ref<boolean>(false); // +++ 跟踪此实例是否已完成初始加载 +++
+    const fileOperationTaskIds = new Map<string, string>();
+    const fileOperationTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+
+    const beginFileOperationTask = (title: string, message: string, requestId: string) => {
+        const taskId = uiNotificationsStore.addTaskNotification({
+            id: `sftp-operation:${instanceSessionId}:${requestId}`,
+            kind: 'file-operation',
+            title,
+            message,
+            status: 'running',
+            progress: 0,
+        });
+        fileOperationTaskIds.set(requestId, taskId);
+        fileOperationTimeouts.set(requestId, setTimeout(() => {
+            finishFileOperationTask(requestId, 'error', 'SFTP 操作等待超时，请检查连接后重试。');
+        }, 60000));
+        return taskId;
+    };
+
+    const finishFileOperationTask = (requestId: string, status: 'success' | 'error' | 'cancelled', message: string) => {
+        const taskId = fileOperationTaskIds.get(requestId);
+        if (!taskId) return;
+        const timeout = fileOperationTimeouts.get(requestId);
+        if (timeout) clearTimeout(timeout);
+        fileOperationTimeouts.delete(requestId);
+        fileOperationTaskIds.delete(requestId);
+        uiNotificationsStore.updateTaskNotification(taskId, { status, progress: 100, message });
+    };
 
     // 用于存储注销函数的数组
     const unregisterCallbacks: (() => void)[] = [];
@@ -456,6 +484,7 @@ export function createSftpActionsManager(
         }
         if (sourcePaths.length === 0) return;
         const requestId = generateRequestId();
+        beginFileOperationTask('文件复制', `正在复制 ${sourcePaths.length} 个项目到 ${destinationDir}`, requestId);
         sendMessage({
             type: 'sftp:copy',
             requestId: requestId,
@@ -480,6 +509,7 @@ export function createSftpActionsManager(
         //     return;
         // }
         const requestId = generateRequestId();
+        beginFileOperationTask('文件移动', `正在移动 ${sourcePaths.length} 个项目到 ${destinationDir}`, requestId);
         sendMessage({
             type: 'sftp:move', // 使用 'sftp:move' 类型
             requestId: requestId,
@@ -499,6 +529,7 @@ export function createSftpActionsManager(
            }
            const sourcePaths = items.map(item => joinPath(currentPathRef.value, item.filename));
            const requestId = generateRequestId();
+           beginFileOperationTask('文件压缩', `正在压缩 ${items.length} 个项目`, requestId);
            const parentDir = currentPathRef.value;
            // --- 修改：使用更智能的压缩包命名 ---
            let archiveBaseName = 'archive';
@@ -523,6 +554,7 @@ export function createSftpActionsManager(
                unregisterError?.();
                const errMsg = t('fileManager.errors.compressTimeout'); // 使用 i18n
                uiNotificationsStore.showError(errMsg);
+               finishFileOperationTask(requestId, 'error', errMsg);
                reject(new Error(errMsg));
            }, 60000); // 60 秒超时
 
@@ -532,6 +564,7 @@ export function createSftpActionsManager(
                    unregisterSuccess?.();
                    unregisterError?.();
                    uiNotificationsStore.showSuccess(t('fileManager.notifications.compressSuccess', { name: archiveName })); // 使用 i18n
+                   finishFileOperationTask(requestId, 'success', t('fileManager.notifications.compressSuccess', { name: archiveName }));
                    loadDirectory(currentPathRef.value, true); // 强制刷新当前目录
                    resolve();
                }
@@ -545,6 +578,7 @@ export function createSftpActionsManager(
                    unregisterError?.();
                    const errorMsg = errorPayload.details || errorPayload.error || t('fileManager.errors.compressFailed'); // 基础错误信息
                    uiNotificationsStore.showError(t('fileManager.errors.compressErrorDetailed', { error: errorMsg })); // 使用 i18n 包装详细错误
+                   finishFileOperationTask(requestId, 'error', errorMsg);
                    reject(new Error(errorMsg));
                }
            });
@@ -569,6 +603,7 @@ export function createSftpActionsManager(
            const sourcePath = joinPath(currentPathRef.value, item.filename);
            const destinationDir = currentPathRef.value; // 默认解压到当前目录
            const requestId = generateRequestId();
+           beginFileOperationTask('文件解压', `正在解压 ${item.filename}`, requestId);
 
            let unregisterSuccess: (() => void) | null = null;
            let unregisterError: (() => void) | null = null;
@@ -578,6 +613,7 @@ export function createSftpActionsManager(
                unregisterError?.();
                const errMsg = t('fileManager.errors.decompressTimeout'); // 使用 i18n
                uiNotificationsStore.showError(errMsg);
+               finishFileOperationTask(requestId, 'error', errMsg);
                reject(new Error(errMsg));
            }, 60000); // 60 秒超时
 
@@ -587,6 +623,7 @@ export function createSftpActionsManager(
                    unregisterSuccess?.();
                    unregisterError?.();
                    uiNotificationsStore.showSuccess(t('fileManager.notifications.decompressSuccess', { name: item.filename })); // 使用 i18n
+                   finishFileOperationTask(requestId, 'success', t('fileManager.notifications.decompressSuccess', { name: item.filename }));
                    loadDirectory(currentPathRef.value, true); // 强制刷新当前目录
                    resolve();
                }
@@ -600,6 +637,7 @@ export function createSftpActionsManager(
                    unregisterError?.();
                    const errorMsg = errorPayload.details || errorPayload.error || t('fileManager.errors.decompressFailed'); // 基础错误信息
                    uiNotificationsStore.showError(t('fileManager.errors.decompressErrorDetailed', { error: errorMsg })); // 使用 i18n 包装详细错误
+                   finishFileOperationTask(requestId, 'error', errorMsg);
                    reject(new Error(errorMsg));
                }
            });
@@ -952,6 +990,7 @@ export function createSftpActionsManager(
 
         console.log(`[SFTP ${instanceSessionId}] 复制成功到: ${destinationDir}`);
         uiNotificationsStore.showSuccess(t('fileManager.notifications.copySuccess')); // 添加成功通知
+        finishFileOperationTask(message.requestId || '', 'success', t('fileManager.notifications.copySuccess'));
 
         // 更新文件树
         const destNode = findNodeByPath(fileTree, destinationDir);
@@ -991,6 +1030,7 @@ export function createSftpActionsManager(
 
         console.log(`[SFTP ${instanceSessionId}] 移动成功到: ${destinationDir}`);
         uiNotificationsStore.showSuccess(t('fileManager.notifications.moveSuccess')); // 添加成功通知
+        finishFileOperationTask(message.requestId || '', 'success', t('fileManager.notifications.moveSuccess'));
 
         // 1. 从旧位置移除
         sourcePaths.forEach(oldPath => {
@@ -1088,6 +1128,7 @@ export function createSftpActionsManager(
         const prefix = actionTypeMap[message.type] || t('fileManager.errors.generic');
         // error.value = `${prefix}: ${errorPayload}`; // 使用通知
         uiNotificationsStore.showError(`${prefix}: ${errorPayload}`);
+        if (message.requestId) finishFileOperationTask(message.requestId, 'error', `${prefix}: ${errorPayload}`);
     };
 
     // --- Register Handlers & Store Unregister Callbacks ---
@@ -1128,6 +1169,7 @@ export function createSftpActionsManager(
         } else {
             uiNotificationsStore.showError(t('fileManager.errors.genericCommandNotFound', { command, operation }));
         }
+        if (message.requestId) finishFileOperationTask(message.requestId, 'error', details || `服务器未找到命令 ${command}`);
     };
     unregisterCallbacks.push(onMessage('sftp:command_not_found', onCommandNotFound));
     // --- 结束处理 ---

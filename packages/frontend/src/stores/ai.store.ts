@@ -73,6 +73,7 @@ import type {
 } from './ai/ai.types';
 import type { SessionState } from './session/types';
 import { decodeRawContent } from './session/utils';
+import { useUiNotificationsStore } from './uiNotifications.store';
 
 export type { AiTaskStatus, AiToolRun } from './ai/ai.types';
 
@@ -105,6 +106,8 @@ type TerminalOutputResult = {
 export const useAiStore = defineStore('ai', () => {
   const sessionStore = useSessionStore();
   const connectionsStore = useConnectionsStore();
+  const uiNotificationsStore = useUiNotificationsStore();
+  const aiTaskIdsBySessionId = new Map<string, string>();
 
   const sessionInputs = ref<Record<string, string>>({});
   const lastTerminalInputMarks = ref<Record<string, number>>({});
@@ -1907,6 +1910,14 @@ export const useAiStore = defineStore('ai', () => {
     runtime.autoCompactCount = 0;
     runtime.pendingGuidance = [];
     runtime.commandCounts = {};
+    const aiTaskId = uiNotificationsStore.addTaskNotification({
+      id: `ai-task:${runSessionId}:${Date.now()}`,
+      kind: 'ai',
+      title: 'AI 助手任务',
+      message: 'AI 正在处理你的请求',
+      status: 'running',
+    });
+    aiTaskIdsBySessionId.set(runSessionId, aiTaskId);
     addActivity(runtime, '正在理解你的请求');
 
     try {
@@ -1924,6 +1935,22 @@ export const useAiStore = defineStore('ai', () => {
         runtime.taskStatus = 'error';
       }
     } finally {
+      const finalStatus = runtime.taskStatus === 'done'
+        ? 'success'
+        : runtime.taskStatus === 'stopped'
+          ? 'cancelled'
+          : runtime.taskStatus === 'error' || runtime.taskStatus === 'interrupted'
+            ? 'error'
+            : 'error';
+      uiNotificationsStore.updateTaskNotification(aiTaskId, {
+        status: finalStatus,
+        message: finalStatus === 'success'
+          ? 'AI 任务已完成'
+          : finalStatus === 'cancelled'
+            ? 'AI 任务已停止'
+            : runtime.errorMessage || 'AI 任务未完成',
+      });
+      aiTaskIdsBySessionId.delete(runSessionId);
       if (runtime.pendingGuidance.length > 0) {
         sessionInputs.value[runSessionId] = runtime.pendingGuidance.join('\n');
         runtime.pendingGuidance = [];
@@ -1956,6 +1983,14 @@ export const useAiStore = defineStore('ai', () => {
     runtime.autoCompactCount = 0;
     runtime.pendingGuidance = [];
     runtime.commandCounts = {};
+    const aiTaskId = uiNotificationsStore.addTaskNotification({
+      id: `ai-task:${runSessionId}:${Date.now()}`,
+      kind: 'ai',
+      title: 'AI 助手任务',
+      message: 'AI 正在继续处理请求',
+      status: 'running',
+    });
+    aiTaskIdsBySessionId.set(runSessionId, aiTaskId);
     addActivity(runtime, '正在从中断位置继续生成');
     try {
       await runAgentLoop(context, options, true);
@@ -1967,6 +2002,20 @@ export const useAiStore = defineStore('ai', () => {
         runtime.taskStatus = 'error';
       }
     } finally {
+      const finalStatus = runtime.taskStatus === 'done'
+        ? 'success'
+        : runtime.taskStatus === 'stopped'
+          ? 'cancelled'
+          : 'error';
+      uiNotificationsStore.updateTaskNotification(aiTaskId, {
+        status: finalStatus,
+        message: finalStatus === 'success'
+          ? 'AI 任务已完成'
+          : finalStatus === 'cancelled'
+            ? 'AI 任务已停止'
+            : runtime.errorMessage || 'AI 任务未完成',
+      });
+      aiTaskIdsBySessionId.delete(runSessionId);
       if (runtime.pendingGuidance.length > 0) {
         sessionInputs.value[runSessionId] = runtime.pendingGuidance.join('\n');
         runtime.pendingGuidance = [];
