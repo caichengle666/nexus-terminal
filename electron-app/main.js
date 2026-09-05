@@ -86,6 +86,8 @@ const pendingDownloadsInfo = new Map();
 let updateDownloadState = null;
 let completedUpdatePath = null;
 let completedUpdateKind = null;
+let completedUpdateSha256 = null;
+let updateInstallInProgress = false;
 let updateProxyAgent = null;
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
 
@@ -93,6 +95,22 @@ const buildUpdateProxyAgent = (proxy) => updateDownloadService.buildProxyAgent(p
 const validateUpdateUrl = updateNetwork.validateUpdateUrl;
 const fetchUpdateText = updateNetwork.fetchUpdateText;
 const cleanupUpdatePartial = updateDownloadService.cleanupPartial;
+
+const getSafeUpdateFilename = parsedUrl => {
+  let filename;
+  try {
+    filename = path.basename(decodeURIComponent(parsedUrl.pathname));
+  } catch {
+    throw new Error('更新文件名编码无效。');
+  }
+  const safeFilename = filename.replace(/[<>:"/\\|?*]/g, '_');
+  if (!safeFilename || safeFilename === '.' || safeFilename === '..'
+    || /[\u0000-\u001f\u007f]/.test(safeFilename) || safeFilename.length > 180) {
+    throw new Error('更新文件名无效。');
+  }
+  return safeFilename;
+};
+
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.setSkipTaskbar(false);
@@ -804,8 +822,12 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     return { ok: false, message: error.message };
   }
 
-  const filename = path.basename(decodeURIComponent(parsedUrl.pathname)) || `nexus-terminal-${payload.version || 'update'}`;
-  const safeFilename = filename.replace(/[<>:"/\\|?*]/g, '_');
+  let safeFilename;
+  try {
+    safeFilename = getSafeUpdateFilename(parsedUrl);
+  } catch (error) {
+    return { ok: false, message: error.message };
+  }
   const updaterDir = path.join(app.getPath('temp'), 'nexus-terminal-updater');
   const targetPath = path.join(updaterDir, safeFilename);
   try {
@@ -816,8 +838,15 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   updateDownloadState = { request: null, file: null, requests: [], cancelled: false, sender: event.sender };
   completedUpdatePath = null;
   completedUpdateKind = null;
+  completedUpdateSha256 = null;
   if (process.platform === 'win32' && /\.zip$/i.test(safeFilename)) completedUpdateKind = 'portable';
-  updateProxyAgent = await buildUpdateProxyAgent(payload.proxy);
+  try {
+    updateProxyAgent = await buildUpdateProxyAgent(payload.proxy);
+  } catch (error) {
+    updateDownloadState = null;
+    updateProxyAgent = null;
+    return { ok: false, message: `无法准备更新网络：${error.message}` };
+  }
   const sendProgress = (status, extra = {}) => {
     if (!event.sender.isDestroyed()) event.sender.send('update-progress', { status, ...extra });
   };
@@ -844,6 +873,9 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
         if (updateDownloadState) updateDownloadState.requests = updateDownloadState.requests.filter(item => item !== request);
       },
       registerFile: file => { if (updateDownloadState) updateDownloadState.file = file; },
+      abortRequests: () => {
+        updateDownloadState?.requests?.forEach(request => request.destroy());
+      },
     };
     try {
       result = await updateDownloadService.downloadAsset(payload.url, targetPath, downloadContext, (receivedBytes, totalBytes) => {
@@ -858,8 +890,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
         throw primaryError;
       }
       const fallbackUrl = validateUpdateUrl(payload.fallbackUrl);
-      const fallbackFilename = path.basename(decodeURIComponent(fallbackUrl.pathname));
-      fallbackPath = path.join(updaterDir, fallbackFilename.replace(/[<>:"/\\|?*]/g, '_'));
+      fallbackPath = path.join(updaterDir, getSafeUpdateFilename(fallbackUrl));
       const expectedFallbackChecksum = getExpectedChecksum(fallbackPath);
       sendProgress('downloading', { receivedBytes: 0, totalBytes: 0, progress: 0, fallback: true });
       result = await updateDownloadService.downloadAsset(payload.fallbackUrl, fallbackPath, downloadContext, (receivedBytes, totalBytes) => {
@@ -893,6 +924,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
       throw new Error(`安装包签名无效：${signature.detail}`);
     }
     completedUpdatePath = updatePath;
+    completedUpdateSha256 = result.sha256.toLowerCase();
     if (fallbackUsed && process.platform === 'win32') {
       const folderError = await shell.openPath(path.dirname(updatePath));
       if (folderError) console.warn(`[Updater] 无法打开便携版下载目录：${folderError}`);
@@ -920,41 +952,71 @@ ipcMain.handle('cancel-update', () => {
 });
 
 ipcMain.handle('install-update', async () => {
+  if (updateInstallInProgress) {
+    return { ok: false, message: '更新正在准备安装。' };
+  }
   if (!completedUpdatePath || !fs.existsSync(completedUpdatePath)) {
     return { ok: false, message: '没有可安装的更新文件。' };
   }
-  const isPortable = completedUpdateKind === 'portable';
-  const confirmation = await dialog.showMessageBox(mainWindow, {
-    type: 'question',
-    title: '安装 Nexus Terminal 更新',
-    message: `更新文件已下载：${path.basename(completedUpdatePath)}`,
-    detail: isPortable ? '将解压便携版并启动新版本。当前程序会先退出，请保存正在进行的工作。' : '即将打开系统安装程序。请先保存工作，确认后当前程序将退出。',
-    buttons: [isPortable ? '关闭并打开便携版' : '关闭并打开安装程序', '取消'],
-    defaultId: 0,
-    cancelId: 1,
-  });
-  if (confirmation.response !== 0) return { ok: false, cancelled: true, message: '已取消安装。' };
-  if (isPortable && process.platform === 'win32') {
-    const result = await installPortableUpdate({
-      archivePath: completedUpdatePath,
-      updaterDir: path.dirname(completedUpdatePath),
+  updateInstallInProgress = true;
+  try {
+    const updatePath = completedUpdatePath;
+    const expectedSha256 = completedUpdateSha256;
+    const actualSha256 = await updateDownloadService.hashFile(updatePath);
+    if (!expectedSha256 || actualSha256.toLowerCase() !== expectedSha256) {
+      fs.rmSync(updatePath, { force: true });
+      completedUpdatePath = null;
+      completedUpdateKind = null;
+      completedUpdateSha256 = null;
+      return { ok: false, message: '更新文件在安装前发生变化，已取消安装。' };
+    }
+    const signature = await verifyUpdateSignature(updatePath);
+    if (signature.status === 'invalid') {
+      fs.rmSync(updatePath, { force: true });
+      completedUpdatePath = null;
+      completedUpdateKind = null;
+      completedUpdateSha256 = null;
+      return { ok: false, message: `安装包签名无效：${signature.detail}` };
+    }
+    const isPortable = completedUpdateKind === 'portable';
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      title: '安装 Nexus Terminal 更新',
+      message: `更新文件已下载：${path.basename(updatePath)}`,
+      detail: isPortable ? '将解压便携版并启动新版本。当前程序会先退出，请保存正在进行的工作。' : '即将打开系统安装程序。请先保存工作，确认后当前程序将退出。',
+      buttons: [isPortable ? '关闭并打开便携版' : '关闭并打开安装程序', '取消'],
+      defaultId: 0,
+      cancelId: 1,
     });
-    if (!result.ok) return result;
+    if (confirmation.response !== 0) return { ok: false, cancelled: true, message: '已取消安装。' };
+    if (isPortable && process.platform === 'win32') {
+      const result = await installPortableUpdate({
+        archivePath: updatePath,
+        updaterDir: path.dirname(updatePath),
+        currentProcessId: process.pid,
+      });
+      if (!result.ok) return result;
+      completedUpdatePath = null;
+      completedUpdateKind = null;
+      completedUpdateSha256 = null;
+      setTimeout(() => app.quit(), 150);
+      return result;
+    }
+    if (process.platform === 'linux') {
+      try { fs.chmodSync(updatePath, 0o755); } catch { /* shell.openPath will report failures */ }
+    }
+    const error = await shell.openPath(updatePath);
+    if (error) return { ok: false, message: error };
     completedUpdatePath = null;
     completedUpdateKind = null;
+    completedUpdateSha256 = null;
     setTimeout(() => app.quit(), 150);
-    return result;
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : '打开更新程序失败。' };
+  } finally {
+    updateInstallInProgress = false;
   }
-  if (process.platform === 'linux') {
-    try { fs.chmodSync(completedUpdatePath, 0o755); } catch { /* shell.openPath will report failures */ }
-  }
-  const updatePath = completedUpdatePath;
-  const error = await shell.openPath(updatePath);
-  if (error) return { ok: false, message: error };
-  completedUpdatePath = null;
-  completedUpdateKind = null;
-  setTimeout(() => app.quit(), 150);
-  return { ok: true };
 });
 
 ipcMain.handle('open-external', async (_event, url) => {

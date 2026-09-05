@@ -2,6 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
+const escapePowerShellLiteral = value => `'${String(value).replace(/'/g, "''")}'`;
+
 const findPortableExecutable = (directory) => {
   let entries;
   try {
@@ -31,7 +33,7 @@ const extractPortableUpdate = (archivePath, destinationPath) => new Promise(reso
   child.on('error', error => resolve(error.message));
 });
 
-const installPortableUpdate = async ({ archivePath, updaterDir }) => {
+const installPortableUpdate = async ({ archivePath, updaterDir, currentProcessId = process.pid }) => {
   const extractPath = path.join(updaterDir, `portable-${Date.now()}`);
   const extraction = await extractPortableUpdate(archivePath, extractPath);
   if (extraction) {
@@ -44,14 +46,27 @@ const installPortableUpdate = async ({ archivePath, updaterDir }) => {
     return { ok: false, message: '便携版解压成功，但找不到 Nexus Terminal.exe。' };
   }
   return new Promise(resolve => {
-    const child = spawn(executable, [], {
+    const launchScript = [
+      '$ErrorActionPreference = "Stop"',
+      `$currentProcess = Get-Process -Id ${Number(currentProcessId)} -ErrorAction SilentlyContinue`,
+      'if ($currentProcess) { Wait-Process -Id $currentProcess.Id }',
+      `Start-Process -FilePath ${escapePowerShellLiteral(executable)} -WorkingDirectory ${escapePowerShellLiteral(path.dirname(executable))}`,
+    ].join('; ');
+    const child = spawn('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-WindowStyle',
+      'Hidden',
+      '-Command',
+      launchScript,
+    ], {
       detached: true,
       windowsHide: true,
       stdio: 'ignore',
     });
     child.once('error', error => {
       fs.rmSync(extractPath, { recursive: true, force: true });
-      resolve({ ok: false, message: `启动便携版失败：${error.message}` });
+      resolve({ ok: false, message: `准备启动便携版失败：${error.message}` });
     });
     child.once('spawn', () => {
       child.unref();

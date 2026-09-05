@@ -29,7 +29,7 @@ const verifyUpdateSignature = (filePath, platform = process.platform) => new Pro
     child.stdout.on('data', data => { output += data.toString(); });
     child.stderr.on('data', data => { output += data.toString(); });
     child.on('close', code => {
-      const accepted = /accepted|valid/i.test(output) || code === 0;
+      const accepted = code === 0;
       resolve({ status: accepted ? 'valid' : 'invalid', detail: accepted ? 'Gatekeeper 验证通过' : '系统未能验证安装包签名' });
     });
     child.on('error', error => resolve({ status: 'unavailable', detail: error.message }));
