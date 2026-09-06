@@ -79,6 +79,7 @@ const updateDownloadProgress = ref<number | null>(null);
 const updateDownloadError = ref<string | null>(null);
 const updateChecksumVerified = ref(false);
 const updateSignatureStatus = ref<'valid' | 'invalid' | 'unavailable' | null>(null);
+const isInstallingUpdate = ref(false);
 let versionCheckPromise: Promise<void> | null = null;
 let nativePlatform: string | null = null;
 let installationKind: 'system' | 'portable' = 'system';
@@ -213,6 +214,9 @@ export function useVersionCheck() {
         updateDownloadStatus.value = 'cancelled';
         updateDownloadProgress.value = null;
         updateDownloadError.value = null;
+      } else if (updateDownloadStatus.value === 'downloading' || updateDownloadStatus.value === 'verifying') {
+        updateDownloadStatus.value = 'failed';
+        updateDownloadError.value = result?.message || '更新下载已结束，请重新检查更新。';
       }
     } catch (error) {
       updateDownloadStatus.value = 'failed';
@@ -221,11 +225,19 @@ export function useVersionCheck() {
   };
 
   const installUpdate = async () => {
-    if (updateDownloadStatus.value !== 'ready') return;
-    const result = await electronApi?.installUpdate?.();
-    if (result && !result.ok && !result.cancelled) {
+    if (updateDownloadStatus.value !== 'ready' || isInstallingUpdate.value) return;
+    isInstallingUpdate.value = true;
+    try {
+      const result = await electronApi?.installUpdate?.();
+      if (result && !result.ok && !result.cancelled) {
+        updateDownloadStatus.value = 'failed';
+        updateDownloadError.value = result.message || '打开安装程序失败。';
+      }
+    } catch (error) {
       updateDownloadStatus.value = 'failed';
-      updateDownloadError.value = result.message || '打开安装程序失败。';
+      updateDownloadError.value = error instanceof Error ? error.message : '打开安装程序失败。';
+    } finally {
+      isInstallingUpdate.value = false;
     }
   };
 
@@ -255,6 +267,7 @@ export function useVersionCheck() {
     updateDownloadStatus,
     updateDownloadProgress,
     updateDownloadError,
+    isInstallingUpdate,
     updateChecksumVerified,
     updateSignatureStatus,
     isCheckingVersion,

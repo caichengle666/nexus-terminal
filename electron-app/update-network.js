@@ -38,6 +38,7 @@ const requestWithRedirect = (value, options = {}, redirectCount = 0) => new Prom
     timeout: REQUEST_TIMEOUT_MS,
     headers: { 'User-Agent': USER_AGENT, ...(options.headers || {}) },
   }, response => {
+    response.on('error', fail);
     if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
       settled = true;
       response.resume();

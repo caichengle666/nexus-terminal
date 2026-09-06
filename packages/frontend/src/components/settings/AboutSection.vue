@@ -10,7 +10,7 @@
           <button
             type="button"
             class="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
-            :disabled="isCheckingVersion"
+            :disabled="isCheckingVersion || updateDownloadStatus === 'downloading' || updateDownloadStatus === 'verifying' || isInstallingUpdate"
             :title="$t('settings.about.checkNow')"
             @click="checkLatestVersion"
           >
@@ -52,7 +52,7 @@
           <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'verifying'" class="text-xs text-text-secondary">{{ $t('settings.about.verifyingUpdate') }}</span>
           <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'ready'" class="text-xs text-success">
             {{ $t('settings.about.updateReady') }}
-            <button type="button" class="ml-1 text-primary hover:underline" @click="installUpdate">{{ $t('settings.about.installUpdate') }}</button>
+             <button type="button" class="ml-1 text-primary hover:underline disabled:opacity-50" :disabled="isInstallingUpdate" @click="installUpdate">{{ $t('settings.about.installUpdate') }}</button>
           </span>
           <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'failed'" class="text-xs text-error" :title="updateDownloadError || undefined">{{ $t('settings.about.downloadFailed') }}</span>
           <span class="opacity-50">|</span>
@@ -115,6 +115,7 @@ const {
   updateDownloadStatus,
   updateDownloadProgress,
   updateDownloadError,
+  isInstallingUpdate,
   isCheckingVersion,
   versionCheckError,
   isUpdateAvailable,

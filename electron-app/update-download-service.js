@@ -77,6 +77,7 @@ const downloadSegment = (value, start, end, totalBytes, fd, context, onData, red
     headers: { 'User-Agent': USER_AGENT, 'Accept-Encoding': 'identity', Range: `bytes=${start}-${end}` },
   }, responseValue => {
     response = responseValue;
+    response.on('error', fail);
     if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
       redirected = true;
       response.resume();
@@ -125,7 +126,6 @@ const downloadSegment = (value, start, end, totalBytes, fd, context, onData, red
       resolve(received);
     });
     response.on('aborted', () => fail(new Error('分片下载连接中断。')));
-    response.on('error', fail);
   });
   context.registerRequest(request);
   request.setTimeout(REQUEST_TIMEOUT_MS, () => request.destroy(new Error('分片下载超时。')));
@@ -155,6 +155,7 @@ const downloadStream = (value, targetPath, context, onProgress, redirectCount = 
   };
   const request = https.get(parsed, { agent: context.agent, timeout: REQUEST_TIMEOUT_MS, headers: { 'User-Agent': USER_AGENT } }, responseValue => {
     response = responseValue;
+    response.on('error', fail);
     if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
       redirected = true;
       response.resume();
@@ -207,7 +208,6 @@ const downloadStream = (value, targetPath, context, onProgress, redirectCount = 
       }
     }));
     response.on('aborted', () => fail(new Error('更新下载连接中断。')));
-    response.on('error', fail);
   });
   context.registerRequest(request);
   request.setTimeout(REQUEST_TIMEOUT_MS, () => request.destroy(new Error('更新下载超时。')));
