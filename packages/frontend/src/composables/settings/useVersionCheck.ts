@@ -81,6 +81,8 @@ const updateChecksumVerified = ref(false);
 const updateSignatureStatus = ref<'valid' | 'invalid' | 'unavailable' | null>(null);
 const isInstallingUpdate = ref(false);
 let versionCheckPromise: Promise<void> | null = null;
+let updateRequestSequence = 0;
+let activeUpdateRequestId: string | null = null;
 let nativePlatform: string | null = null;
 let installationKind: 'system' | 'portable' = 'system';
 
@@ -115,6 +117,10 @@ export function useVersionCheck() {
 
   const checkLatestVersion = async () => {
     if (versionCheckPromise) return versionCheckPromise;
+    if (updateDownloadStatus.value === 'downloading'
+      || updateDownloadStatus.value === 'verifying'
+      || updateDownloadStatus.value === 'ready'
+      || isInstallingUpdate.value) return;
 
     isCheckingVersion.value = true;
     versionCheckError.value = null;
@@ -123,13 +129,11 @@ export function useVersionCheck() {
     updateDownloadUrl.value = null;
     updatePortableUrl.value = null;
     updateChecksumUrl.value = null;
-    if (updateDownloadStatus.value !== 'downloading' && updateDownloadStatus.value !== 'verifying') {
-      updateDownloadStatus.value = 'idle';
-      updateDownloadProgress.value = null;
-      updateDownloadError.value = null;
-      updateChecksumVerified.value = false;
-      updateSignatureStatus.value = null;
-    }
+    updateDownloadStatus.value = 'idle';
+    updateDownloadProgress.value = null;
+    updateDownloadError.value = null;
+    updateChecksumVerified.value = false;
+    updateSignatureStatus.value = null;
     versionCheckPromise = (async () => {
       try {
         await loadActualAppVersion();
@@ -174,6 +178,10 @@ export function useVersionCheck() {
   };
 
   const downloadUpdate = async (proxy?: { type?: string; host?: string; port?: number; username?: string }) => {
+    if (updateDownloadStatus.value === 'downloading'
+      || updateDownloadStatus.value === 'verifying'
+      || updateDownloadStatus.value === 'ready'
+      || isInstallingUpdate.value) return;
     if (runtimeKind.value !== 'electron' || !electronApi?.downloadUpdate) {
       updateDownloadStatus.value = 'failed';
       updateDownloadError.value = '当前运行环境不支持自动更新。';
@@ -184,6 +192,8 @@ export function useVersionCheck() {
       updateDownloadError.value = '没有找到适用于当前平台的更新文件。';
       return;
     }
+    const requestId = String(++updateRequestSequence);
+    activeUpdateRequestId = requestId;
     updateDownloadStatus.value = 'downloading';
     updateDownloadProgress.value = 0;
     updateDownloadError.value = null;
@@ -195,13 +205,24 @@ export function useVersionCheck() {
         checksumUrl: updateChecksumUrl.value,
         fallbackUrl: updatePortableUrl.value,
         version: latestVersion.value,
+        requestId,
         proxy,
       });
+      if (requestId !== activeUpdateRequestId) return;
       if (!result?.ok) {
+        activeUpdateRequestId = null;
         updateDownloadStatus.value = 'failed';
         updateDownloadError.value = result?.message || '更新下载失败。';
+        return;
       }
+      activeUpdateRequestId = null;
+      updateDownloadStatus.value = 'ready';
+      updateDownloadProgress.value = 100;
+      updateChecksumVerified.value = result.checksumVerified ?? updateChecksumVerified.value;
+      updateSignatureStatus.value = result.signature ?? updateSignatureStatus.value;
     } catch (error) {
+      if (requestId !== activeUpdateRequestId) return;
+      activeUpdateRequestId = null;
       updateDownloadStatus.value = 'failed';
       updateDownloadError.value = error instanceof Error ? error.message : '更新下载失败。';
     }
@@ -211,10 +232,12 @@ export function useVersionCheck() {
     try {
       const result = await electronApi?.cancelUpdate?.();
       if (result?.ok) {
+        activeUpdateRequestId = null;
         updateDownloadStatus.value = 'cancelled';
         updateDownloadProgress.value = null;
         updateDownloadError.value = null;
       } else if (updateDownloadStatus.value === 'downloading' || updateDownloadStatus.value === 'verifying') {
+        activeUpdateRequestId = null;
         updateDownloadStatus.value = 'failed';
         updateDownloadError.value = result?.message || '更新下载已结束，请重新检查更新。';
       }
@@ -226,6 +249,11 @@ export function useVersionCheck() {
 
   const installUpdate = async () => {
     if (updateDownloadStatus.value !== 'ready' || isInstallingUpdate.value) return;
+    if (!electronApi?.installUpdate) {
+      updateDownloadStatus.value = 'failed';
+      updateDownloadError.value = '当前运行环境不支持安装更新。';
+      return;
+    }
     isInstallingUpdate.value = true;
     try {
       const result = await electronApi?.installUpdate?.();
@@ -243,11 +271,16 @@ export function useVersionCheck() {
 
   const removeUpdateProgressListener = electronApi?.onUpdateProgress?.((payload: {
     status: UpdateDownloadStatus;
+    requestId?: string;
     progress?: number | null;
     message?: string;
     checksumVerified?: boolean;
     signature?: 'valid' | 'invalid' | 'unavailable';
   }) => {
+    if (payload.requestId && payload.requestId !== activeUpdateRequestId) return;
+    if (payload.status === 'ready' || payload.status === 'failed' || payload.status === 'cancelled') {
+      activeUpdateRequestId = null;
+    }
     updateDownloadStatus.value = payload.status;
     updateDownloadProgress.value = payload.progress ?? updateDownloadProgress.value;
     updateChecksumVerified.value = payload.checksumVerified ?? updateChecksumVerified.value;

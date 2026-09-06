@@ -835,7 +835,14 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   } catch (error) {
     return { ok: false, message: `无法准备更新目录：${error.message}` };
   }
-  updateDownloadState = { request: null, file: null, requests: [], cancelled: false, sender: event.sender };
+  updateDownloadState = {
+    request: null,
+    file: null,
+    requests: [],
+    cancelled: false,
+    sender: event.sender,
+    requestId: typeof payload.requestId === 'string' ? payload.requestId : null,
+  };
   completedUpdatePath = null;
   completedUpdateKind = null;
   completedUpdateSha256 = null;
@@ -848,7 +855,9 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     return { ok: false, message: `无法准备更新网络：${error.message}` };
   }
   const sendProgress = (status, extra = {}) => {
-    if (!event.sender.isDestroyed()) event.sender.send('update-progress', { status, ...extra });
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('update-progress', { status, requestId: updateDownloadState?.requestId || null, ...extra });
+    }
   };
   let fallbackPath = null;
 
@@ -861,6 +870,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     if (payload.checksumUrl) {
       checksumText = await fetchUpdateText(payload.checksumUrl, updateProxyAgent);
     }
+    if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
     const getExpectedChecksum = filePath => checksumText
       ? extractExpectedChecksum(checksumText, path.basename(filePath))
       : null;
@@ -971,6 +981,7 @@ ipcMain.handle('install-update', async () => {
       return { ok: false, message: '更新文件在安装前发生变化，已取消安装。' };
     }
     const signature = await verifyUpdateSignature(updatePath);
+    if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
     if (signature.status === 'invalid') {
       fs.rmSync(updatePath, { force: true });
       completedUpdatePath = null;

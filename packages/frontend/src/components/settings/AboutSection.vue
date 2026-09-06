@@ -30,9 +30,9 @@
           <span v-else-if="isUpdateAvailable && latestVersion && runtimeKind !== 'electron'" class="inline-block text-xs ml-2 px-2 py-0.5 rounded-full bg-warning text-white">
             {{ $t('settings.about.updateAvailable', { version: latestVersion }) }}
           </span>
-          <button v-else-if="isUpdateAvailable && latestVersion && runtimeKind === 'electron' && updateDownloadUrl"
+          <button v-else-if="isUpdateAvailable && latestVersion && runtimeKind === 'electron' && updateDownloadUrl && updateDownloadStatus !== 'ready' && !isInstallingUpdate"
              type="button"
-             :disabled="updateDownloadStatus === 'downloading' || updateDownloadStatus === 'verifying'"
+             :disabled="updateDownloadStatus === 'downloading' || updateDownloadStatus === 'verifying' || isInstallingUpdate"
              :title="$t('settings.about.downloadUpdate')"
              @click="downloadUpdate(selectedProxy)"
              class="inline-flex items-center text-xs ml-2 px-2 py-0.5 rounded-full bg-warning text-white hover:bg-warning/80">
@@ -45,11 +45,10 @@
              class="inline-flex items-center text-xs ml-2 px-2 py-0.5 rounded-full bg-warning text-white hover:bg-warning/80">
             {{ $t('settings.about.updateAvailable', { version: latestVersion }) }}
           </button>
-          <span v-if="runtimeKind === 'electron' && updateDownloadStatus === 'downloading'" class="text-xs text-text-secondary">
+          <span v-if="runtimeKind === 'electron' && (updateDownloadStatus === 'downloading' || updateDownloadStatus === 'verifying')" class="text-xs text-text-secondary">
             {{ $t('settings.about.downloadingUpdate', { progress: updateDownloadProgress ?? 0 }) }}
             <button type="button" class="ml-1 text-error hover:underline" @click="cancelUpdate">{{ $t('settings.about.cancelUpdate') }}</button>
           </span>
-          <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'verifying'" class="text-xs text-text-secondary">{{ $t('settings.about.verifyingUpdate') }}</span>
           <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'ready'" class="text-xs text-success">
             {{ $t('settings.about.updateReady') }}
              <button type="button" class="ml-1 text-primary hover:underline disabled:opacity-50" :disabled="isInstallingUpdate" @click="installUpdate">{{ $t('settings.about.installUpdate') }}</button>
