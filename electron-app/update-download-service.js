@@ -2,12 +2,13 @@ const fs = require('fs');
 const https = require('https');
 const { createHash } = require('crypto');
 const {
-  MIRRORS,
   USER_AGENT,
   REQUEST_TIMEOUT_MS,
   MAX_REDIRECTS,
   resolveRedirectUrl,
   validateUpdateUrl,
+  validateMirrorUrl,
+  normalizeMirrorUrls,
   requestWithRedirect,
 } = require('./update-network');
 
@@ -43,6 +44,7 @@ const probe = async (value, context) => {
   const { response, url } = await requestWithRedirect(value, {
     method: 'GET',
     agent: context.agent,
+    allowedHosts: context.allowedHosts,
     headers: { 'Accept-Encoding': 'identity', Range: 'bytes=0-0' },
   });
   response.resume();
@@ -62,7 +64,7 @@ const downloadSegment = (value, start, end, totalBytes, fd, context, onData, red
     return;
   }
   let parsed;
-  try { parsed = validateUpdateUrl(value); } catch (error) { reject(error); return; }
+  try { parsed = validateUpdateUrl(value, context.allowedHosts); } catch (error) { reject(error); return; }
   let settled = false;
   let redirected = false;
   let response;
@@ -82,7 +84,7 @@ const downloadSegment = (value, start, end, totalBytes, fd, context, onData, red
       redirected = true;
       response.resume();
       let redirectUrl;
-      try { redirectUrl = resolveRedirectUrl(response.headers.location, parsed); } catch (error) { settled = true; reject(error); return; }
+      try { redirectUrl = resolveRedirectUrl(response.headers.location, parsed, context.allowedHosts); } catch (error) { settled = true; reject(error); return; }
       downloadSegment(redirectUrl, start, end, totalBytes, fd, context, onData, redirectCount + 1).then(resolve, reject);
       return;
     }
@@ -140,7 +142,7 @@ const downloadStream = (value, targetPath, context, onProgress, redirectCount = 
     return;
   }
   let parsed;
-  try { parsed = validateUpdateUrl(value); } catch (error) { reject(error); return; }
+  try { parsed = validateUpdateUrl(value, context.allowedHosts); } catch (error) { reject(error); return; }
   const partPath = `${targetPath}.part`;
   let settled = false;
   let redirected = false;
@@ -160,7 +162,7 @@ const downloadStream = (value, targetPath, context, onProgress, redirectCount = 
       redirected = true;
       response.resume();
       let redirectUrl;
-      try { redirectUrl = resolveRedirectUrl(response.headers.location, parsed); } catch (error) { settled = true; reject(error); return; }
+      try { redirectUrl = resolveRedirectUrl(response.headers.location, parsed, context.allowedHosts); } catch (error) { settled = true; reject(error); return; }
       downloadStream(redirectUrl, targetPath, context, onProgress, redirectCount + 1).then(resolve, reject);
       return;
     }
@@ -298,13 +300,23 @@ const downloadParallel = async (value, targetPath, totalBytes, context, onProgre
 
 const downloadAsset = async (value, targetPath, context, onProgress, options = {}) => {
   let lastError = null;
-  const sources = options.allowMirrors ? [value, ...MIRRORS.map(mirror => `${mirror}/${value}`)] : [value];
+  const mirrorUrls = normalizeMirrorUrls(options.mirrorUrls);
+  const sources = options.allowMirrors
+    ? [value, ...mirrorUrls.map(mirror => {
+      validateMirrorUrl(mirror);
+      return mirror.includes('{url}') ? mirror.replaceAll('{url}', value) : `${mirror}/${value}`;
+    })]
+    : [value];
+  const officialHosts = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
+  const customHosts = new Set(mirrorUrls.map(mirror => validateMirrorUrl(mirror).hostname));
+  const allowedHosts = new Set([...officialHosts, ...customHosts]);
+  const downloadContext = { ...context, allowedHosts };
   for (const source of sources) {
     try {
-      const result = await probe(source, context);
+      const result = await probe(source, downloadContext);
       return result.rangeSupported
-        ? await downloadParallel(source, targetPath, result.totalBytes, context, onProgress)
-        : await downloadStream(source, targetPath, context, onProgress);
+        ? await downloadParallel(source, targetPath, result.totalBytes, downloadContext, onProgress)
+        : await downloadStream(source, targetPath, downloadContext, onProgress);
     } catch (error) {
       lastError = error; cleanupPartial(targetPath);
       if (context.isCancelled()) throw error;

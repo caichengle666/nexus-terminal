@@ -66,6 +66,16 @@ const getChecksumAsset = (assets: ReleaseAsset[]): ReleaseAsset | null => {
   return assets.find(asset => /(?:sha256|sha-256|checksums?|checksum)[^/]*$/i.test(asset.name)) || null;
 };
 
+const UPDATE_MIRRORS_STORAGE_KEY = 'nexus.update-mirror-urls';
+const loadUpdateMirrorUrls = (): string[] => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(UPDATE_MIRRORS_STORAGE_KEY) || '[]');
+    return Array.isArray(stored) ? stored.filter(value => typeof value === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
 const appVersion = ref(pkg.version);
 const latestVersion = ref<string | null>(null);
 const latestReleaseUrl = ref<string | null>(null);
@@ -80,6 +90,7 @@ const updateDownloadError = ref<string | null>(null);
 const updateChecksumVerified = ref(false);
 const updateSignatureStatus = ref<'valid' | 'invalid' | 'unavailable' | null>(null);
 const isInstallingUpdate = ref(false);
+const updateMirrorUrls = ref<string[]>(loadUpdateMirrorUrls());
 let versionCheckPromise: Promise<void> | null = null;
 let updateRequestSequence = 0;
 let activeUpdateRequestId: string | null = null;
@@ -96,6 +107,12 @@ export function useVersionCheck() {
   });
   const dockerUpgradeCommand = 'docker compose pull && docker compose up -d';
   const electronApi = (window as any).electronAPI;
+
+  const saveUpdateMirrorUrls = (value: string) => {
+    const urls = [...new Set(value.split(/\r?\n/).map(item => item.trim()).filter(Boolean))];
+    updateMirrorUrls.value = urls;
+    localStorage.setItem(UPDATE_MIRRORS_STORAGE_KEY, JSON.stringify(urls));
+  };
 
   const isUpdateAvailable = computed(() => {
     // 简单的字符串比较，假设 tag 格式为 vX.Y.Z
@@ -207,6 +224,7 @@ export function useVersionCheck() {
         version: latestVersion.value,
         requestId,
         proxy,
+        mirrorUrls: updateMirrorUrls.value,
       });
       if (requestId !== activeUpdateRequestId) return;
       if (!result?.ok) {
@@ -297,6 +315,7 @@ export function useVersionCheck() {
     updateDownloadUrl,
     updatePortableUrl,
     updateChecksumUrl,
+    updateMirrorUrls,
     updateDownloadStatus,
     updateDownloadProgress,
     updateDownloadError,
@@ -312,5 +331,6 @@ export function useVersionCheck() {
     downloadUpdate,
     cancelUpdate,
     installUpdate,
+    saveUpdateMirrorUrls,
   };
 }

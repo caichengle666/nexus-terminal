@@ -777,6 +777,20 @@ export const useAppearanceStore = defineStore('appearance', () => {
         for (const [key, value] of Object.entries(theme)) {
             root.style.setProperty(key, value);
         }
+        const electronApi = (window as typeof window & {
+            electronAPI?: { updateFloatingNotificationBellTheme?: (bellTheme: Record<string, string>) => void };
+        }).electronAPI;
+        if (electronApi?.updateFloatingNotificationBellTheme) {
+            const computed = getComputedStyle(root);
+            electronApi.updateFloatingNotificationBellTheme({
+                background: computed.getPropertyValue('--app-bg-color').trim(),
+                foreground: computed.getPropertyValue('--text-color').trim(),
+                border: computed.getPropertyValue('--border-color').trim(),
+                accent: computed.getPropertyValue('--link-active-color').trim(),
+                accentHover: computed.getPropertyValue('--link-hover-color').trim(),
+                error: computed.getPropertyValue('--color-error').trim(),
+            });
+        }
     }
 
     /**

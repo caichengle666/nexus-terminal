@@ -57,6 +57,7 @@ let appStore = null;
 let floatingNotificationBellWindow = null;
 let floatingNotificationBellEnabled = true;
 let floatingNotificationUnreadCount = 0;
+let floatingNotificationBellTheme = {};
 let isQuitting = false;
 let isAlwaysOnTop = false;
 let previousCpuTimes = null;
@@ -94,6 +95,43 @@ let completedUpdateSha256 = null;
 let updateInstallInProgress = false;
 let updateProxyAgent = null;
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
+
+const isUpdaterNetworkError = error => {
+  const code = error?.code;
+  const message = String(error?.message || error || '').toLowerCase();
+  return ['ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT', 'EPIPE', 'ENETUNREACH', 'ENOTFOUND', 'EAI_AGAIN'].includes(code)
+    || message.includes('socket hang up')
+    || message.includes('更新请求连接中断')
+    || message.includes('更新下载连接中断');
+};
+
+const reportUpdaterNetworkError = error => {
+  if (!isUpdaterNetworkError(error) || !updateDownloadState) return false;
+  console.warn(`[Updater] Network connection interrupted: ${error.message || error}`);
+  updateDownloadState.cancelled = true;
+  updateDownloadState.networkError = true;
+  updateDownloadState.request?.destroy();
+  updateDownloadState.requests?.forEach(request => request.destroy());
+  if (!updateDownloadState.sender.isDestroyed()) {
+    updateDownloadState.sender.send('update-progress', {
+      status: 'failed',
+      requestId: updateDownloadState.requestId || null,
+      message: '更新网络连接中断，请检查网络后重试。',
+    });
+  }
+  return true;
+};
+
+process.on('uncaughtException', error => {
+  if (reportUpdaterNetworkError(error)) return;
+  console.error('[Main] Uncaught exception:', error);
+  app.quit();
+});
+process.on('unhandledRejection', error => {
+  if (reportUpdaterNetworkError(error)) return;
+  console.error('[Main] Unhandled rejection:', error);
+  app.quit();
+});
 
 const buildUpdateProxyAgent = (proxy) => updateDownloadService.buildProxyAgent(proxy, loadBackendProxyAgent);
 const validateUpdateUrl = updateNetwork.validateUpdateUrl;
@@ -167,8 +205,16 @@ const updateFloatingNotificationBell = ({ unreadCount, pulse = false } = {}) => 
     floatingNotificationUnreadCount = Math.max(0, Math.min(999, Math.trunc(unreadCount)));
   }
   if (!floatingNotificationBellWindow || floatingNotificationBellWindow.isDestroyed()) return;
-  const payload = JSON.stringify({ unreadCount: floatingNotificationUnreadCount, pulse: Boolean(pulse) });
+  const payload = JSON.stringify({ unreadCount: floatingNotificationUnreadCount, pulse: Boolean(pulse), theme: floatingNotificationBellTheme });
   void floatingNotificationBellWindow.webContents.executeJavaScript(`window.updateFloatingBell?.(${payload})`).catch(() => undefined);
+};
+
+const updateFloatingNotificationBellTheme = theme => {
+  if (!theme || typeof theme !== 'object') return;
+  floatingNotificationBellTheme = Object.fromEntries(
+    ['background', 'foreground', 'border', 'accent', 'accentHover', 'error'].map(key => [key, typeof theme[key] === 'string' ? theme[key] : '']),
+  );
+  updateFloatingNotificationBell();
 };
 
 function createFloatingNotificationBell() {
@@ -188,23 +234,28 @@ function createFloatingNotificationBell() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
+      sandbox: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
   floatingNotificationBellWindow.setAlwaysOnTop(true);
   const bellHtml = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><style>
     html,body{width:100%;height:100%;margin:0;background:transparent;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
-    body{display:flex;flex-direction:column;align-items:center;padding-top:4px;box-sizing:border-box;-webkit-user-select:none}
-    .drag{width:30px;height:10px;margin-bottom:2px;-webkit-app-region:drag;cursor:move;position:relative}
-    .drag:before{content:"";position:absolute;left:5px;right:5px;top:4px;height:2px;border-radius:1px;background:rgba(148,163,184,.8)}
-    .bell{position:relative;width:56px;height:56px;border:1px solid rgba(148,163,184,.55);border-radius:50%;display:grid;place-items:center;color:#f8fafc;background:#171b22;box-shadow:0 6px 18px rgba(0,0,0,.38);-webkit-app-region:no-drag;cursor:pointer;text-decoration:none;box-sizing:border-box}
-    .bell:hover{background:#222833;border-color:#60a5fa}.bell:focus-visible{outline:2px solid #60a5fa;outline-offset:2px}
+    body{display:grid;place-items:center;padding:4px;box-sizing:border-box;-webkit-user-select:none}
+    .bell{position:relative;width:64px;height:64px;border:1px solid var(--bell-border,#94a3b8);border-radius:50%;display:grid;place-items:center;color:var(--bell-foreground,#f8fafc);background:var(--bell-background,#171b22);box-shadow:0 6px 18px rgba(0,0,0,.38);cursor:grab;text-decoration:none;box-sizing:border-box;touch-action:none}
+    .bell:active{cursor:grabbing}.bell:hover{background:var(--bell-accent,#222833);border-color:var(--bell-accent-hover,#60a5fa)}.bell:focus-visible{outline:2px solid var(--bell-accent-hover,#60a5fa);outline-offset:2px}
     .bell svg{width:25px;height:25px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-    .badge{position:absolute;right:-3px;top:-3px;min-width:19px;height:19px;padding:0 5px;border-radius:10px;display:none;align-items:center;justify-content:center;background:#ef4444;color:#fff;font-size:11px;font-weight:700;line-height:19px;box-sizing:border-box;border:2px solid #171b22}
+    .badge{position:absolute;right:-3px;top:-3px;min-width:19px;height:19px;padding:0 5px;border-radius:10px;display:none;align-items:center;justify-content:center;background:var(--bell-error,#dc3545);color:#fff;font-size:11px;font-weight:700;line-height:19px;box-sizing:border-box;border:2px solid var(--bell-background,#171b22)}
     .badge.visible{display:flex}.bell.pulse{animation:pulse .65s ease-out 2}
     @keyframes pulse{0%{transform:scale(1)}45%{transform:scale(1.12);box-shadow:0 0 0 8px rgba(96,165,250,.2),0 6px 18px rgba(0,0,0,.38)}100%{transform:scale(1)}}
-  </style></head><body><div class="drag" title="拖动"></div><a class="bell" id="bell" href="nexus-terminal://notifications" title="打开任务中心" aria-label="打开任务中心"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 21h3.4"></path><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path></svg><span class="badge" id="badge"></span></a><script>
-    window.updateFloatingBell=function(payload){var count=Math.max(0,Number(payload.unreadCount)||0);var badge=document.getElementById('badge');var bell=document.getElementById('bell');badge.textContent=count>99?'99+':String(count);badge.classList.toggle('visible',count>0);if(payload.pulse){bell.classList.remove('pulse');void bell.offsetWidth;bell.classList.add('pulse');}};
+  </style></head><body><button class="bell" id="bell" type="button" title="打开任务中心" aria-label="打开任务中心"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 21h3.4"></path><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path></svg><span class="badge" id="badge"></span></button><script>
+    var api=window.electronAPI;var bell=document.getElementById('bell');var dragState=null;var moved=false;
+    function applyTheme(theme){if(!theme)return;var root=document.documentElement;var map={background:'--bell-background',foreground:'--bell-foreground',border:'--bell-border',accent:'--bell-accent',accentHover:'--bell-accent-hover',error:'--bell-error'};Object.keys(map).forEach(function(key){if(theme[key])root.style.setProperty(map[key],theme[key]);});}
+    window.updateFloatingBell=function(payload){var count=Math.max(0,Number(payload.unreadCount)||0);var badge=document.getElementById('badge');badge.textContent=count>99?'99+':String(count);badge.classList.toggle('visible',count>0);applyTheme(payload.theme);if(payload.pulse){bell.classList.remove('pulse');void bell.offsetWidth;bell.classList.add('pulse');}};
+    bell.addEventListener('pointerdown',function(event){moved=false;dragState={pointerId:event.pointerId,x:event.screenX,y:event.screenY,windowX:screenX,windowY:screenY};bell.setPointerCapture(event.pointerId);});
+    bell.addEventListener('pointermove',function(event){if(!dragState||dragState.pointerId!==event.pointerId)return;var dx=event.screenX-dragState.x,dy=event.screenY-dragState.y;if(!moved&&Math.hypot(dx,dy)<4)return;moved=true;api&&api.floatingNotificationBellDrag({x:dragState.windowX+dx,y:dragState.windowY+dy});});
+    bell.addEventListener('pointerup',function(event){if(!dragState||dragState.pointerId!==event.pointerId)return;var wasMoved=moved;dragState=null;if(!wasMoved){event.preventDefault();api&&api.floatingNotificationBellClick();}});
+    bell.addEventListener('pointercancel',function(){dragState=null;});
   </script></body></html>`;
   floatingNotificationBellWindow.webContents.on('will-navigate', (event, navigationUrl) => {
     if (navigationUrl === 'nexus-terminal://notifications') {
@@ -1015,7 +1066,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
           totalBytes,
           progress: totalBytes > 0 ? Math.floor((receivedBytes / totalBytes) * 100) : null,
         });
-      }, { allowMirrors: Boolean(expectedPrimaryChecksum) });
+      }, { allowMirrors: Boolean(expectedPrimaryChecksum), mirrorUrls: payload.mirrorUrls });
     } catch (primaryError) {
       if (process.platform !== 'win32' || typeof payload.fallbackUrl !== 'string' || updateDownloadState.cancelled) {
         throw primaryError;
@@ -1031,7 +1082,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
           progress: totalBytes > 0 ? Math.floor((receivedBytes / totalBytes) * 100) : null,
           fallback: true,
         });
-      }, { allowMirrors: Boolean(expectedFallbackChecksum) });
+      }, { allowMirrors: Boolean(expectedFallbackChecksum), mirrorUrls: payload.mirrorUrls });
       updatePath = fallbackPath;
       fallbackUsed = true;
       completedUpdateKind = 'portable';
@@ -1065,7 +1116,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   } catch (error) {
     if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
     if (fallbackPath && fallbackPath !== targetPath) cleanupUpdatePartial(fallbackPath);
-    sendProgress(updateDownloadState.cancelled ? 'cancelled' : 'failed', { message: error.message });
+    sendProgress(updateDownloadState.networkError ? 'failed' : (updateDownloadState.cancelled ? 'cancelled' : 'failed'), { message: error.message });
     return { ok: false, message: error.message };
   } finally {
     updateDownloadState = null;
@@ -1157,6 +1208,17 @@ ipcMain.handle('set-floating-notification-bell-enabled', (_event, enabled) => ({
 }));
 ipcMain.on('update-floating-notification-bell', (_event, payload = {}) => {
   updateFloatingNotificationBell(payload);
+});
+ipcMain.on('floating-notification-bell-drag', (event, payload = {}) => {
+  if (!floatingNotificationBellWindow || event.sender !== floatingNotificationBellWindow.webContents) return;
+  if (!Number.isFinite(payload.x) || !Number.isFinite(payload.y)) return;
+  floatingNotificationBellWindow.setPosition(Math.round(payload.x), Math.round(payload.y));
+});
+ipcMain.on('floating-notification-bell-click', event => {
+  if (floatingNotificationBellWindow && event.sender === floatingNotificationBellWindow.webContents) openTaskNotificationCenter();
+});
+ipcMain.on('update-floating-notification-bell-theme', (_event, theme) => {
+  updateFloatingNotificationBellTheme(theme);
 });
 
 ipcMain.handle('open-external', async (_event, url) => {

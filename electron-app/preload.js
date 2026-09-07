@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getFloatingNotificationBellSettings: () => ipcRenderer.invoke('get-floating-notification-bell-settings'),
   setFloatingNotificationBellEnabled: (enabled) => ipcRenderer.invoke('set-floating-notification-bell-enabled', enabled),
   updateFloatingNotificationBell: (payload) => ipcRenderer.send('update-floating-notification-bell', payload),
+  floatingNotificationBellDrag: (payload) => ipcRenderer.send('floating-notification-bell-drag', payload),
+  floatingNotificationBellClick: () => ipcRenderer.send('floating-notification-bell-click'),
+  updateFloatingNotificationBellTheme: (theme) => ipcRenderer.send('update-floating-notification-bell-theme', theme),
   onOpenTaskNotificationCenter: (listener) => {
     const handler = () => listener();
     ipcRenderer.on('open-task-notification-center', handler);

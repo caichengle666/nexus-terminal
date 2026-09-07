@@ -1036,6 +1036,10 @@
     "about": {
       "version": "Version",
       "checkingUpdate": "Checking for update...",
+      "updateMirrorUrlsLabel": "更新アクセラレーション URL",
+      "updateMirrorUrlsPlaceholder": "HTTPS URL を 1 行に 1 つ入力できます。{url} プレースホルダーも使用できます",
+      "saveUpdateMirrorUrls": "アクセラレーション URL を保存",
+      "updateMirrorUrlsHint": "公式 URL を先に試行します。アクセラレーション URL はチェックサムがある場合のみ使用します。",
       "latestVersion": "Up to date",
       "updateAvailable": "Update available: {version}!",
       "error": {

@@ -72,6 +72,22 @@
            <option v-for="p in proxiesStore.proxies" :key="p.id" :value="String(p.id)">{{ p.name }} ({{ p.type }} {{ p.host }}:{{ p.port }})</option>
          </select>
        </div>
+       <div v-if="runtimeKind === 'electron'" class="space-y-2 text-sm text-text-secondary">
+         <label for="update-mirror-urls" class="block text-text-secondary">{{ $t('settings.about.updateMirrorUrlsLabel') }}</label>
+         <textarea
+           id="update-mirror-urls"
+           v-model="updateMirrorUrlsText"
+           rows="3"
+           :placeholder="$t('settings.about.updateMirrorUrlsPlaceholder')"
+           class="w-full max-w-2xl rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
+         ></textarea>
+         <div class="flex flex-wrap items-center gap-2">
+           <button type="button" class="text-xs text-primary hover:underline" @click="saveMirrorUrls">
+             {{ $t('settings.about.saveUpdateMirrorUrls') }}
+           </button>
+           <span class="text-xs text-text-secondary">{{ $t('settings.about.updateMirrorUrlsHint') }}</span>
+         </div>
+       </div>
        <div v-if="runtimeKind === 'docker'" class="rounded-md border border-border bg-header/40 p-3 text-sm">
          <p class="font-medium text-foreground">{{ $t('settings.about.dockerTitle') }}</p>
          <p class="mt-1 text-text-secondary">{{ $t('settings.about.dockerDescription') }}</p>
@@ -111,6 +127,7 @@ const {
   latestVersion,
   latestReleaseUrl,
   updateDownloadUrl,
+  updateMirrorUrls,
   updateDownloadStatus,
   updateDownloadProgress,
   updateDownloadError,
@@ -124,9 +141,11 @@ const {
   downloadUpdate,
   cancelUpdate,
   installUpdate,
+  saveUpdateMirrorUrls,
 } = useVersionCheck();
 
 const copyStatus = ref<'idle' | 'copied' | 'error'>('idle');
+const updateMirrorUrlsText = ref(updateMirrorUrls.value.join('\n'));
 
 const proxiesStore = useProxiesStore();
 const selectedProxyId = ref<string>(localStorage.getItem('nexus-download-proxy-id') || '');
@@ -137,6 +156,11 @@ const selectedProxy = computed(() => {
 const onProxyChange = (event: Event) => {
   selectedProxyId.value = (event.target as HTMLSelectElement).value;
   localStorage.setItem('nexus-download-proxy-id', selectedProxyId.value);
+};
+
+const saveMirrorUrls = () => {
+  saveUpdateMirrorUrls(updateMirrorUrlsText.value);
+  updateMirrorUrlsText.value = updateMirrorUrls.value.join('\n');
 };
 
 const openExternal = (url: string) => {

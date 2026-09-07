@@ -1,32 +1,44 @@
 const https = require('https');
 
-const ALLOWED_HOSTS = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'proxy.gitwarp.top', 'gh.gitwarp.top']);
-const MIRRORS = ['https://proxy.gitwarp.top', 'https://gh.gitwarp.top'];
+const ALLOWED_HOSTS = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
 const USER_AGENT = 'Nexus-Terminal-Updater';
 const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_REDIRECTS = 5;
 const MAX_CHECKSUM_TEXT_SIZE = 1 * 1024 * 1024;
 
-const resolveRedirectUrl = (location, baseUrl) => {
+const normalizeMirrorUrls = values => [...new Set((Array.isArray(values) ? values : [])
+  .map(value => String(value).trim().replace(/\/+$/, ''))
+  .filter(Boolean))];
+
+const validateMirrorUrl = value => {
+  const parsed = new URL(value);
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+    throw new Error('更新加速地址必须是 HTTPS 地址，且不能包含账号密码。');
+  }
+  return parsed;
+};
+
+const resolveRedirectUrl = (location, baseUrl, allowedHosts = ALLOWED_HOSTS) => {
   try {
     const redirectUrl = new URL(location, baseUrl).href;
-    validateUpdateUrl(redirectUrl);
+    validateUpdateUrl(redirectUrl, allowedHosts);
     return redirectUrl;
   } catch {
     throw new Error('更新资源重定向地址无效。');
   }
 };
 
-const validateUpdateUrl = value => {
+const validateUpdateUrl = (value, allowedHosts = ALLOWED_HOSTS) => {
   const parsed = new URL(value);
-  if (parsed.protocol !== 'https:' || !ALLOWED_HOSTS.has(parsed.hostname)) throw new Error('更新资源必须来自 GitHub HTTPS 地址。');
+  if (parsed.protocol !== 'https:' || !allowedHosts.has(parsed.hostname)) throw new Error('更新资源必须来自受信任的 HTTPS 地址。');
   return parsed;
 };
 
 const requestWithRedirect = (value, options = {}, redirectCount = 0) => new Promise((resolve, reject) => {
   if (redirectCount > MAX_REDIRECTS) return reject(new Error('更新资源重定向次数过多。'));
+  const allowedHosts = options.allowedHosts || ALLOWED_HOSTS;
   let parsed;
-  try { parsed = validateUpdateUrl(value); } catch (error) { return reject(error); }
+  try { parsed = validateUpdateUrl(value, allowedHosts); } catch (error) { return reject(error); }
   let settled = false;
   const fail = error => {
     if (settled) return;
@@ -35,6 +47,7 @@ const requestWithRedirect = (value, options = {}, redirectCount = 0) => new Prom
   };
   const request = https.request(parsed, {
     ...options,
+    allowedHosts: undefined,
     timeout: REQUEST_TIMEOUT_MS,
     headers: { 'User-Agent': USER_AGENT, ...(options.headers || {}) },
   }, response => {
@@ -43,11 +56,11 @@ const requestWithRedirect = (value, options = {}, redirectCount = 0) => new Prom
       settled = true;
       response.resume();
       let redirectUrl;
-      try { redirectUrl = resolveRedirectUrl(response.headers.location, parsed); } catch (error) {
+      try { redirectUrl = resolveRedirectUrl(response.headers.location, parsed, allowedHosts); } catch (error) {
         reject(error);
         return;
       }
-      return requestWithRedirect(redirectUrl, options, redirectCount + 1).then(resolve, reject);
+      return requestWithRedirect(redirectUrl, { ...options, allowedHosts }, redirectCount + 1).then(resolve, reject);
     }
     settled = true;
     resolve({ response, url: parsed.href });
@@ -76,11 +89,12 @@ const fetchUpdateText = async (value, agent = null) => {
 
 module.exports = {
   ALLOWED_HOSTS,
-  MIRRORS,
   USER_AGENT,
   REQUEST_TIMEOUT_MS,
   MAX_REDIRECTS,
   MAX_CHECKSUM_TEXT_SIZE,
+  normalizeMirrorUrls,
+  validateMirrorUrl,
   resolveRedirectUrl,
   validateUpdateUrl,
   requestWithRedirect,

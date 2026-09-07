@@ -32,7 +32,7 @@ let taskAudioContext: AudioContext | null = null;
 
 const isTerminalTaskStatus = (status: TaskNotificationStatus) => status !== 'running';
 
-const playTaskCompletionSound = () => {
+const playTaskSound = (repeatCount: number) => {
   try {
     const AudioContextConstructor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextConstructor) return;
@@ -40,6 +40,9 @@ const playTaskCompletionSound = () => {
     const context = taskAudioContext;
     const playChime = () => {
       const startTime = context.currentTime;
+      const masterGain = context.createGain();
+      masterGain.gain.setValueAtTime(1, startTime);
+      masterGain.connect(context.destination);
       [523.25, 659.25, 783.99].forEach((frequency, index) => {
         const oscillator = context.createOscillator();
         const gain = context.createGain();
@@ -47,18 +50,29 @@ const playTaskCompletionSound = () => {
         oscillator.type = 'sine';
         oscillator.frequency.setValueAtTime(frequency, toneStart);
         gain.gain.setValueAtTime(0.0001, toneStart);
-        gain.gain.exponentialRampToValueAtTime(0.16, toneStart + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.22, toneStart + 0.012);
         gain.gain.exponentialRampToValueAtTime(0.0001, toneStart + 0.18);
         oscillator.connect(gain);
-        gain.connect(context.destination);
+        gain.connect(masterGain);
         oscillator.start(toneStart);
         oscillator.stop(toneStart + 0.2);
       });
+      const endTime = startTime + 0.62;
+      masterGain.gain.setValueAtTime(1, endTime - 0.08);
+      masterGain.gain.exponentialRampToValueAtTime(0.0001, endTime);
+      window.setTimeout(() => masterGain.disconnect(), 800);
     };
+    const count = Math.max(1, Math.min(3, Math.trunc(repeatCount)));
     if (context.state === 'suspended') {
-      void context.resume().then(playChime).catch(() => undefined);
+      void context.resume().then(() => {
+        for (let index = 0; index < count; index += 1) {
+          window.setTimeout(playChime, index * 800);
+        }
+      }).catch(() => undefined);
     } else {
-      playChime();
+      for (let index = 0; index < count; index += 1) {
+        window.setTimeout(playChime, index * 800);
+      }
     }
   } catch {
     // Audio is optional and must never affect task state updates.
@@ -180,6 +194,8 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
     taskNotifications.value = [entry, ...taskNotifications.value].slice(0, 50);
     persistTaskNotifications();
     persistDismissedTaskNotifications();
+    if (entry.status === 'running') playTaskSound(1);
+    else playTaskSound(3);
     return entry.id;
   };
 
@@ -218,7 +234,6 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
         progress: restoredTask.progress,
         retry: updates.retry,
       });
-      playTaskCompletionSound();
       syncFloatingNotificationBell(true);
       persistDismissedTaskNotifications();
       return;
@@ -231,7 +246,7 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
     };
     persistTaskNotifications();
     if (previousStatus === 'running' && updates.status && isTerminalTaskStatus(updates.status)) {
-      playTaskCompletionSound();
+      playTaskSound(3);
       syncFloatingNotificationBell(true);
     }
   };
@@ -252,7 +267,6 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
       } else {
         delete dismissedTaskNotifications[task.id];
         const restoredId = addTaskNotification(task);
-        playTaskCompletionSound();
         syncFloatingNotificationBell(true);
         persistDismissedTaskNotifications();
         return restoredId;
