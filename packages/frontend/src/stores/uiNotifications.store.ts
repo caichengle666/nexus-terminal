@@ -38,23 +38,27 @@ const playTaskCompletionSound = () => {
     if (!AudioContextConstructor) return;
     taskAudioContext ??= new AudioContextConstructor();
     const context = taskAudioContext;
-    const playTone = () => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = 880;
-      gain.gain.setValueAtTime(0.0001, context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.18);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + 0.2);
+    const playChime = () => {
+      const startTime = context.currentTime;
+      [523.25, 659.25, 783.99].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const toneStart = startTime + index * 0.13;
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(frequency, toneStart);
+        gain.gain.setValueAtTime(0.0001, toneStart);
+        gain.gain.exponentialRampToValueAtTime(0.16, toneStart + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, toneStart + 0.18);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(toneStart);
+        oscillator.stop(toneStart + 0.2);
+      });
     };
     if (context.state === 'suspended') {
-      void context.resume().then(playTone).catch(() => undefined);
+      void context.resume().then(playChime).catch(() => undefined);
     } else {
-      playTone();
+      playChime();
     }
   } catch {
     // Audio is optional and must never affect task state updates.
