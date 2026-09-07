@@ -69,6 +69,7 @@ const isStandalonePwa = ref(
   Boolean((navigator as Navigator & { standalone?: boolean }).standalone),
 );
 let removeAlwaysOnTopListener: (() => void) | undefined;
+let removeOpenTaskNotificationCenterListener: (() => void) | undefined;
 // --- 移除 shortcutTriggeredInKeyDown 标志 ---
 
 const updateUnderline = async () => {
@@ -106,6 +107,9 @@ onMounted(() => {
   removeAlwaysOnTopListener = getElectronApi()?.receiveMessage?.('always-on-top-changed', (value: boolean) => {
     isAlwaysOnTop.value = Boolean(value);
   });
+  removeOpenTaskNotificationCenterListener = getElectronApi()?.onOpenTaskNotificationCenter?.(() => {
+    window.dispatchEvent(new Event('open-task-notification-center'));
+  });
 
 });
 
@@ -127,6 +131,7 @@ onUnmounted(() => {
   window.removeEventListener('appinstalled', handleAppInstalled);
   window.removeEventListener('pwa-update-available', handlePwaUpdateAvailable);
   removeAlwaysOnTopListener?.();
+  removeOpenTaskNotificationCenterListener?.();
 });
 
 

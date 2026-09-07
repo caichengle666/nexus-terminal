@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from 'vue-i18n';
 import { useUiNotificationsStore } from '../stores/uiNotifications.store';
@@ -19,12 +19,16 @@ const clampPosition = (x: number, y: number) => ({
 
 onMounted(() => {
   const savedPosition = localStorage.getItem('task-notification-center-position');
-  if (!savedPosition) return;
-  try {
-    const position = JSON.parse(savedPosition);
-    if (typeof position.x === 'number' && typeof position.y === 'number') buttonPosition.value = clampPosition(position.x, position.y);
-  } catch { localStorage.removeItem('task-notification-center-position'); }
+  if (savedPosition) {
+    try {
+      const position = JSON.parse(savedPosition);
+      if (typeof position.x === 'number' && typeof position.y === 'number') buttonPosition.value = clampPosition(position.x, position.y);
+    } catch { localStorage.removeItem('task-notification-center-position'); }
+  }
+  window.addEventListener('open-task-notification-center', showCenter);
 });
+
+onUnmounted(() => window.removeEventListener('open-task-notification-center', showCenter));
 
 const startDrag = (event: PointerEvent) => {
   isDragging.value = true;
@@ -59,6 +63,11 @@ const openCenter = () => {
   isOpen.value = !isOpen.value;
   if (isOpen.value) notificationsStore.markTaskNotificationsRead();
 };
+
+function showCenter() {
+  isOpen.value = true;
+  notificationsStore.markTaskNotificationsRead();
+}
 </script>
 
 <template>

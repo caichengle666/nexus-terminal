@@ -8,6 +8,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadUpdate: (payload) => ipcRenderer.invoke('download-update', payload),
   cancelUpdate: () => ipcRenderer.invoke('cancel-update'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
+  getFloatingNotificationBellSettings: () => ipcRenderer.invoke('get-floating-notification-bell-settings'),
+  setFloatingNotificationBellEnabled: (enabled) => ipcRenderer.invoke('set-floating-notification-bell-enabled', enabled),
+  updateFloatingNotificationBell: (payload) => ipcRenderer.send('update-floating-notification-bell', payload),
+  onOpenTaskNotificationCenter: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on('open-task-notification-center', handler);
+    return () => ipcRenderer.removeListener('open-task-notification-center', handler);
+  },
   onUpdateProgress: (listener) => {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on('update-progress', handler);

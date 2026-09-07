@@ -106,10 +106,18 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
   const dismissedTaskNotifications = loadDismissedTaskNotifications();
   let nextId = 0;
 
+  const syncFloatingNotificationBell = (pulse = false) => {
+    const unreadCount = taskNotifications.value.filter(task => !task.read).length;
+    (window as typeof window & {
+      electronAPI?: { updateFloatingNotificationBell?: (payload: { unreadCount: number; pulse: boolean }) => void };
+    }).electronAPI?.updateFloatingNotificationBell?.({ unreadCount, pulse });
+  };
+
   const persistTaskNotifications = () => {
     if (typeof localStorage === 'undefined') return;
     const serializableTasks = taskNotifications.value.map(({ retry: _retry, ...task }) => task);
     localStorage.setItem(TASK_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(serializableTasks));
+    syncFloatingNotificationBell();
   };
 
   const persistDismissedTaskNotifications = () => {
@@ -211,6 +219,7 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
         retry: updates.retry,
       });
       playTaskCompletionSound();
+      syncFloatingNotificationBell(true);
       persistDismissedTaskNotifications();
       return;
     }
@@ -223,6 +232,7 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
     persistTaskNotifications();
     if (previousStatus === 'running' && updates.status && isTerminalTaskStatus(updates.status)) {
       playTaskCompletionSound();
+      syncFloatingNotificationBell(true);
     }
   };
 
@@ -243,6 +253,7 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
         delete dismissedTaskNotifications[task.id];
         const restoredId = addTaskNotification(task);
         playTaskCompletionSound();
+        syncFloatingNotificationBell(true);
         persistDismissedTaskNotifications();
         return restoredId;
       }
@@ -270,6 +281,8 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
   };
 
   const unreadTaskCount = computed(() => taskNotifications.value.filter(task => !task.read).length);
+
+  syncFloatingNotificationBell();
 
 
   return {

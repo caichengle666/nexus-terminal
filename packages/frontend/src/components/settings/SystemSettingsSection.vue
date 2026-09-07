@@ -26,6 +26,24 @@
          </form>
       </div>
       <hr class="border-border/50"> <!-- Separator -->
+      <div v-if="isElectronRuntime" class="settings-section-content">
+        <h3 class="text-base font-semibold text-foreground mb-3">{{ $t('settings.floatingNotificationBell.title') }}</h3>
+        <label class="flex items-start gap-3">
+          <input
+            type="checkbox"
+            class="mt-0.5 h-4 w-4 accent-primary"
+            :checked="floatingNotificationBellEnabled"
+            :disabled="floatingNotificationBellLoading"
+            @change="handleFloatingNotificationBellChange"
+          >
+          <span>
+            <span class="block text-sm font-medium text-foreground">{{ $t('settings.floatingNotificationBell.enableLabel') }}</span>
+            <span class="mt-1 block text-xs text-text-secondary">{{ $t('settings.floatingNotificationBell.description') }}</span>
+          </span>
+        </label>
+        <p v-if="floatingNotificationBellError" class="mt-2 text-sm text-error">{{ floatingNotificationBellError }}</p>
+      </div>
+      <hr v-if="isElectronRuntime" class="border-border/50">
       <!-- Timezone Setting -->
       <div class="settings-section-content">
          <h3 class="text-base font-semibold text-foreground mb-3">{{ $t('settings.timezone.title') }}</h3>
@@ -59,10 +77,42 @@ import { useSettingsStore } from '../../stores/settings.store';
 import { useI18n } from 'vue-i18n';
 import { storeToRefs } from 'pinia';
 import { useSystemSettings } from '../../composables/settings/useSystemSettings';
+import { onMounted, ref } from 'vue';
 
 const settingsStore = useSettingsStore();
 const { settings } = storeToRefs(settingsStore); 
 const { t } = useI18n();
+const electronApi = (window as any).electronAPI;
+const isElectronRuntime = Boolean(electronApi);
+const floatingNotificationBellEnabled = ref(true);
+const floatingNotificationBellLoading = ref(false);
+const floatingNotificationBellError = ref('');
+
+onMounted(async () => {
+  if (!isElectronRuntime) return;
+  try {
+    const result = await electronApi.getFloatingNotificationBellSettings?.();
+    floatingNotificationBellEnabled.value = result?.enabled !== false;
+  } catch {
+    floatingNotificationBellError.value = t('settings.floatingNotificationBell.loadFailed');
+  }
+});
+
+const handleFloatingNotificationBellChange = async (event: Event) => {
+  const enabled = (event.target as HTMLInputElement).checked;
+  floatingNotificationBellLoading.value = true;
+  floatingNotificationBellError.value = '';
+  try {
+    const result = await electronApi.setFloatingNotificationBellEnabled?.(enabled);
+    if (!result?.ok) throw new Error('Failed to update floating notification bell');
+    floatingNotificationBellEnabled.value = result.enabled !== false;
+  } catch {
+    floatingNotificationBellEnabled.value = !enabled;
+    floatingNotificationBellError.value = t('settings.floatingNotificationBell.saveFailed');
+  } finally {
+    floatingNotificationBellLoading.value = false;
+  }
+};
 
 const {
   selectedLanguage,

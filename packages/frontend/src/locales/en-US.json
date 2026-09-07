@@ -696,6 +696,13 @@
         "saveFailed": "Failed to save timezone setting."
       }
     },
+    "floatingNotificationBell": {
+      "title": "Desktop Notification Bell",
+      "enableLabel": "Show the desktop notification bell",
+      "description": "Keep unread task count visible above other windows. Drag to reposition and click to open the task center.",
+      "loadFailed": "Failed to load the notification bell setting.",
+      "saveFailed": "Failed to save the notification bell setting."
+    },
     "changePassword": {
       "title": "Change Password",
       "currentPassword": "Current Password:",

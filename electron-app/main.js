@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage, shell, screen } = require('electron');
 const path = require('path');
 const url = require('url');
 const express = require('express'); 
@@ -53,6 +53,10 @@ let backendRestartTimer = null;
 let frontendUrlForDownloads; // 用于IPC处理器访问前端URL
 let actualBackendUrlForFileDownloads; // 新增：用于文件下载的后端URL
 let tray = null;
+let appStore = null;
+let floatingNotificationBellWindow = null;
+let floatingNotificationBellEnabled = true;
+let floatingNotificationUnreadCount = 0;
 let isQuitting = false;
 let isAlwaysOnTop = false;
 let previousCpuTimes = null;
@@ -119,6 +123,120 @@ function showMainWindow() {
   }
   mainWindow.show();
   mainWindow.focus();
+}
+
+function openTaskNotificationCenter() {
+  showMainWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const navigate = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('open-task-notification-center');
+    }
+  };
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once('did-finish-load', navigate);
+  } else {
+    navigate();
+  }
+}
+
+const getFloatingNotificationBellBounds = () => {
+  const width = 72;
+  const height = 82;
+  const savedBounds = appStore?.get('floatingNotificationBellBounds');
+  if (savedBounds && Number.isFinite(savedBounds.x) && Number.isFinite(savedBounds.y)) {
+    const isVisible = screen.getAllDisplays().some(({ workArea }) => (
+      savedBounds.x < workArea.x + workArea.width
+      && savedBounds.x + width > workArea.x
+      && savedBounds.y < workArea.y + workArea.height
+      && savedBounds.y + height > workArea.y
+    ));
+    if (isVisible) return { x: savedBounds.x, y: savedBounds.y, width, height };
+  }
+  const { workArea } = screen.getPrimaryDisplay();
+  return {
+    x: workArea.x + workArea.width - width - 20,
+    y: workArea.y + workArea.height - height - 20,
+    width,
+    height,
+  };
+};
+
+const updateFloatingNotificationBell = ({ unreadCount, pulse = false } = {}) => {
+  if (Number.isFinite(unreadCount)) {
+    floatingNotificationUnreadCount = Math.max(0, Math.min(999, Math.trunc(unreadCount)));
+  }
+  if (!floatingNotificationBellWindow || floatingNotificationBellWindow.isDestroyed()) return;
+  const payload = JSON.stringify({ unreadCount: floatingNotificationUnreadCount, pulse: Boolean(pulse) });
+  void floatingNotificationBellWindow.webContents.executeJavaScript(`window.updateFloatingBell?.(${payload})`).catch(() => undefined);
+};
+
+function createFloatingNotificationBell() {
+  if (!floatingNotificationBellEnabled || floatingNotificationBellWindow) return;
+  floatingNotificationBellWindow = new BrowserWindow({
+    ...getFloatingNotificationBellBounds(),
+    frame: false,
+    transparent: true,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    hasShadow: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+  floatingNotificationBellWindow.setAlwaysOnTop(true);
+  const bellHtml = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><style>
+    html,body{width:100%;height:100%;margin:0;background:transparent;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+    body{display:flex;flex-direction:column;align-items:center;padding-top:4px;box-sizing:border-box;-webkit-user-select:none}
+    .drag{width:30px;height:10px;margin-bottom:2px;-webkit-app-region:drag;cursor:move;position:relative}
+    .drag:before{content:"";position:absolute;left:5px;right:5px;top:4px;height:2px;border-radius:1px;background:rgba(148,163,184,.8)}
+    .bell{position:relative;width:56px;height:56px;border:1px solid rgba(148,163,184,.55);border-radius:50%;display:grid;place-items:center;color:#f8fafc;background:#171b22;box-shadow:0 6px 18px rgba(0,0,0,.38);-webkit-app-region:no-drag;cursor:pointer;text-decoration:none;box-sizing:border-box}
+    .bell:hover{background:#222833;border-color:#60a5fa}.bell:focus-visible{outline:2px solid #60a5fa;outline-offset:2px}
+    .bell svg{width:25px;height:25px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+    .badge{position:absolute;right:-3px;top:-3px;min-width:19px;height:19px;padding:0 5px;border-radius:10px;display:none;align-items:center;justify-content:center;background:#ef4444;color:#fff;font-size:11px;font-weight:700;line-height:19px;box-sizing:border-box;border:2px solid #171b22}
+    .badge.visible{display:flex}.bell.pulse{animation:pulse .65s ease-out 2}
+    @keyframes pulse{0%{transform:scale(1)}45%{transform:scale(1.12);box-shadow:0 0 0 8px rgba(96,165,250,.2),0 6px 18px rgba(0,0,0,.38)}100%{transform:scale(1)}}
+  </style></head><body><div class="drag" title="拖动"></div><a class="bell" id="bell" href="nexus-terminal://notifications" title="打开任务中心" aria-label="打开任务中心"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 21h3.4"></path><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path></svg><span class="badge" id="badge"></span></a><script>
+    window.updateFloatingBell=function(payload){var count=Math.max(0,Number(payload.unreadCount)||0);var badge=document.getElementById('badge');var bell=document.getElementById('bell');badge.textContent=count>99?'99+':String(count);badge.classList.toggle('visible',count>0);if(payload.pulse){bell.classList.remove('pulse');void bell.offsetWidth;bell.classList.add('pulse');}};
+  </script></body></html>`;
+  floatingNotificationBellWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (navigationUrl === 'nexus-terminal://notifications') {
+      event.preventDefault();
+      openTaskNotificationCenter();
+    }
+  });
+  floatingNotificationBellWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  floatingNotificationBellWindow.webContents.once('did-finish-load', () => {
+    updateFloatingNotificationBell({ unreadCount: floatingNotificationUnreadCount });
+    floatingNotificationBellWindow?.showInactive();
+  });
+  floatingNotificationBellWindow.on('moved', () => {
+    if (!floatingNotificationBellWindow || floatingNotificationBellWindow.isDestroyed()) return;
+    const { x, y } = floatingNotificationBellWindow.getBounds();
+    appStore?.set('floatingNotificationBellBounds', { x, y });
+  });
+  floatingNotificationBellWindow.on('closed', () => {
+    floatingNotificationBellWindow = null;
+  });
+  void floatingNotificationBellWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(bellHtml)}`);
+}
+
+function setFloatingNotificationBellEnabled(enabled) {
+  floatingNotificationBellEnabled = Boolean(enabled);
+  appStore?.set('floatingNotificationBellEnabled', floatingNotificationBellEnabled);
+  if (floatingNotificationBellEnabled) {
+    createFloatingNotificationBell();
+  } else if (floatingNotificationBellWindow && !floatingNotificationBellWindow.isDestroyed()) {
+    floatingNotificationBellWindow.destroy();
+  }
+  return floatingNotificationBellEnabled;
 }
 
 function createTray() {
@@ -188,6 +306,8 @@ async function createWindow() {
 
   const Store = (await import('electron-store')).default;
   const store = new Store();
+  appStore = store;
+  floatingNotificationBellEnabled = store.get('floatingNotificationBellEnabled', true) !== false;
 
   try {
     const { parse } = require('path-to-regexp');
@@ -221,6 +341,7 @@ async function createWindow() {
   });
   mainWindow.setAlwaysOnTop(isAlwaysOnTop);
   createTray();
+  createFloatingNotificationBell();
 
   // 先显示轻量启动画面，避免在正式页面加载前初始化一整套 Vue 应用。
   const startupHtml = `<!doctype html><html><head><meta charset="UTF-8"><style>
@@ -1027,6 +1148,15 @@ ipcMain.handle('install-update', async () => {
   } finally {
     updateInstallInProgress = false;
   }
+});
+
+ipcMain.handle('get-floating-notification-bell-settings', () => ({ enabled: floatingNotificationBellEnabled }));
+ipcMain.handle('set-floating-notification-bell-enabled', (_event, enabled) => ({
+  ok: true,
+  enabled: setFloatingNotificationBellEnabled(enabled),
+}));
+ipcMain.on('update-floating-notification-bell', (_event, payload = {}) => {
+  updateFloatingNotificationBell(payload);
 });
 
 ipcMain.handle('open-external', async (_event, url) => {

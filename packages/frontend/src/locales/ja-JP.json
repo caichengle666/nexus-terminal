@@ -671,6 +671,13 @@
         "saveFailed": "Failed to save timezone setting."
       }
     },
+    "floatingNotificationBell": {
+      "title": "デスクトップ通知ベル",
+      "enableLabel": "デスクトップ通知ベルを表示する",
+      "description": "未読タスク数を常に手前に表示します。ドラッグで移動し、クリックするとタスクセンターを開きます。",
+      "loadFailed": "通知ベル設定の読み込みに失敗しました。",
+      "saveFailed": "通知ベル設定の保存に失敗しました。"
+    },
     "changePassword": {
       "title": "Change Password",
       "currentPassword": "Current Password:",

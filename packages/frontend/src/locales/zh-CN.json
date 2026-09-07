@@ -691,6 +691,13 @@
         "saveFailed": "保存时区设置失败。"
       }
     },
+    "floatingNotificationBell": {
+      "title": "桌面悬浮通知铃铛",
+      "enableLabel": "显示桌面悬浮通知铃铛",
+      "description": "始终置顶显示未读任务数量。可拖动位置，点击后打开任务中心。",
+      "loadFailed": "读取悬浮铃铛设置失败。",
+      "saveFailed": "保存悬浮铃铛设置失败。"
+    },
     "changePassword": {
       "title": "修改密码",
       "currentPassword": "当前密码:",
