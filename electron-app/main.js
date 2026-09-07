@@ -981,7 +981,6 @@ ipcMain.handle('install-update', async () => {
       return { ok: false, message: '更新文件在安装前发生变化，已取消安装。' };
     }
     const signature = await verifyUpdateSignature(updatePath);
-    if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
     if (signature.status === 'invalid') {
       fs.rmSync(updatePath, { force: true });
       completedUpdatePath = null;

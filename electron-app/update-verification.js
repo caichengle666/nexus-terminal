@@ -1,11 +1,15 @@
 const { spawn } = require('child_process');
 
+const normalizeReleaseFilename = value => value.trim().toLowerCase().replace(/[.\s]+/g, '.');
+
 const extractExpectedChecksum = (text, filename) => {
-  const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const matchingLine = text.split(/\r?\n/).find(line => new RegExp(`(?:^|\\s)${escapedFilename}(?:\\s|$)`, 'i').test(line));
-  if (!matchingLine) return null;
-  const hashMatch = matchingLine.match(/\b[a-f0-9]{64}\b/i);
-  return hashMatch ? hashMatch[0].toLowerCase() : null;
+  const normalizedFilename = normalizeReleaseFilename(filename);
+  const matches = text.split(/\r?\n/).flatMap(line => {
+    const match = line.match(/^([a-f0-9]{64})\s+\*?(.+?)\s*$/i);
+    if (!match || normalizeReleaseFilename(match[2]) !== normalizedFilename) return [];
+    return [match[1].toLowerCase()];
+  });
+  return matches.length === 1 ? matches[0] : null;
 };
 
 const verifyUpdateSignature = (filePath, platform = process.platform) => new Promise(resolve => {
