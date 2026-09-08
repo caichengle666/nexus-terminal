@@ -58,6 +58,7 @@ let floatingNotificationBellWindow = null;
 let floatingNotificationBellEnabled = true;
 let floatingNotificationUnreadCount = 0;
 let floatingNotificationBellTheme = {};
+let floatingNotificationBellStatus = 'default';
 let isQuitting = false;
 let isAlwaysOnTop = false;
 let previousCpuTimes = null;
@@ -200,12 +201,18 @@ const getFloatingNotificationBellBounds = () => {
   };
 };
 
-const updateFloatingNotificationBell = ({ unreadCount, pulse = false } = {}) => {
+const updateFloatingNotificationBell = ({ unreadCount, pulse = false, status } = {}) => {
   if (Number.isFinite(unreadCount)) {
     floatingNotificationUnreadCount = Math.max(0, Math.min(999, Math.trunc(unreadCount)));
   }
+  if (['default', 'running', 'success', 'error'].includes(status)) floatingNotificationBellStatus = status;
   if (!floatingNotificationBellWindow || floatingNotificationBellWindow.isDestroyed()) return;
-  const payload = JSON.stringify({ unreadCount: floatingNotificationUnreadCount, pulse: Boolean(pulse), theme: floatingNotificationBellTheme });
+  const payload = JSON.stringify({
+    unreadCount: floatingNotificationUnreadCount,
+    pulse: Boolean(pulse),
+    status: floatingNotificationBellStatus,
+    theme: floatingNotificationBellTheme,
+  });
   void floatingNotificationBellWindow.webContents.executeJavaScript(`window.updateFloatingBell?.(${payload})`).catch(() => undefined);
 };
 
@@ -242,8 +249,9 @@ function createFloatingNotificationBell() {
   const bellHtml = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><style>
     html,body{width:100%;height:100%;margin:0;background:transparent;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
     body{display:grid;place-items:center;padding:4px;box-sizing:border-box;-webkit-user-select:none}
-    .bell{position:relative;width:64px;height:64px;border:1px solid var(--bell-border,#94a3b8);border-radius:50%;display:grid;place-items:center;color:var(--bell-foreground,#f8fafc);background:var(--bell-background,#171b22);box-shadow:0 6px 18px rgba(0,0,0,.38);cursor:grab;text-decoration:none;box-sizing:border-box;touch-action:none}
+    .bell{position:relative;width:64px;height:64px;border:1px solid var(--bell-border,#94a3b8);border-radius:50%;display:grid;place-items:center;color:var(--bell-foreground,#f8fafc);background:var(--bell-background,#171b22);box-shadow:0 6px 18px rgba(0,0,0,.38);cursor:grab;text-decoration:none;box-sizing:border-box;touch-action:none;transition:background .18s ease,border-color .18s ease,box-shadow .18s ease}
     .bell:active{cursor:grabbing}.bell:hover{background:var(--bell-accent,#222833);border-color:var(--bell-accent-hover,#60a5fa)}.bell:focus-visible{outline:2px solid var(--bell-accent-hover,#60a5fa);outline-offset:2px}
+    .bell.running{background:#2563eb;border-color:#60a5fa;box-shadow:0 0 0 4px rgba(37,99,235,.24),0 6px 18px rgba(0,0,0,.38)}.bell.success{background:#16a34a;border-color:#4ade80;box-shadow:0 0 0 4px rgba(22,163,74,.24),0 6px 18px rgba(0,0,0,.38)}.bell.error{background:#dc2626;border-color:#f87171;box-shadow:0 0 0 4px rgba(220,38,38,.25),0 6px 18px rgba(0,0,0,.38)}
     .bell svg{width:25px;height:25px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
     .badge{position:absolute;right:-3px;top:-3px;min-width:19px;height:19px;padding:0 5px;border-radius:10px;display:none;align-items:center;justify-content:center;background:var(--bell-error,#dc3545);color:#fff;font-size:11px;font-weight:700;line-height:19px;box-sizing:border-box;border:2px solid var(--bell-background,#171b22)}
     .badge.visible{display:flex}.bell.pulse{animation:pulse .65s ease-out 2}
@@ -251,7 +259,7 @@ function createFloatingNotificationBell() {
   </style></head><body><button class="bell" id="bell" type="button" title="打开任务中心" aria-label="打开任务中心"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 21h3.4"></path><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path></svg><span class="badge" id="badge"></span></button><script>
     var api=window.electronAPI;var bell=document.getElementById('bell');var dragState=null;var moved=false;
     function applyTheme(theme){if(!theme)return;var root=document.documentElement;var map={background:'--bell-background',foreground:'--bell-foreground',border:'--bell-border',accent:'--bell-accent',accentHover:'--bell-accent-hover',error:'--bell-error'};Object.keys(map).forEach(function(key){if(theme[key])root.style.setProperty(map[key],theme[key]);});}
-    window.updateFloatingBell=function(payload){var count=Math.max(0,Number(payload.unreadCount)||0);var badge=document.getElementById('badge');badge.textContent=count>99?'99+':String(count);badge.classList.toggle('visible',count>0);applyTheme(payload.theme);if(payload.pulse){bell.classList.remove('pulse');void bell.offsetWidth;bell.classList.add('pulse');}};
+    window.updateFloatingBell=function(payload){var count=Math.max(0,Number(payload.unreadCount)||0);var badge=document.getElementById('badge');badge.textContent=count>99?'99+':String(count);badge.classList.toggle('visible',count>0);applyTheme(payload.theme);bell.classList.remove('running','success','error');if(payload.status&&payload.status!=='default')bell.classList.add(payload.status);if(payload.pulse){bell.classList.remove('pulse');void bell.offsetWidth;bell.classList.add('pulse');}};
     bell.addEventListener('pointerdown',function(event){moved=false;dragState={pointerId:event.pointerId,x:event.screenX,y:event.screenY,windowX:screenX,windowY:screenY};bell.setPointerCapture(event.pointerId);});
     bell.addEventListener('pointermove',function(event){if(!dragState||dragState.pointerId!==event.pointerId)return;var dx=event.screenX-dragState.x,dy=event.screenY-dragState.y;if(!moved&&Math.hypot(dx,dy)<4)return;moved=true;api&&api.floatingNotificationBellDrag({x:dragState.windowX+dx,y:dragState.windowY+dy});});
     bell.addEventListener('pointerup',function(event){if(!dragState||dragState.pointerId!==event.pointerId)return;var wasMoved=moved;dragState=null;if(!wasMoved){event.preventDefault();api&&api.floatingNotificationBellClick();}});

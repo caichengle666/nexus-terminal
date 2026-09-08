@@ -28,6 +28,7 @@ type StoredTaskNotification = Omit<TaskNotification, 'retry'>;
 
 const TASK_NOTIFICATIONS_STORAGE_KEY = 'nexus.taskNotifications';
 const DISMISSED_TASK_NOTIFICATIONS_STORAGE_KEY = 'nexus.dismissedTaskNotifications';
+const TASK_SUCCESS_INDICATOR_DURATION_MS = 5000;
 let taskAudioContext: AudioContext | null = null;
 
 const isTerminalTaskStatus = (status: TaskNotificationStatus) => status !== 'running';
@@ -119,12 +120,30 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
   const taskNotifications = ref<TaskNotification[]>(loadTaskNotifications());
   const dismissedTaskNotifications = loadDismissedTaskNotifications();
   let nextId = 0;
+  let successIndicatorTimer: number | null = null;
+  let successIndicatorActive = false;
+
+  const getFloatingNotificationBellStatus = (): 'default' | 'running' | 'success' | 'error' => {
+    if (taskNotifications.value.some(task => !task.read && (task.status === 'error' || task.status === 'cancelled'))) return 'error';
+    if (taskNotifications.value.some(task => task.status === 'running')) return 'running';
+    return successIndicatorActive ? 'success' : 'default';
+  };
+
+  const showSuccessIndicator = () => {
+    successIndicatorActive = true;
+    if (successIndicatorTimer) window.clearTimeout(successIndicatorTimer);
+    successIndicatorTimer = window.setTimeout(() => {
+      successIndicatorActive = false;
+      successIndicatorTimer = null;
+      syncFloatingNotificationBell();
+    }, TASK_SUCCESS_INDICATOR_DURATION_MS);
+  };
 
   const syncFloatingNotificationBell = (pulse = false) => {
     const unreadCount = taskNotifications.value.filter(task => !task.read).length;
     (window as typeof window & {
-      electronAPI?: { updateFloatingNotificationBell?: (payload: { unreadCount: number; pulse: boolean }) => void };
-    }).electronAPI?.updateFloatingNotificationBell?.({ unreadCount, pulse });
+      electronAPI?: { updateFloatingNotificationBell?: (payload: { unreadCount: number; pulse: boolean; status: 'default' | 'running' | 'success' | 'error' }) => void };
+    }).electronAPI?.updateFloatingNotificationBell?.({ unreadCount, pulse, status: getFloatingNotificationBellStatus() });
   };
 
   const persistTaskNotifications = () => {
@@ -195,7 +214,11 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
     persistTaskNotifications();
     persistDismissedTaskNotifications();
     if (entry.status === 'running') playTaskSound(1);
-    else playTaskSound(3);
+    else {
+      if (entry.status === 'success') showSuccessIndicator();
+      playTaskSound(3);
+      syncFloatingNotificationBell(true);
+    }
     return entry.id;
   };
 
@@ -246,6 +269,7 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
     };
     persistTaskNotifications();
     if (previousStatus === 'running' && updates.status && isTerminalTaskStatus(updates.status)) {
+      if (updates.status === 'success') showSuccessIndicator();
       playTaskSound(3);
       syncFloatingNotificationBell(true);
     }
