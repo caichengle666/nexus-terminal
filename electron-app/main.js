@@ -1048,6 +1048,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     const downloadContext = {
       agent: updateProxyAgent,
       isCancelled: () => updateDownloadState?.cancelled,
+      onStage: (stage, extra = {}) => sendProgress(stage, extra),
       registerRequest: request => updateDownloadState?.requests.push(request),
       unregisterRequest: request => {
         if (updateDownloadState) updateDownloadState.requests = updateDownloadState.requests.filter(item => item !== request);
@@ -1063,6 +1064,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     let fallbackUsed = false;
     let checksumText = null;
     if (payload.checksumUrl) {
+      sendProgress('fetching-checksum', { message: '正在获取校验文件…' });
       checksumText = await fetchUpdateText(payload.checksumUrl, updateProxyAgent, downloadContext);
     }
     if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
@@ -1082,6 +1084,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
       if (process.platform !== 'win32' || typeof payload.fallbackUrl !== 'string' || updateDownloadState.cancelled) {
         throw primaryError;
       }
+      sendProgress('trying-fallback', { message: '安装包下载失败，正在尝试便携版…' });
       const fallbackUrl = validateUpdateUrl(payload.fallbackUrl);
       fallbackPath = path.join(updaterDir, getSafeUpdateFilename(fallbackUrl));
       const expectedFallbackChecksum = getExpectedChecksum(fallbackPath);
@@ -1110,7 +1113,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     }
     const checksumVerified = Boolean(expectedChecksum);
 
-    sendProgress('verifying', { sha256: result.sha256, checksumVerified, fallback: fallbackUsed });
+    sendProgress('verifying', { message: '下载完成，正在校验安装包…', sha256: result.sha256, checksumVerified, fallback: fallbackUsed });
     const signature = await verifyUpdateSignature(updatePath);
     if (signature.status === 'invalid') {
       fs.rmSync(updatePath, { force: true });
@@ -1133,7 +1136,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     } else if (fallbackPath && fallbackPath !== targetPath && fs.existsSync(fallbackPath)) {
       fs.rmSync(fallbackPath, { force: true });
     }
-    sendProgress(updateDownloadState.networkError ? 'failed' : (updateDownloadState.cancelled ? 'cancelled' : 'failed'), { message: error.message });
+    sendProgress(updateDownloadState.networkError ? 'failed' : (updateDownloadState.cancelled ? 'cancelled' : 'failed'), { message: error.message || '更新下载失败。' });
     return { ok: false, message: error.message };
   } finally {
     updateDownloadState?.completionResolve?.();

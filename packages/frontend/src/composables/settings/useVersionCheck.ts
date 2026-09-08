@@ -9,7 +9,7 @@ type ReleaseAsset = {
 };
 
 export type RuntimeKind = 'electron' | 'docker' | 'pwa' | 'web';
-export type UpdateDownloadStatus = 'idle' | 'downloading' | 'verifying' | 'ready' | 'failed' | 'cancelled';
+export type UpdateDownloadStatus = 'idle' | 'fetching-checksum' | 'probing' | 'downloading' | 'parallel-failed' | 'trying-fallback' | 'source-failed' | 'verifying' | 'ready' | 'failed' | 'cancelled';
 
 const normalizeVersion = (version: string) => version.replace(/^v/i, '').split('.').map(part => Number.parseInt(part, 10) || 0);
 const isVersionNewer = (latest: string, current: string) => {
@@ -87,6 +87,7 @@ const versionCheckError = ref<string | null>(null);
 const updateDownloadStatus = ref<UpdateDownloadStatus>('idle');
 const updateDownloadProgress = ref<number | null>(null);
 const updateDownloadError = ref<string | null>(null);
+const updateDownloadStageMessage = ref<string | null>(null);
 const updateChecksumVerified = ref(false);
 const updateSignatureStatus = ref<'valid' | 'invalid' | 'unavailable' | null>(null);
 const isInstallingUpdate = ref(false);
@@ -149,6 +150,7 @@ export function useVersionCheck() {
     updateDownloadStatus.value = 'idle';
     updateDownloadProgress.value = null;
     updateDownloadError.value = null;
+    updateDownloadStageMessage.value = null;
     updateChecksumVerified.value = false;
     updateSignatureStatus.value = null;
     versionCheckPromise = (async () => {
@@ -214,6 +216,7 @@ export function useVersionCheck() {
     updateDownloadStatus.value = 'downloading';
     updateDownloadProgress.value = 0;
     updateDownloadError.value = null;
+    updateDownloadStageMessage.value = '正在准备更新…';
     updateChecksumVerified.value = false;
     updateSignatureStatus.value = null;
     try {
@@ -294,6 +297,8 @@ export function useVersionCheck() {
     message?: string;
     checksumVerified?: boolean;
     signature?: 'valid' | 'invalid' | 'unavailable';
+    source?: string;
+    rangeSupported?: boolean;
   }) => {
     if (payload.requestId && payload.requestId !== activeUpdateRequestId) return;
     if (payload.status === 'ready' || payload.status === 'failed' || payload.status === 'cancelled') {
@@ -304,6 +309,15 @@ export function useVersionCheck() {
     updateChecksumVerified.value = payload.checksumVerified ?? updateChecksumVerified.value;
     updateSignatureStatus.value = payload.signature ?? updateSignatureStatus.value;
     if (payload.message) updateDownloadError.value = payload.message;
+    if (payload.status === 'fetching-checksum') updateDownloadStageMessage.value = '正在获取校验文件…';
+    else if (payload.status === 'probing') updateDownloadStageMessage.value = '正在检查下载源…';
+    else if (payload.status === 'downloading') updateDownloadStageMessage.value = payload.rangeSupported === false ? '正在下载更新文件…' : '正在下载更新文件（支持并行分片）…';
+    else if (payload.status === 'parallel-failed') updateDownloadStageMessage.value = '并行下载不稳定，正在切换为普通下载…';
+    else if (payload.status === 'trying-fallback') updateDownloadStageMessage.value = payload.message || '正在尝试备用便携版…';
+    else if (payload.status === 'source-failed') updateDownloadStageMessage.value = '当前下载源失败，正在尝试下一个来源…';
+    else if (payload.status === 'verifying') updateDownloadStageMessage.value = payload.message || '正在校验安装包…';
+    else if (payload.status === 'ready') updateDownloadStageMessage.value = '更新文件已准备好。';
+    else if (payload.status === 'failed' || payload.status === 'cancelled') updateDownloadStageMessage.value = null;
   });
 
   onUnmounted(() => removeUpdateProgressListener?.());
@@ -319,6 +333,7 @@ export function useVersionCheck() {
     updateDownloadStatus,
     updateDownloadProgress,
     updateDownloadError,
+    updateDownloadStageMessage,
     isInstallingUpdate,
     updateChecksumVerified,
     updateSignatureStatus,

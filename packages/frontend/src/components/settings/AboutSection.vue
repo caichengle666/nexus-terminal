@@ -30,7 +30,7 @@
           <span v-else-if="isUpdateAvailable && latestVersion && runtimeKind !== 'electron'" class="inline-block text-xs ml-2 px-2 py-0.5 rounded-full bg-warning text-white">
             {{ $t('settings.about.updateAvailable', { version: latestVersion }) }}
           </span>
-          <button v-else-if="isUpdateAvailable && latestVersion && runtimeKind === 'electron' && updateDownloadUrl && updateDownloadStatus !== 'ready' && !isInstallingUpdate"
+          <button v-else-if="isUpdateAvailable && latestVersion && runtimeKind === 'electron' && updateDownloadUrl && updateDownloadStatus !== 'ready' && updateDownloadStatus !== 'failed' && !isInstallingUpdate"
              type="button"
              :disabled="updateDownloadStatus === 'downloading' || updateDownloadStatus === 'verifying' || isInstallingUpdate"
              :title="$t('settings.about.downloadUpdate')"
@@ -45,15 +45,19 @@
              class="inline-flex items-center text-xs ml-2 px-2 py-0.5 rounded-full bg-warning text-white hover:bg-warning/80">
             {{ $t('settings.about.updateAvailable', { version: latestVersion }) }}
           </button>
-          <span v-if="runtimeKind === 'electron' && (updateDownloadStatus === 'downloading' || updateDownloadStatus === 'verifying')" class="text-xs text-text-secondary">
-            {{ $t('settings.about.downloadingUpdate', { progress: updateDownloadProgress ?? 0 }) }}
+          <span v-if="runtimeKind === 'electron' && ['fetching-checksum', 'probing', 'downloading', 'parallel-failed', 'trying-fallback', 'source-failed', 'verifying'].includes(updateDownloadStatus)" class="text-xs text-text-secondary">
+            {{ updateDownloadStageMessage || $t('settings.about.downloadingUpdate', { progress: updateDownloadProgress ?? 0 }) }}
+            <span v-if="updateDownloadStatus === 'downloading' && updateDownloadProgress !== null">({{ updateDownloadProgress }}%)</span>
             <button type="button" class="ml-1 text-error hover:underline" @click="cancelUpdate">{{ $t('settings.about.cancelUpdate') }}</button>
           </span>
           <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'ready'" class="text-xs text-success">
             {{ $t('settings.about.updateReady') }}
              <button type="button" class="ml-1 text-primary hover:underline disabled:opacity-50" :disabled="isInstallingUpdate" @click="installUpdate">{{ $t('settings.about.installUpdate') }}</button>
           </span>
-          <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'failed'" class="text-xs text-error" :title="updateDownloadError || undefined">{{ $t('settings.about.downloadFailed') }}</span>
+          <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'failed'" class="inline-flex flex-wrap items-center gap-2 text-xs text-error">
+            <span>{{ $t('settings.about.downloadFailed') }}{{ updateDownloadError ? `：${updateDownloadError}` : '' }}</span>
+            <button v-if="updateDownloadUrl" type="button" class="text-primary hover:underline" @click="downloadUpdate(selectedProxy)">重试</button>
+          </span>
           <span class="opacity-50">|</span>
           <button type="button" @click="openExternal('https://github.com/caichengle666/nexus-terminal')" class="text-primary hover:underline inline-flex items-center">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="mr-1" viewBox="0 0 16 16"> <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"/> </svg>
@@ -131,6 +135,7 @@ const {
   updateDownloadStatus,
   updateDownloadProgress,
   updateDownloadError,
+  updateDownloadStageMessage,
   isInstallingUpdate,
   isCheckingVersion,
   versionCheckError,

@@ -184,6 +184,66 @@ test('downloads a ranged asset with the complete segment arguments', async () =>
   }
 });
 
+test('falls back to a stream download when ranged downloading fails', async () => {
+  const originalRequest = https.request;
+  const originalGet = https.get;
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-updater-fallback-test-'));
+  const targetPath = path.join(temporaryDirectory, 'update.zip');
+  const body = Buffer.from('stream fallback update');
+  let requestCount = 0;
+  const stages = [];
+  https.request = (_url, _options, callback) => {
+    const request = new EventEmitter();
+    request.setTimeout = () => {};
+    request.destroy = () => {};
+    request.end = () => {
+      requestCount += 1;
+      const response = new EventEmitter();
+      response.resume = () => {};
+      if (requestCount === 1) {
+        response.statusCode = 206;
+        response.headers = { 'content-range': `bytes 0-0/${body.length}`, 'content-length': '1' };
+        process.nextTick(() => callback(response));
+        return;
+      }
+      process.nextTick(() => request.emit('error', Object.assign(new Error('range connection reset'), { code: 'ECONNRESET' })));
+    };
+    return request;
+  };
+  https.get = (_url, _options, callback) => {
+    const request = new EventEmitter();
+    request.setTimeout = () => {};
+    request.destroy = () => {};
+    const response = new EventEmitter();
+    response.statusCode = 200;
+    response.headers = { 'content-length': String(body.length) };
+    process.nextTick(() => {
+      callback(response);
+      response.emit('data', body);
+      response.emit('end');
+    });
+    return request;
+  };
+  try {
+    const result = await downloadAsset('https://github.com/example/update.zip', targetPath, {
+      agent: null,
+      isCancelled: () => false,
+      registerRequest: () => {},
+      unregisterRequest: () => {},
+      registerFile: () => {},
+      abortRequests: () => {},
+      onStage: stage => stages.push(stage),
+    }, () => {});
+    assert.equal(fs.readFileSync(targetPath).toString(), body.toString());
+    assert.equal(result.totalBytes, body.length);
+    assert.equal(stages.includes('parallel-failed'), true);
+  } finally {
+    https.request = originalRequest;
+    https.get = originalGet;
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
 test('keeps partial update files available after a network failure', async () => {
   const originalRequest = https.request;
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-updater-resume-test-'));

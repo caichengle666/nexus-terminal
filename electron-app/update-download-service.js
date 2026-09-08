@@ -348,13 +348,22 @@ const downloadAsset = async (value, targetPath, context, onProgress, options = {
   const downloadContext = { ...context, allowedHosts };
   for (const source of sources) {
     try {
+      context.onStage?.('probing', { source });
       const result = await probe(source, downloadContext);
-      return result.rangeSupported
-        ? await downloadParallel(source, targetPath, result.totalBytes, downloadContext, onProgress)
-        : await downloadStream(source, targetPath, downloadContext, onProgress);
+      context.onStage?.('downloading', { source, rangeSupported: result.rangeSupported });
+      if (!result.rangeSupported) return await downloadStream(source, targetPath, downloadContext, onProgress);
+      try {
+        return await downloadParallel(source, targetPath, result.totalBytes, downloadContext, onProgress);
+      } catch (parallelError) {
+        if (context.isCancelled()) throw parallelError;
+        context.onStage?.('parallel-failed', { source, message: parallelError.message });
+        cleanupPartial(targetPath);
+        return await downloadStream(source, targetPath, downloadContext, onProgress);
+      }
     } catch (error) {
       lastError = error;
       if (context.isCancelled()) throw error;
+      context.onStage?.('source-failed', { source, message: error.message });
     }
   }
   throw lastError || new Error('更新下载失败。');
