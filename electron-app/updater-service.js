@@ -59,7 +59,9 @@ const installPortableUpdate = async ({ archivePath, updaterDir, currentProcessId
       '$ErrorActionPreference = "Stop"',
       `$currentProcess = Get-Process -Id ${Number(currentProcessId)} -ErrorAction SilentlyContinue`,
       'if ($currentProcess) { Wait-Process -Id $currentProcess.Id }',
-      `Start-Process -FilePath ${escapePowerShellLiteral(executable)} -WorkingDirectory ${escapePowerShellLiteral(path.dirname(executable))}`,
+      `$newProcess = Start-Process -FilePath ${escapePowerShellLiteral(executable)} -WorkingDirectory ${escapePowerShellLiteral(path.dirname(executable))} -PassThru`,
+      `$cleanupScript = 'Wait-Process -Id ' + $newProcess.Id + ' -ErrorAction SilentlyContinue; Remove-Item -LiteralPath ' + ${escapePowerShellLiteral(extractPath)} + ' -Recurse -Force -ErrorAction SilentlyContinue`,
+      `Start-Process powershell.exe -ArgumentList '-NoProfile','-NonInteractive','-WindowStyle','Hidden','-Command',$cleanupScript -WindowStyle Hidden`,
     ].join('; ');
     const child = spawn('powershell.exe', [
       '-NoProfile',
@@ -77,9 +79,14 @@ const installPortableUpdate = async ({ archivePath, updaterDir, currentProcessId
       fs.rmSync(extractPath, { recursive: true, force: true });
       resolve({ ok: false, message: `准备启动便携版失败：${error.message}` });
     });
-    child.once('spawn', () => {
-      child.unref();
-      resolve({ ok: true, fallback: true });
+    child.once('close', code => {
+      if (code === 0) {
+        child.unref();
+        resolve({ ok: true, fallback: true });
+        return;
+      }
+      fs.rmSync(extractPath, { recursive: true, force: true });
+      resolve({ ok: false, message: '便携版启动命令执行失败。' });
     });
   });
 };
