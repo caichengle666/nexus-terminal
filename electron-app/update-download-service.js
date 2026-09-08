@@ -33,6 +33,15 @@ const cleanupPartial = targetPath => {
   }
 };
 
+const buildMirrorUrl = (mirror, sourceUrl) => {
+  const parsedMirror = validateMirrorUrl(mirror);
+  const result = mirror.includes('{url}')
+    ? mirror.replaceAll('{url}', sourceUrl)
+    : `${parsedMirror.href.replace(/\/+$/, '')}/${sourceUrl}`;
+  validateUpdateUrl(result, new Set([parsedMirror.hostname]));
+  return result;
+};
+
 const writeMetadata = (metaPath, meta) => {
   const temporaryPath = `${metaPath}.tmp`;
   fs.writeFileSync(temporaryPath, JSON.stringify(meta));
@@ -269,7 +278,7 @@ const downloadParallel = async (value, targetPath, totalBytes, context, onProgre
       const segment = meta.segments[next++]; const expected = segment.end - segment.start + 1;
       if (segment.downloaded >= expected) continue;
       try {
-        await downloadSegment(value, segment.start + segment.downloaded, segment.end, fd, context, delta => {
+        await downloadSegment(value, segment.start + segment.downloaded, segment.end, totalBytes, fd, context, delta => {
           segment.downloaded += delta;
           writeMetadata(metaPath, meta);
           onProgress(aggregated(), totalBytes);
@@ -304,7 +313,7 @@ const downloadAsset = async (value, targetPath, context, onProgress, options = {
   const sources = options.allowMirrors
     ? [value, ...mirrorUrls.map(mirror => {
       validateMirrorUrl(mirror);
-      return mirror.includes('{url}') ? mirror.replaceAll('{url}', value) : `${mirror}/${value}`;
+      return buildMirrorUrl(mirror, value);
     })]
     : [value];
   const officialHosts = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
@@ -318,11 +327,11 @@ const downloadAsset = async (value, targetPath, context, onProgress, options = {
         ? await downloadParallel(source, targetPath, result.totalBytes, downloadContext, onProgress)
         : await downloadStream(source, targetPath, downloadContext, onProgress);
     } catch (error) {
-      lastError = error; cleanupPartial(targetPath);
+      lastError = error;
       if (context.isCancelled()) throw error;
     }
   }
   throw lastError || new Error('更新下载失败。');
 };
 
-module.exports = { buildProxyAgent, cleanupPartial, downloadAsset, hashFile };
+module.exports = { buildProxyAgent, buildMirrorUrl, cleanupPartial, downloadAsset, hashFile };

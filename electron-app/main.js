@@ -1022,7 +1022,9 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     cancelled: false,
     sender: event.sender,
     requestId: typeof payload.requestId === 'string' ? payload.requestId : null,
+    completionPromise: null,
   };
+  updateDownloadState.completionPromise = new Promise(resolve => { updateDownloadState.completionResolve = resolve; });
   completedUpdatePath = null;
   completedUpdateKind = null;
   completedUpdateSha256 = null;
@@ -1030,6 +1032,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   try {
     updateProxyAgent = await buildUpdateProxyAgent(payload.proxy);
   } catch (error) {
+    updateDownloadState?.completionResolve?.();
     updateDownloadState = null;
     updateProxyAgent = null;
     return { ok: false, message: `无法准备更新网络：${error.message}` };
@@ -1042,19 +1045,6 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   let fallbackPath = null;
 
   try {
-    sendProgress('downloading', { receivedBytes: 0, totalBytes: 0, progress: 0 });
-    let result;
-    let updatePath = targetPath;
-    let fallbackUsed = false;
-    let checksumText = null;
-    if (payload.checksumUrl) {
-      checksumText = await fetchUpdateText(payload.checksumUrl, updateProxyAgent);
-    }
-    if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
-    const getExpectedChecksum = filePath => checksumText
-      ? extractExpectedChecksum(checksumText, path.basename(filePath))
-      : null;
-    const expectedPrimaryChecksum = getExpectedChecksum(targetPath);
     const downloadContext = {
       agent: updateProxyAgent,
       isCancelled: () => updateDownloadState?.cancelled,
@@ -1067,6 +1057,19 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
         updateDownloadState?.requests?.forEach(request => request.destroy());
       },
     };
+    sendProgress('downloading', { receivedBytes: 0, totalBytes: 0, progress: 0 });
+    let result;
+    let updatePath = targetPath;
+    let fallbackUsed = false;
+    let checksumText = null;
+    if (payload.checksumUrl) {
+      checksumText = await fetchUpdateText(payload.checksumUrl, updateProxyAgent, downloadContext);
+    }
+    if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
+    const getExpectedChecksum = filePath => checksumText
+      ? extractExpectedChecksum(checksumText, path.basename(filePath))
+      : null;
+    const expectedPrimaryChecksum = getExpectedChecksum(targetPath);
     try {
       result = await updateDownloadService.downloadAsset(payload.url, targetPath, downloadContext, (receivedBytes, totalBytes) => {
         sendProgress('downloading', {
@@ -1123,21 +1126,33 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     return { ok: true, path: updatePath, sha256: result.sha256, checksumVerified, signature: signature.status, fallback: fallbackUsed };
   } catch (error) {
     if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
-    if (fallbackPath && fallbackPath !== targetPath) cleanupUpdatePartial(fallbackPath);
+    const shouldDiscardPartial = updateDownloadState.cancelled && !updateDownloadState.networkError;
+    if (shouldDiscardPartial) {
+      cleanupUpdatePartial(targetPath);
+      if (fallbackPath && fallbackPath !== targetPath) cleanupUpdatePartial(fallbackPath);
+    } else if (fallbackPath && fallbackPath !== targetPath && fs.existsSync(fallbackPath)) {
+      fs.rmSync(fallbackPath, { force: true });
+    }
     sendProgress(updateDownloadState.networkError ? 'failed' : (updateDownloadState.cancelled ? 'cancelled' : 'failed'), { message: error.message });
     return { ok: false, message: error.message };
   } finally {
+    updateDownloadState?.completionResolve?.();
     updateDownloadState = null;
     updateProxyAgent = null;
   }
 });
 
-ipcMain.handle('cancel-update', () => {
+ipcMain.handle('cancel-update', async () => {
   if (!updateDownloadState) return { ok: false, message: '没有正在进行的更新下载。' };
+  const state = updateDownloadState;
   updateDownloadState.cancelled = true;
   updateDownloadState.request?.destroy();
   updateDownloadState.file?.destroy();
   updateDownloadState.requests?.forEach(request => request.destroy());
+  await Promise.race([
+    state.completionPromise,
+    new Promise(resolve => setTimeout(resolve, 5000)),
+  ]);
   return { ok: true };
 });
 

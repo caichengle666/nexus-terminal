@@ -46,12 +46,13 @@ const requestWithRedirect = (value, options = {}, redirectCount = 0) => new Prom
     reject(error);
   };
   const request = https.request(parsed, {
-    ...options,
-    allowedHosts: undefined,
+    method: options.method,
+    agent: options.agent,
     timeout: REQUEST_TIMEOUT_MS,
     headers: { 'User-Agent': USER_AGENT, ...(options.headers || {}) },
   }, response => {
     response.on('error', fail);
+    response.on('aborted', () => fail(new Error('更新请求连接中断。')));
     if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
       settled = true;
       response.resume();
@@ -65,6 +66,8 @@ const requestWithRedirect = (value, options = {}, redirectCount = 0) => new Prom
     settled = true;
     resolve({ response, url: parsed.href });
   });
+  options.registerRequest?.(request);
+  request.on('close', () => options.unregisterRequest?.(request));
   request.setTimeout(REQUEST_TIMEOUT_MS, () => {
     request.destroy(new Error('更新请求超时。'));
   });
@@ -72,19 +75,30 @@ const requestWithRedirect = (value, options = {}, redirectCount = 0) => new Prom
   request.end();
 });
 
-const fetchUpdateText = async (value, agent = null) => {
-  const { response } = await requestWithRedirect(value, { method: 'GET', agent });
+const fetchUpdateText = async (value, agent = null, context = {}) => {
+  const { response } = await requestWithRedirect(value, {
+    method: 'GET',
+    agent,
+    registerRequest: context.registerRequest,
+    unregisterRequest: context.unregisterRequest,
+  });
   if (response.statusCode !== 200) { response.resume(); throw new Error(`获取更新校验文件失败（HTTP ${response.statusCode}）。`); }
-  let body = '';
-  response.setEncoding('utf8');
-  for await (const chunk of response) {
-    body += chunk;
-    if (Buffer.byteLength(body, 'utf8') > MAX_CHECKSUM_TEXT_SIZE) {
-      response.destroy();
-      throw new Error('更新校验文件超过允许大小。');
+  const readBody = (async () => {
+    let body = '';
+    response.setEncoding('utf8');
+    for await (const chunk of response) {
+      body += chunk;
+      if (Buffer.byteLength(body, 'utf8') > MAX_CHECKSUM_TEXT_SIZE) {
+        response.destroy();
+        throw new Error('更新校验文件超过允许大小。');
+      }
     }
-  }
-  return body;
+    return body;
+  })();
+  const aborted = new Promise((_, reject) => {
+    response.once('aborted', () => reject(new Error('更新请求连接中断。')));
+  });
+  return Promise.race([readBody, aborted]);
 };
 
 module.exports = {

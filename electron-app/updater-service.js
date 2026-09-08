@@ -22,6 +22,14 @@ const findPortableExecutable = (directory) => {
   return null;
 };
 
+const cleanupStalePortableUpdates = updaterDir => {
+  let entries;
+  try { entries = fs.readdirSync(updaterDir, { withFileTypes: true }); } catch { return; }
+  entries.filter(entry => entry.isDirectory() && entry.name.startsWith('portable-')).forEach(entry => {
+    fs.rmSync(path.join(updaterDir, entry.name), { recursive: true, force: true });
+  });
+};
+
 const extractPortableUpdate = (archivePath, destinationPath) => new Promise(resolve => {
   const escapedArchive = archivePath.replace(/'/g, "''");
   const escapedDestination = destinationPath.replace(/'/g, "''");
@@ -34,6 +42,7 @@ const extractPortableUpdate = (archivePath, destinationPath) => new Promise(reso
 });
 
 const installPortableUpdate = async ({ archivePath, updaterDir, currentProcessId = process.pid }) => {
+  cleanupStalePortableUpdates(updaterDir);
   const extractPath = path.join(updaterDir, `portable-${Date.now()}`);
   const extraction = await extractPortableUpdate(archivePath, extractPath);
   if (extraction) {
