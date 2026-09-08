@@ -263,7 +263,23 @@ const downloadParallel = async (value, targetPath, totalBytes, context, onProgre
     writeMetadata(metaPath, meta);
   }
   let fd = fs.openSync(partPath, fs.existsSync(partPath) ? 'r+' : 'w+'); let next = 0; let failed = false;
+  let metadataTimer = null;
+  let lastMetadataWriteAt = 0;
   const aggregated = () => meta.segments.reduce((sum, segment) => sum + segment.downloaded, 0);
+  const flushMetadata = () => {
+    if (metadataTimer) clearTimeout(metadataTimer);
+    metadataTimer = null;
+    writeMetadata(metaPath, meta);
+    lastMetadataWriteAt = Date.now();
+  };
+  const scheduleMetadataWrite = () => {
+    const remaining = Math.max(0, 500 - (Date.now() - lastMetadataWriteAt));
+    if (remaining === 0) {
+      flushMetadata();
+      return;
+    }
+    if (!metadataTimer) metadataTimer = setTimeout(flushMetadata, remaining);
+  };
   const worker = async () => {
     while (next < chunkCount && !context.isCancelled() && !failed) {
       const segment = meta.segments[next++]; const expected = segment.end - segment.start + 1;
@@ -271,12 +287,13 @@ const downloadParallel = async (value, targetPath, totalBytes, context, onProgre
       try {
         await downloadSegment(value, segment.start + segment.downloaded, segment.end, fd, context, delta => {
           segment.downloaded += delta;
-          writeMetadata(metaPath, meta);
+          scheduleMetadataWrite();
           onProgress(aggregated(), totalBytes);
         });
-        writeMetadata(metaPath, meta);
+        flushMetadata();
       } catch (error) {
         failed = true;
+        flushMetadata();
         context.abortRequests?.();
         throw error;
       }
@@ -291,24 +308,33 @@ const downloadParallel = async (value, targetPath, totalBytes, context, onProgre
     if (context.isCancelled()) throw new Error('更新下载已取消。');
     if (aggregated() !== totalBytes) throw new Error(`下载不完整：${aggregated()}/${totalBytes} 字节。`);
     if (fs.statSync(partPath).size !== totalBytes) throw new Error('更新文件大小校验失败。');
+    flushMetadata();
     fs.closeSync(fd); fd = null;
     const sha256 = await hashFile(partPath);
+    if (metadataTimer) clearTimeout(metadataTimer);
+    metadataTimer = null;
     fs.rmSync(targetPath, { force: true }); fs.renameSync(partPath, targetPath); fs.rmSync(metaPath, { force: true });
     return { totalBytes, sha256 };
-  } finally { if (fd !== null) try { fs.closeSync(fd); } catch { /* best effort */ } }
+  } finally {
+    if (metadataTimer) clearTimeout(metadataTimer);
+    metadataTimer = null;
+    if (fd !== null) try { fs.closeSync(fd); } catch { /* best effort */ }
+  }
 };
 
 const downloadAsset = async (value, targetPath, context, onProgress, options = {}) => {
   let lastError = null;
   const mirrorUrls = normalizeMirrorUrls(options.mirrorUrls);
+  const validMirrors = mirrorUrls.flatMap(mirror => {
+    try { return [{ value: mirror, parsed: validateMirrorUrl(mirror) }]; } catch { return []; }
+  });
   const sources = options.allowMirrors
-    ? [value, ...mirrorUrls.map(mirror => {
-      validateMirrorUrl(mirror);
+    ? [value, ...validMirrors.map(({ value: mirror }) => {
       return mirror.includes('{url}') ? mirror.replaceAll('{url}', value) : `${mirror}/${value}`;
     })]
     : [value];
   const officialHosts = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
-  const customHosts = new Set(mirrorUrls.map(mirror => validateMirrorUrl(mirror).hostname));
+  const customHosts = new Set(options.allowMirrors ? validMirrors.map(({ parsed }) => parsed.hostname) : []);
   const allowedHosts = new Set([...officialHosts, ...customHosts]);
   const downloadContext = { ...context, allowedHosts };
   for (const source of sources) {
