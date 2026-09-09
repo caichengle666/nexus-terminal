@@ -79,6 +79,7 @@ const fetchUpdateText = async (value, agent = null, context = {}) => {
   const { response } = await requestWithRedirect(value, {
     method: 'GET',
     agent,
+    allowedHosts: context.allowedHosts,
     registerRequest: context.registerRequest,
     unregisterRequest: context.unregisterRequest,
   });

@@ -41,7 +41,31 @@ const extractPortableUpdate = (archivePath, destinationPath) => new Promise(reso
   child.on('error', error => resolve(error.message));
 });
 
-const installPortableUpdate = async ({ archivePath, updaterDir, currentProcessId = process.pid }) => {
+const buildPortableLaunchScript = ({ currentProcessId, executable, extractPath, targetDirectory }) => {
+  const sourceDirectory = path.dirname(executable);
+  const targetExecutable = targetDirectory
+    ? path.join(targetDirectory, path.basename(executable))
+    : executable;
+  const commands = [
+    '$ErrorActionPreference = "Stop"',
+    `$currentProcess = Get-Process -Id ${Number(currentProcessId)} -ErrorAction SilentlyContinue`,
+    'if ($currentProcess) { Wait-Process -Id $currentProcess.Id }',
+  ];
+  if (targetDirectory) {
+    commands.push(
+      `$sourceItems = Get-ChildItem -LiteralPath ${escapePowerShellLiteral(sourceDirectory)} -Force`,
+      `$sourceItems | Where-Object { $_.Name -notin @('userData', 'data') } | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination ${escapePowerShellLiteral(targetDirectory)} -Recurse -Force }`,
+    );
+  }
+  commands.push(
+    `$newProcess = Start-Process -FilePath ${escapePowerShellLiteral(targetExecutable)} -WorkingDirectory ${escapePowerShellLiteral(path.dirname(targetExecutable))} -PassThru`,
+    `$cleanupScript = 'Wait-Process -Id ' + $newProcess.Id + ' -ErrorAction SilentlyContinue; Remove-Item -LiteralPath ' + ${escapePowerShellLiteral(extractPath)} + ' -Recurse -Force -ErrorAction SilentlyContinue`,
+    `Start-Process powershell.exe -ArgumentList '-NoProfile','-NonInteractive','-WindowStyle','Hidden','-Command',$cleanupScript -WindowStyle Hidden`,
+  );
+  return commands.join('; ');
+};
+
+const installPortableUpdate = async ({ archivePath, updaterDir, targetDirectory = null, currentProcessId = process.pid }) => {
   cleanupStalePortableUpdates(updaterDir);
   const extractPath = path.join(updaterDir, `portable-${Date.now()}`);
   const extraction = await extractPortableUpdate(archivePath, extractPath);
@@ -55,14 +79,7 @@ const installPortableUpdate = async ({ archivePath, updaterDir, currentProcessId
     return { ok: false, message: '便携版解压成功，但找不到 Nexus Terminal.exe。' };
   }
   return new Promise(resolve => {
-    const launchScript = [
-      '$ErrorActionPreference = "Stop"',
-      `$currentProcess = Get-Process -Id ${Number(currentProcessId)} -ErrorAction SilentlyContinue`,
-      'if ($currentProcess) { Wait-Process -Id $currentProcess.Id }',
-      `$newProcess = Start-Process -FilePath ${escapePowerShellLiteral(executable)} -WorkingDirectory ${escapePowerShellLiteral(path.dirname(executable))} -PassThru`,
-      `$cleanupScript = 'Wait-Process -Id ' + $newProcess.Id + ' -ErrorAction SilentlyContinue; Remove-Item -LiteralPath ' + ${escapePowerShellLiteral(extractPath)} + ' -Recurse -Force -ErrorAction SilentlyContinue`,
-      `Start-Process powershell.exe -ArgumentList '-NoProfile','-NonInteractive','-WindowStyle','Hidden','-Command',$cleanupScript -WindowStyle Hidden`,
-    ].join('; ');
+    const launchScript = buildPortableLaunchScript({ currentProcessId, executable, extractPath, targetDirectory });
     const child = spawn('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
@@ -79,16 +96,11 @@ const installPortableUpdate = async ({ archivePath, updaterDir, currentProcessId
       fs.rmSync(extractPath, { recursive: true, force: true });
       resolve({ ok: false, message: `准备启动便携版失败：${error.message}` });
     });
-    child.once('close', code => {
-      if (code === 0) {
-        child.unref();
-        resolve({ ok: true, fallback: true });
-        return;
-      }
-      fs.rmSync(extractPath, { recursive: true, force: true });
-      resolve({ ok: false, message: '便携版启动命令执行失败。' });
+    child.once('spawn', () => {
+      child.unref();
+      resolve({ ok: true, fallback: !targetDirectory });
     });
   });
 };
 
-module.exports = { installPortableUpdate };
+module.exports = { buildPortableLaunchScript, installPortableUpdate };

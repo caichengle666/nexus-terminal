@@ -10,6 +10,7 @@ const {
   validateMirrorUrl,
   normalizeMirrorUrls,
   requestWithRedirect,
+  fetchUpdateText,
 } = require('./update-network');
 
 const SEGMENT_SIZE = 4 * 1024 * 1024;
@@ -47,6 +48,37 @@ const buildMirrorUrl = (mirror, sourceUrl) => {
     : `${parsedMirror.href.replace(/\/+$/, '')}/${sourceUrl}`;
   validateUpdateUrl(result, new Set([parsedMirror.hostname]));
   return result;
+};
+
+const buildDownloadSources = (value, mirrorUrls, allowMirrors = true) => {
+  const validMirrors = normalizeMirrorUrls(mirrorUrls).flatMap(mirror => {
+    try { return [{ value: mirror, parsed: validateMirrorUrl(mirror) }]; } catch { return []; }
+  });
+  const sources = allowMirrors
+    ? [...validMirrors.map(({ value: mirror }) => buildMirrorUrl(mirror, value)), value]
+    : [value];
+  const allowedHosts = new Set([
+    'github.com',
+    'objects.githubusercontent.com',
+    'release-assets.githubusercontent.com',
+    ...validMirrors.map(({ parsed }) => parsed.hostname),
+  ]);
+  return { sources, allowedHosts };
+};
+
+const fetchTextAsset = async (value, context, options = {}) => {
+  let lastError = null;
+  const { sources, allowedHosts } = buildDownloadSources(value, options.mirrorUrls, options.allowMirrors);
+  for (const source of sources) {
+    try {
+      return await fetchUpdateText(source, context.agent, { ...context, allowedHosts });
+    } catch (error) {
+      lastError = error;
+      if (context.isCancelled?.()) throw error;
+      context.onStage?.('source-failed', { source, message: error.message });
+    }
+  }
+  throw lastError || new Error('获取更新校验文件失败。');
 };
 
 const writeMetadata = (metaPath, meta) => {
@@ -340,18 +372,7 @@ const downloadParallel = async (value, targetPath, totalBytes, context, onProgre
 
 const downloadAsset = async (value, targetPath, context, onProgress, options = {}) => {
   let lastError = null;
-  const mirrorUrls = normalizeMirrorUrls(options.mirrorUrls);
-  const validMirrors = mirrorUrls.flatMap(mirror => {
-    try { return [{ value: mirror, parsed: validateMirrorUrl(mirror) }]; } catch { return []; }
-  });
-  const sources = options.allowMirrors
-    ? [value, ...validMirrors.map(({ value: mirror }) => {
-      return buildMirrorUrl(mirror, value);
-    })]
-    : [value];
-  const officialHosts = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
-  const customHosts = new Set(options.allowMirrors ? validMirrors.map(({ parsed }) => parsed.hostname) : []);
-  const allowedHosts = new Set([...officialHosts, ...customHosts]);
+  const { sources, allowedHosts } = buildDownloadSources(value, options.mirrorUrls, options.allowMirrors);
   const downloadContext = { ...context, allowedHosts };
   for (const source of sources) {
     try {
@@ -381,8 +402,10 @@ const downloadAsset = async (value, targetPath, context, onProgress, options = {
 module.exports = {
   buildProxyAgent,
   buildMirrorUrl,
+  buildDownloadSources,
   cleanupPartial,
   downloadAsset,
+  fetchTextAsset,
   hashFile,
   MIN_PARALLEL_DOWNLOAD_SIZE,
   shouldUseParallelDownload,

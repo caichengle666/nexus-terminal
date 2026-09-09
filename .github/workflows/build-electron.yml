@@ -83,7 +83,14 @@ jobs:
           compression-level: 0
 
   build-macos:
-    runs-on: macos-14
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
 
@@ -111,23 +118,23 @@ jobs:
         working-directory: electron-app
         run: npm install
 
-      - name: Prepare bundled Node.js runtime (arm64)
+      - name: Prepare bundled Node.js runtime
         shell: bash
         run: |
-          mkdir -p electron-app/nodejs-runtime/darwin-arm64
-          cp $(which node) electron-app/nodejs-runtime/darwin-arm64/node
-          chmod +x electron-app/nodejs-runtime/darwin-arm64/node
+          mkdir -p electron-app/nodejs-runtime/darwin-${{ matrix.arch }}
+          cp $(which node) electron-app/nodejs-runtime/darwin-${{ matrix.arch }}/node
+          chmod +x electron-app/nodejs-runtime/darwin-${{ matrix.arch }}/node
 
-      - name: Build Electron app (macOS arm64)
+      - name: Build Electron app (macOS ${{ matrix.arch }})
         working-directory: electron-app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder build --mac --arm64 --config --publish never
+        run: npx electron-builder build --mac --${{ matrix.arch }} --config --publish never
 
-      - name: Upload macOS arm64 artifact
+      - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Nexus-Terminal-macOS-arm64
+          name: Nexus-Terminal-macOS-${{ matrix.arch }}
           path: electron-app/dist/*.dmg
           if-no-files-found: error
           compression-level: 0
@@ -153,7 +160,7 @@ jobs:
             if [[ "$filename" != "$normalized_filename" ]]; then
               mv -- "$file" "$directory/$normalized_filename"
             fi
-          done < <(find Nexus-Terminal-Windows-Installer Nexus-Terminal-Windows-Portable-Unpacked Nexus-Terminal-macOS-arm64 -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' \) -print0)
+          done < <(find Nexus-Terminal-Windows-Installer Nexus-Terminal-Windows-Portable-Unpacked Nexus-Terminal-macOS-arm64 Nexus-Terminal-macOS-x64 -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' \) -print0)
 
       - name: Create SHA-256 manifest
         shell: bash
@@ -161,7 +168,7 @@ jobs:
           : > SHA256SUMS.txt
           while IFS= read -r -d '' file; do
             (cd "$(dirname "$file")" && sha256sum -- "$(basename "$file")") >> SHA256SUMS.txt
-          done < <(find Nexus-Terminal-Windows-Installer Nexus-Terminal-Windows-Portable-Unpacked Nexus-Terminal-macOS-arm64 -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' \) -print0 | sort -z)
+          done < <(find Nexus-Terminal-Windows-Installer Nexus-Terminal-Windows-Portable-Unpacked Nexus-Terminal-macOS-arm64 Nexus-Terminal-macOS-x64 -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' \) -print0 | sort -z)
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -171,4 +178,5 @@ jobs:
             Nexus-Terminal-Windows-Installer/*.exe
             Nexus-Terminal-Windows-Portable-Unpacked/*.zip
             Nexus-Terminal-macOS-arm64/*.dmg
+            Nexus-Terminal-macOS-x64/*.dmg
             SHA256SUMS.txt

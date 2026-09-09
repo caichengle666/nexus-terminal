@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
+  getArchitecture: () => ipcRenderer.invoke('get-architecture'),
   getInstallationKind: () => ipcRenderer.invoke('get-installation-kind'),
   downloadUpdate: (payload) => ipcRenderer.invoke('download-update', payload),
   cancelUpdate: () => ipcRenderer.invoke('cancel-update'),

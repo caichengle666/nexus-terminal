@@ -136,7 +136,6 @@ process.on('unhandledRejection', error => {
 
 const buildUpdateProxyAgent = (proxy) => updateDownloadService.buildProxyAgent(proxy, loadBackendProxyAgent);
 const validateUpdateUrl = updateNetwork.validateUpdateUrl;
-const fetchUpdateText = updateNetwork.fetchUpdateText;
 const cleanupUpdatePartial = updateDownloadService.cleanupPartial;
 
 const getSafeUpdateFilename = parsedUrl => {
@@ -985,6 +984,7 @@ ipcMain.on('minimize-window', () => {
 
 ipcMain.handle('get-app-version', () => require('./package.json').releaseVersion || app.getVersion());
 ipcMain.handle('get-platform', () => process.platform);
+ipcMain.handle('get-architecture', () => process.arch);
 ipcMain.handle('get-installation-kind', () => {
   if (process.platform !== 'win32') return 'system';
   const markerPath = path.join(path.dirname(app.getPath('exe')), '.Portable');
@@ -1065,7 +1065,10 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     let checksumText = null;
     if (payload.checksumUrl) {
       sendProgress('fetching-checksum', { message: '正在获取校验文件…' });
-      checksumText = await fetchUpdateText(payload.checksumUrl, updateProxyAgent, downloadContext);
+      checksumText = await updateDownloadService.fetchTextAsset(payload.checksumUrl, downloadContext, {
+        allowMirrors: true,
+        mirrorUrls: payload.mirrorUrls,
+      });
     }
     if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
     const getExpectedChecksum = filePath => checksumText
@@ -1198,9 +1201,14 @@ ipcMain.handle('install-update', async () => {
     });
     if (confirmation.response !== 0) return { ok: false, cancelled: true, message: '已取消安装。' };
     if (isPortable && process.platform === 'win32') {
+      const currentExecutableDirectory = path.dirname(app.getPath('exe'));
+      const targetDirectory = fs.existsSync(path.join(currentExecutableDirectory, '.Portable'))
+        ? currentExecutableDirectory
+        : null;
       const result = await installPortableUpdate({
         archivePath: updatePath,
         updaterDir: path.dirname(updatePath),
+        targetDirectory,
         currentProcessId: process.pid,
       });
       if (!result.ok) return result;

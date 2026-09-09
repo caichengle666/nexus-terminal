@@ -10,6 +10,7 @@ const { extractExpectedChecksum } = require('../update-verification');
 const { requestWithRedirect } = require('../update-network');
 const {
   buildMirrorUrl,
+  buildDownloadSources,
   downloadAsset,
   MIN_PARALLEL_DOWNLOAD_SIZE,
   shouldUseParallelDownload,
@@ -141,6 +142,19 @@ test('builds and validates mirror URLs', () => {
     () => buildMirrorUrl('http://mirror.example/{url}', 'https://github.com/example/update.zip'),
     /HTTPS/,
   );
+});
+
+test('tries configured mirrors before the official update source', () => {
+  const result = buildDownloadSources(
+    'https://github.com/example/update.zip',
+    ['https://mirror.example/files'],
+    true,
+  );
+  assert.deepEqual(result.sources, [
+    'https://mirror.example/files/https://github.com/example/update.zip',
+    'https://github.com/example/update.zip',
+  ]);
+  assert.equal(result.allowedHosts.has('mirror.example'), true);
 });
 
 test('automatically chooses parallel downloading only for large ranged assets', () => {

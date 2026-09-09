@@ -22,12 +22,12 @@ const isVersionNewer = (latest: string, current: string) => {
   return false;
 };
 
-const getPlatformDownloadAsset = (assets: ReleaseAsset[], nativePlatform?: string): ReleaseAsset | null => {
+const getPlatformDownloadAsset = (assets: ReleaseAsset[], nativePlatform?: string, nativeArchitecture?: string): ReleaseAsset | null => {
   const userAgentData = (navigator as Navigator & {
     userAgentData?: { platform?: string; architecture?: string };
   }).userAgentData;
   const platform = `${nativePlatform || ''} ${navigator.userAgent} ${userAgentData?.platform || ''}`.toLowerCase();
-  const architecture = `${userAgentData?.architecture || ''} ${navigator.userAgent}`.toLowerCase();
+  const architecture = `${nativeArchitecture || ''} ${userAgentData?.architecture || ''} ${navigator.userAgent}`.toLowerCase();
   const isArm64 = /arm64|aarch64|apple silicon/.test(architecture);
   const findAsset = (pattern: RegExp) => assets.find(asset => pattern.test(asset.name)) || null;
 
@@ -42,8 +42,7 @@ const getPlatformDownloadAsset = (assets: ReleaseAsset[], nativePlatform?: strin
   if (/macintosh|mac os x|macos|darwin/.test(platform)) {
     return findAsset(isArm64
       ? /(?:macos|darwin).*?(?:arm64|apple silicon).*\.dmg$/i
-      : /(?:macos|darwin).*?(?:x64|intel|amd64).*\.dmg$/i)
-      || findAsset(/\.dmg$/i);
+      : /(?:macos|darwin).*?(?:x64|intel|amd64).*\.dmg$/i);
   }
 
   if (/linux/.test(platform)) {
@@ -96,6 +95,7 @@ let versionCheckPromise: Promise<void> | null = null;
 let updateRequestSequence = 0;
 let activeUpdateRequestId: string | null = null;
 let nativePlatform: string | null = null;
+let nativeArchitecture: string | null = null;
 let installationKind: 'system' | 'portable' = 'system';
 
 export function useVersionCheck() {
@@ -126,6 +126,8 @@ export function useVersionCheck() {
       if (typeof version === 'string' && version.trim()) appVersion.value = version.trim();
       const platform = await (window as any).electronAPI?.getPlatform?.();
       if (typeof platform === 'string' && platform.trim()) nativePlatform = platform.trim().toLowerCase();
+      const architecture = await (window as any).electronAPI?.getArchitecture?.();
+      if (typeof architecture === 'string' && architecture.trim()) nativeArchitecture = architecture.trim().toLowerCase();
       const kind = await (window as any).electronAPI?.getInstallationKind?.();
       if (kind === 'portable' || kind === 'system') installationKind = kind;
     } catch (error) {
@@ -166,7 +168,7 @@ export function useVersionCheck() {
           const assets = response.data.assets || [];
           const downloadAsset = installationKind === 'portable' && nativePlatform === 'win32'
             ? getWindowsPortableAsset(assets, /arm64|aarch64/.test(`${navigator.userAgent} ${navigator.platform}`.toLowerCase()))
-            : getPlatformDownloadAsset(assets, nativePlatform || undefined);
+            : getPlatformDownloadAsset(assets, nativePlatform || undefined, nativeArchitecture || undefined);
           const userAgentData = (navigator as Navigator & { userAgentData?: { architecture?: string } }).userAgentData;
           const architecture = `${userAgentData?.architecture || ''} ${navigator.userAgent}`.toLowerCase();
           const isArm64 = /arm64|aarch64|apple silicon/.test(architecture);
