@@ -15,7 +15,14 @@ const {
 const SEGMENT_SIZE = 4 * 1024 * 1024;
 const MAX_SEGMENTS = 32;
 const CONCURRENCY = 6;
+const MIN_PARALLEL_DOWNLOAD_SIZE = 16 * 1024 * 1024;
 const MAX_UPDATE_SIZE = 2 * 1024 * 1024 * 1024;
+
+const shouldUseParallelDownload = ({ totalBytes, rangeSupported }) => (
+  Boolean(rangeSupported)
+  && Number.isSafeInteger(totalBytes)
+  && totalBytes >= MIN_PARALLEL_DOWNLOAD_SIZE
+);
 
 const buildProxyAgent = async (proxy, loadModule) => {
   if (!proxy || !proxy.host || !proxy.port) return null;
@@ -351,7 +358,9 @@ const downloadAsset = async (value, targetPath, context, onProgress, options = {
       context.onStage?.('probing', { source });
       const result = await probe(source, downloadContext);
       context.onStage?.('downloading', { source, rangeSupported: result.rangeSupported });
-      if (!result.rangeSupported) return await downloadStream(source, targetPath, downloadContext, onProgress);
+      if (!shouldUseParallelDownload(result)) {
+        return await downloadStream(source, targetPath, downloadContext, onProgress);
+      }
       try {
         return await downloadParallel(source, targetPath, result.totalBytes, downloadContext, onProgress);
       } catch (parallelError) {
@@ -369,4 +378,12 @@ const downloadAsset = async (value, targetPath, context, onProgress, options = {
   throw lastError || new Error('更新下载失败。');
 };
 
-module.exports = { buildProxyAgent, buildMirrorUrl, cleanupPartial, downloadAsset, hashFile };
+module.exports = {
+  buildProxyAgent,
+  buildMirrorUrl,
+  cleanupPartial,
+  downloadAsset,
+  hashFile,
+  MIN_PARALLEL_DOWNLOAD_SIZE,
+  shouldUseParallelDownload,
+};

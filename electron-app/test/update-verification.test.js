@@ -8,7 +8,12 @@ const { EventEmitter } = require('node:events');
 
 const { extractExpectedChecksum } = require('../update-verification');
 const { requestWithRedirect } = require('../update-network');
-const { buildMirrorUrl, downloadAsset } = require('../update-download-service');
+const {
+  buildMirrorUrl,
+  downloadAsset,
+  MIN_PARALLEL_DOWNLOAD_SIZE,
+  shouldUseParallelDownload,
+} = require('../update-download-service');
 
 const installerHash = 'b29261bf45a3354a0eb14e1aa5fe32461f52e8e7cd9fcf0a73af2dfeefce78d4';
 const portableHash = 'e47668d8c32a34950bfdf6ac328d297f2e6ff98482580de3acdc5e46680a8318';
@@ -138,11 +143,17 @@ test('builds and validates mirror URLs', () => {
   );
 });
 
+test('automatically chooses parallel downloading only for large ranged assets', () => {
+  assert.equal(shouldUseParallelDownload({ totalBytes: MIN_PARALLEL_DOWNLOAD_SIZE - 1, rangeSupported: true }), false);
+  assert.equal(shouldUseParallelDownload({ totalBytes: MIN_PARALLEL_DOWNLOAD_SIZE, rangeSupported: true }), true);
+  assert.equal(shouldUseParallelDownload({ totalBytes: MIN_PARALLEL_DOWNLOAD_SIZE, rangeSupported: false }), false);
+});
+
 test('downloads a ranged asset with the complete segment arguments', async () => {
   const originalRequest = https.request;
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-updater-test-'));
   const targetPath = path.join(temporaryDirectory, 'update.zip');
-  const body = Buffer.from('ranged update');
+  const body = Buffer.alloc(MIN_PARALLEL_DOWNLOAD_SIZE, 7);
   let requestCount = 0;
   https.request = (_url, options, callback) => {
     const request = new EventEmitter();
@@ -152,15 +163,17 @@ test('downloads a ranged asset with the complete segment arguments', async () =>
       requestCount += 1;
       const isProbe = requestCount === 1;
       const response = new EventEmitter();
+      response.destroy = () => {};
       response.headers = isProbe
         ? { 'content-range': `bytes 0-0/${body.length}`, 'content-length': '1' }
-        : { 'content-range': `bytes 0-${body.length - 1}/${body.length}` };
+        : { 'content-range': `bytes ${options.headers.Range.match(/bytes=(\d+)-(\d+)/)[1]}-${options.headers.Range.match(/bytes=(\d+)-(\d+)/)[2]}/${body.length}` };
       response.statusCode = 206;
       response.resume = () => {};
       process.nextTick(() => {
         callback(response);
         if (!isProbe) {
-          response.emit('data', body);
+          const range = options.headers.Range.match(/bytes=(\d+)-(\d+)/);
+          response.emit('data', body.subarray(Number(range[1]), Number(range[2]) + 1));
           response.emit('end');
         }
       });
@@ -189,7 +202,7 @@ test('falls back to a stream download when ranged downloading fails', async () =
   const originalGet = https.get;
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-updater-fallback-test-'));
   const targetPath = path.join(temporaryDirectory, 'update.zip');
-  const body = Buffer.from('stream fallback update');
+  const body = Buffer.alloc(MIN_PARALLEL_DOWNLOAD_SIZE, 9);
   let requestCount = 0;
   const stages = [];
   https.request = (_url, _options, callback) => {
@@ -201,6 +214,7 @@ test('falls back to a stream download when ranged downloading fails', async () =
       const response = new EventEmitter();
       response.resume = () => {};
       if (requestCount === 1) {
+        response.destroy = () => {};
         response.statusCode = 206;
         response.headers = { 'content-range': `bytes 0-0/${body.length}`, 'content-length': '1' };
         process.nextTick(() => callback(response));
@@ -215,6 +229,9 @@ test('falls back to a stream download when ranged downloading fails', async () =
     request.setTimeout = () => {};
     request.destroy = () => {};
     const response = new EventEmitter();
+    response.destroy = () => {};
+    response.pause = () => {};
+    response.resume = () => {};
     response.statusCode = 200;
     response.headers = { 'content-length': String(body.length) };
     process.nextTick(() => {
