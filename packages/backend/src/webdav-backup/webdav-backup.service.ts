@@ -144,6 +144,8 @@ async function ensureBackupDir(client: WebDAVClient): Promise<void> {
   }
 }
 
+const MAX_BACKUP_DOWNLOAD_BYTES = 1024 * 1024 * 1024;
+
 function getBackupRemotePath(fileName: string): string {
   if (!BACKUP_FILE_NAME_PATTERN.test(fileName)) {
     throw new Error('无效的备份文件名。');
@@ -192,8 +194,15 @@ export async function downloadBackup(fileName: string, proxyId?: number | null):
   const config = await getWebDavConfigForRequest(proxyId);
   const client = await createWebDavClient(config);
   const remotePath = getBackupRemotePath(fileName);
+  const stat = await client.stat(remotePath) as { size?: number };
+  if (typeof stat.size === 'number' && stat.size > MAX_BACKUP_DOWNLOAD_BYTES) {
+    throw new Error('备份文件超过 1GB 安全限制。');
+  }
   const raw = await client.getFileContents(remotePath);
   const bufData: Buffer = Buffer.isBuffer(raw) ? raw : (typeof raw === 'string' ? Buffer.from(raw) : Buffer.from((raw as any).data || raw));
+  if (bufData.length > MAX_BACKUP_DOWNLOAD_BYTES) {
+    throw new Error('备份文件超过 1GB 安全限制。');
+  }
   return bufData;
 }
 

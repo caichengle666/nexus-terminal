@@ -61,6 +61,8 @@ const UPLOAD_WRITE_TIMEOUT_MS = 30000;
 const UPLOAD_CLOSE_TIMEOUT_MS = 20000;
 const UPLOAD_FINALIZE_TIMEOUT_MS = 20000;
 
+const quoteShellArgument = (value: string): string => `'${value.replace(/'/g, `'"'"'`)}'`;
+
 // Interface for tracking active uploads
 interface ActiveUpload {
     remotePath: string;
@@ -532,12 +534,19 @@ export class SftpService {
             state?.ws.send(JSON.stringify({ type: 'sftp:rmdir:error', path: path, payload: 'SSH 会话未就绪', requestId: requestId }));
             return;
         }
+
+        const normalizedPath = pathModule.posix.normalize(path.trim());
+        if (!path.trim() || normalizedPath === '/' || normalizedPath === '.' || normalizedPath === '..') {
+            console.warn(`[SSH Exec ${sessionId}] 拒绝删除危险目录路径 ${path} (ID: ${requestId})`);
+            state.ws.send(JSON.stringify({ type: 'sftp:rmdir:error', path: path, payload: '拒绝删除根目录或无效目录路径', requestId: requestId }));
+            return;
+        }
         console.debug(`[SSH Exec ${sessionId}] Received rmdir request for ${path} (ID: ${requestId})`);
 
         // 第一种方案：尝试 rm -rf 命令
         const tryRmRfCommand = async (isSudo: boolean) => {
             const commandPrefix = isSudo ? 'sudo ' : '';
-            const command = `${commandPrefix}rm -rf "${path.replace(/"/g, '\\"')}"`;
+            const command = `${commandPrefix}rm -rf -- ${quoteShellArgument(path)}`;
             const attemptDescription = isSudo ? 'sudo rm -rf' : 'rm -rf';
 
             console.log(`[SSH Exec ${sessionId}] 尝试使用 ${attemptDescription} 命令删除 ${path} (ID: ${requestId})`);
@@ -1165,9 +1174,6 @@ export class SftpService {
 
         console.debug(`[SFTP Compress ${sessionId}] Received request (ID: ${requestId}). Sources: ${sources.join(', ')}, Dest: ${destinationArchiveName}, Format: ${format}, Dir: ${targetDirectory}`);
 
-        // 构建目标压缩包的完整路径
-        const destinationArchivePath = pathModule.posix.join(targetDirectory, destinationArchiveName);
-
         // --- 构建 Shell 命令 ---
         let command: string;
         // --- 修改：计算相对路径并引用 ---
@@ -1178,12 +1184,11 @@ export class SftpService {
             // 否则使用计算出的相对路径
             return (relativePath === '' || relativePath === '.') ? pathModule.posix.basename(s) : relativePath;
         });
-        const quotedRelativeSources = relativeSources.map((s: string) => `"${s.replace(/"/g, '\\"')}"`).join(' ');
+        const quotedRelativeSources = relativeSources.map(quoteShellArgument).join(' ');
         
         // 确保目标目录和压缩包路径被正确引用
-        const quotedTargetDir = `"${targetDirectory.replace(/"/g, '\\"')}"`;
-        // const quotedDestPath = `"${destinationArchivePath.replace(/"/g, '\\"')}"`; // 目标路径在命令中不直接使用，使用相对名称
-        const quotedDestName = `"${destinationArchiveName.replace(/"/g, '\\"')}"`;
+        const quotedTargetDir = quoteShellArgument(targetDirectory);
+        const quotedDestName = quoteShellArgument(destinationArchiveName);
 
         const cdCommand = `cd ${quotedTargetDir}`;
 
@@ -1191,17 +1196,17 @@ export class SftpService {
             case 'zip':
                 // zip -r [归档名] [源文件/目录列表]
                 // 需要在目标目录执行
-                command = `${cdCommand} && zip -r ${quotedDestName} ${quotedRelativeSources}`; // 使用相对路径
+                command = `${cdCommand} && zip -r -- ${quotedDestName} ${quotedRelativeSources}`; // 使用相对路径
                 break;
             case 'targz':
                 // tar -czvf [归档名] [源文件/目录列表]
                 // 需要在目标目录执行
-                command = `${cdCommand} && tar -czvf ${quotedDestName} ${quotedRelativeSources}`; // 使用相对路径
+                command = `${cdCommand} && tar -czvf ${quotedDestName} -- ${quotedRelativeSources}`; // 使用相对路径
                 break;
             case 'tarbz2':
                 // tar -cjvf [归档名] [源文件/目录列表]
                 // 需要在目标目录执行
-                command = `${cdCommand} && tar -cjvf ${quotedDestName} ${quotedRelativeSources}`; // 使用相对路径
+                command = `${cdCommand} && tar -cjvf ${quotedDestName} -- ${quotedRelativeSources}`; // 使用相对路径
                 break;
             default:
                 this.sendCompressError(state.ws, `不支持的压缩格式: ${format}`, requestId);
@@ -1312,8 +1317,8 @@ export class SftpService {
         // --- 构建 Shell 命令 ---
         let command: string;
         // 确保路径被正确引用
-        const quotedExtractDir = `"${extractDir.replace(/"/g, '\\"')}"`;
-        const quotedArchiveBasename = `"${archiveBasename.replace(/"/g, '\\"')}"`;
+        const quotedExtractDir = quoteShellArgument(extractDir);
+        const quotedArchiveBasename = quoteShellArgument(`./${archiveBasename}`);
 
         const cdCommand = `cd ${quotedExtractDir}`;
 
@@ -1400,7 +1405,12 @@ export class SftpService {
                 return reject(new Error('SSH client is not available.'));
             }
             // 优先使用 command -v, 其次 which
-            const checkCommands = [`command -v ${commandName}`, `which ${commandName}`];
+            if (!/^[a-zA-Z0-9._+-]+$/.test(commandName)) {
+                reject(new Error('Invalid command name.'));
+                return;
+            }
+            const quotedCommandName = quoteShellArgument(commandName);
+            const checkCommands = [`command -v ${quotedCommandName}`, `which ${quotedCommandName}`];
             let currentCheckIndex = 0;
 
             const tryCommand = () => {

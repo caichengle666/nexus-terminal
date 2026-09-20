@@ -14,6 +14,11 @@ import { userRepository } from '../user/user.repository'; // For passkey auth su
 
 const notificationService = new NotificationService();
 const auditLogService = new AuditLogService();
+const REMEMBER_ME_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+
+const regenerateSession = (req: Request): Promise<void> => new Promise((resolve, reject) => {
+    req.session.regenerate((error) => error ? reject(error) : resolve());
+});
 
 export interface User { 
     id: number;
@@ -178,13 +183,13 @@ export const verifyPasskeyAuthenticationHandler = async (req: Request, res: Resp
             auditLogService.logAction('PASSKEY_AUTH_SUCCESS', { userId: user.id, username: user.username, credentialId: verification.passkey.credential_id, ip: clientIp });
             notificationService.sendNotification('LOGIN_SUCCESS', { userId: user.id, username: user.username, ip: clientIp, method: 'Passkey' });
 
-            // Setup session similar to password login
+            await regenerateSession(req);
             req.session.userId = user.id;
             req.session.username = user.username;
             req.session.requiresTwoFactor = false; // Passkey implies 2FA characteristics
 
             if (rememberMe) {
-                req.session.cookie.maxAge = 315360000000; // 10 years
+                req.session.cookie.maxAge = REMEMBER_ME_MAX_AGE_MS;
             } else {
                 req.session.cookie.maxAge = undefined; // Session cookie
             }
@@ -406,6 +411,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
+        await regenerateSession(req);
+
         // 检查是否启用了 2FA
         if (user.two_factor_secret) {
             console.log(`用户 ${username} 已启用 2FA，需要进行二次验证。`);
@@ -424,7 +431,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             req.session.requiresTwoFactor = false; 
 
             if (rememberMe) {
-                req.session.cookie.maxAge = 315360000000;
+                req.session.cookie.maxAge = REMEMBER_ME_MAX_AGE_MS;
             } else {
                 req.session.cookie.maxAge = undefined;
             }
@@ -522,7 +529,7 @@ export const verifyLogin2FA = async (req: Request, res: Response): Promise<void>
             req.session.requiresTwoFactor = false; 
 
             if (req.session.rememberMe) {
-                req.session.cookie.maxAge = 315360000000; 
+                req.session.cookie.maxAge = REMEMBER_ME_MAX_AGE_MS;
             } else {
                 req.session.cookie.maxAge = undefined; 
             }

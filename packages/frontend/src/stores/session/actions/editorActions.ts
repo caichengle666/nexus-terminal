@@ -109,7 +109,11 @@ export const closeEditorTabInSession = (sessionId: string, tabId: string) => {
         return;
     }
 
-    // TODO: 检查 isDirty 状态，提示保存？
+    const tab = session.editorTabs.value[tabIndex];
+    if (tab.isModified && typeof window !== 'undefined') {
+        const confirmed = window.confirm(`“${tab.filename}”包含未保存的修改，确定要关闭吗？`);
+        if (!confirmed) return;
+    }
 
     session.editorTabs.value.splice(tabIndex, 1);
     console.log(`[EditorActions] 已从会话 ${sessionId} 中移除标签页: ${tabId}`);

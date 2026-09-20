@@ -23,7 +23,7 @@ const rememberMe = ref(false); // 记住我状态，默认为 false
 const captchaToken = ref<string | null>(null); //  Store CAPTCHA token
 const captchaError = ref<string | null>(null); //  Store CAPTCHA specific error
 const hcaptchaWidget = ref<InstanceType<typeof VueHcaptcha> | null>(null); //  Ref for hCaptcha component instance
-const recaptchaWidget = ref<InstanceType<typeof VueRecaptcha> | null>(null); // 更新 Ref 类型以匹配新导入
+const recaptchaWidget = ref<{ reset: () => void } | null>(null);
 
 const loginThemeStorageKey = 'nexus-terminal-login-theme';
 const loginThemeKey = ref('default');

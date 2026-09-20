@@ -6,6 +6,8 @@ const path = require('node:path');
 const test = require('node:test');
 const { EventEmitter } = require('node:events');
 const { SftpService } = require('../dist/sftp/sftp.service.js');
+const { StatusMonitorService } = require('../dist/services/status-monitor.service.js');
+const { settingsService } = require('../dist/settings/settings.service.js');
 const { TransfersService } = require('../dist/transfers/transfers.service.js');
 
 const toLocalPath = (root, remotePath) => path.join(root, remotePath.replace(/^\/+/, ''));
@@ -123,4 +125,60 @@ test('SFTP initialization is deduplicated and stale channel events do not clear 
   const replacementChannel = state.sftp;
   firstChannel.emit('close');
   assert.equal(state.sftp, replacementChannel);
+});
+
+test('recursive directory deletion rejects dangerous root-like paths', async () => {
+  const sentMessages = [];
+  let execCount = 0;
+  const state = {
+    ws: {
+      send(message) { sentMessages.push(JSON.parse(message)); },
+    },
+    sshClient: {
+      exec() { execCount += 1; },
+    },
+  };
+  const service = new SftpService(new Map([['session-1', state]]));
+
+  for (const dangerousPath of ['', '/', '.', '..', '/tmp/../']) {
+    await service.rmdir('session-1', dangerousPath, `request-${dangerousPath}`);
+  }
+
+  assert.equal(execCount, 0);
+  assert.equal(sentMessages.length, 5);
+  assert.ok(sentMessages.every(message => message.type === 'sftp:rmdir:error'));
+});
+
+test('status polling waits for the current request before scheduling another one', async t => {
+  const originalGetInterval = settingsService.getStatusMonitorIntervalSeconds;
+  settingsService.getStatusMonitorIntervalSeconds = async () => 0.01;
+  t.after(() => {
+    settingsService.getStatusMonitorIntervalSeconds = originalGetInterval;
+  });
+
+  const state = {
+    ws: { readyState: 1 },
+    sshClient: {},
+  };
+  const service = new StatusMonitorService(new Map([['session-1', state]]));
+  let activeRequests = 0;
+  let maxActiveRequests = 0;
+  let requestCount = 0;
+  service.fetchAndSendServerStatus = async () => {
+    requestCount += 1;
+    activeRequests += 1;
+    maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    activeRequests -= 1;
+  };
+
+  await service.startStatusPolling('session-1');
+  await new Promise(resolve => setTimeout(resolve, 95));
+  service.stopStatusPolling('session-1');
+  const countAfterStop = requestCount;
+  await new Promise(resolve => setTimeout(resolve, 50));
+
+  assert.equal(maxActiveRequests, 1);
+  assert.ok(countAfterStop >= 2);
+  assert.equal(requestCount, countAfterStop);
 });

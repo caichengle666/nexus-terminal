@@ -35,11 +35,14 @@ interface NetworkStats {
 
 // 用于存储上一次的网络统计信息以计算速率
 const previousNetStats = new Map<string, { rx: number, tx: number, timestamp: number }>();
+const SSH_COMMAND_TIMEOUT_MS = 8000;
 
 export class StatusMonitorService {
     private clientStates: Map<string, ClientState>; // 使用导入的 ClientState
     // 用于存储上一次的 CPU 统计信息以计算使用率
     private previousCpuStats = new Map<string, { total: number, idle: number, timestamp: number }>();
+    private statusRequestsInFlight = new Set<string>();
+    private pollingTokens = new Map<string, symbol>();
 
     constructor(clientStates: Map<string, ClientState>) {
         this.clientStates = clientStates;
@@ -54,9 +57,12 @@ export class StatusMonitorService {
         if (!state || !state.sshClient) {
             return;
         }
-        if (state.statusIntervalId) {
+        if (this.pollingTokens.has(sessionId)) {
              return;
          }
+
+         const pollingToken = Symbol(sessionId);
+         this.pollingTokens.set(sessionId, pollingToken);
 
          // +++ 从 settingsService 获取轮询间隔 +++
          let intervalMs: number;
@@ -69,10 +75,29 @@ export class StatusMonitorService {
              intervalMs = 3000; // 出错时回退到 3 秒
          }
 
-         // 移除立即执行，让 setInterval 负责第一次调用，给连接更多准备时间
-         state.statusIntervalId = setInterval(() => {
-             this.fetchAndSendServerStatus(sessionId);
-         }, intervalMs); // --- 使用获取到的间隔 ---
+         const scheduleNextPoll = () => {
+             if (this.pollingTokens.get(sessionId) !== pollingToken) return;
+
+             const currentState = this.clientStates.get(sessionId);
+             if (!currentState || !currentState.sshClient || currentState.ws.readyState !== WebSocket.OPEN) {
+                 this.stopStatusPolling(sessionId);
+                 return;
+             }
+
+             const timeoutId = setTimeout(async () => {
+                 const latestState = this.clientStates.get(sessionId);
+                 if (latestState?.statusIntervalId === timeoutId) {
+                     latestState.statusIntervalId = undefined;
+                 }
+                 await this.fetchAndSendServerStatus(sessionId);
+                 if (this.pollingTokens.get(sessionId) === pollingToken) {
+                     scheduleNextPoll();
+                 }
+             }, intervalMs);
+             currentState.statusIntervalId = timeoutId;
+         };
+
+         scheduleNextPoll();
     }
 
     /**
@@ -80,14 +105,16 @@ export class StatusMonitorService {
      * @param sessionId 会话 ID
      */
     stopStatusPolling(sessionId: string): void {
+        this.pollingTokens.delete(sessionId);
         const state = this.clientStates.get(sessionId);
         if (state?.statusIntervalId) {
             //console.warn(`[StatusMonitor] 停止会话 ${sessionId} 的状态轮询。`);
-            clearInterval(state.statusIntervalId);
+            clearTimeout(state.statusIntervalId);
             state.statusIntervalId = undefined;
-            previousNetStats.delete(sessionId); // 清理网络统计缓存
-            this.previousCpuStats.delete(sessionId); // 清理 CPU 统计缓存
         }
+        this.statusRequestsInFlight.delete(sessionId);
+        previousNetStats.delete(sessionId); // 清理网络统计缓存
+        this.previousCpuStats.delete(sessionId); // 清理 CPU 统计缓存
     }
 
     /**
@@ -95,20 +122,29 @@ export class StatusMonitorService {
      * @param sessionId 会话 ID
      */
     async fetchAndSendServerStatus(sessionId: string): Promise<void> {
+        if (this.statusRequestsInFlight.has(sessionId)) return;
+
         const state = this.clientStates.get(sessionId);
         if (!state || !state.sshClient || state.ws.readyState !== WebSocket.OPEN) {
             //console.warn(`[StatusMonitor] 无法获取会话 ${sessionId} 的状态，停止轮询。原因：状态无效、SSH断开或WS关闭。`);
             this.stopStatusPolling(sessionId);
             return;
         }
+        this.statusRequestsInFlight.add(sessionId);
         try {
             // 传递 sessionId 给 fetchServerStatus 以便查找 previousNetStats
             const status = await this.fetchServerStatus(state.sshClient, sessionId);
-            state.ws.send(JSON.stringify({ type: 'status_update', sessionId, payload: { connectionId: state.dbConnectionId, status } }));
+            if (state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({ type: 'status_update', sessionId, payload: { connectionId: state.dbConnectionId, status } }));
+            }
         } catch (error: any) {
             // --- 移除 console.warn ---
             // console.warn(`[StatusMonitor] 获取会话 ${sessionId} 服务器状态失败:`, error);
-            state.ws.send(JSON.stringify({ type: 'status_error', sessionId, payload: { connectionId: state.dbConnectionId, message: `获取状态失败: ${error.message}` } }));
+            if (state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({ type: 'status_error', sessionId, payload: { connectionId: state.dbConnectionId, message: `获取状态失败: ${error.message}` } }));
+            }
+        } finally {
+            this.statusRequestsInFlight.delete(sessionId);
         }
     }
 
@@ -420,14 +456,36 @@ export class StatusMonitorService {
     private executeSshCommand(sshClient: Client, command: string): Promise<string> {
         return new Promise((resolve, reject) => {
             let output = '';
+            let settled = false;
+            let timeoutId: NodeJS.Timeout | undefined;
+
+            const finish = (error?: Error) => {
+                if (settled) return;
+                settled = true;
+                if (timeoutId) clearTimeout(timeoutId);
+                if (error) reject(error);
+                else resolve(output.trim());
+            };
+
             sshClient.exec(command, (err, stream) => {
                 if (err) {
-                    return reject(new Error(`执行命令 '${command}' 失败: ${err.message}`));
+                    finish(new Error(`执行命令 '${command}' 失败: ${err.message}`));
+                    return;
                 }
+                timeoutId = setTimeout(() => {
+                    stream.close();
+                    finish(new Error(`执行命令 '${command}' 超时`));
+                }, SSH_COMMAND_TIMEOUT_MS);
                 stream.on('close', (code: number, signal?: string) => {
-                    resolve(output.trim());
+                    if (code !== 0) {
+                        finish(new Error(`命令 '${command}' 退出码为 ${code}${signal ? `，信号: ${signal}` : ''}`));
+                        return;
+                    }
+                    finish();
                 }).on('data', (data: Buffer) => {
                     output += data.toString('utf8');
+                }).on('error', (streamError: Error) => {
+                    finish(streamError);
                 }).stderr.on('data', (data: Buffer) => {
                 });
             });

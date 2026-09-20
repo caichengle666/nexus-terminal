@@ -14,6 +14,9 @@ const KEY_LENGTH = 32;
 const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
 const SCRYPT_OPTIONS = { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 };
+const MAX_BACKUP_FILE_COUNT = 100_000;
+const MAX_BACKUP_ENTRY_BYTES = 512 * 1024 * 1024;
+const MAX_BACKUP_EXTRACTED_BYTES = 2 * 1024 * 1024 * 1024;
 
 export interface FullBackupManifest {
   format: 'nexus-terminal-full-backup';
@@ -180,10 +183,18 @@ export function extractFullBackup(buffer: Buffer, passphrase: string, extractRoo
   if (manifest.format !== 'nexus-terminal-full-backup' || manifest.version !== ARCHIVE_VERSION || manifest.root !== 'data') {
     throw new Error('完整备份格式或版本不受支持。');
   }
+  if (!Number.isSafeInteger(manifest.fileCount) || manifest.fileCount < 0 || manifest.fileCount > MAX_BACKUP_FILE_COUNT) {
+    throw new Error('完整备份文件数量无效或超过安全限制。');
+  }
 
   fs.mkdirSync(extractRoot, { recursive: true });
   let extractedFileCount = 0;
-  for (const entry of archive.getEntries()) {
+  let extractedBytes = 0;
+  const entries = archive.getEntries();
+  if (entries.length > MAX_BACKUP_FILE_COUNT + 1) {
+    throw new Error('完整备份条目数量超过安全限制。');
+  }
+  for (const entry of entries) {
     const entryPath = entry.entryName.replace(/\\/g, '/');
     if (entryPath === 'manifest.json') continue;
     if (!entryPath.startsWith('data/')) throw new Error('完整备份包含未知顶层路径。');
@@ -192,6 +203,14 @@ export function extractFullBackup(buffer: Buffer, passphrase: string, extractRoo
     if (entry.isDirectory) {
       fs.mkdirSync(destination, { recursive: true });
       continue;
+    }
+    const entrySize = Number(entry.header.size);
+    if (!Number.isSafeInteger(entrySize) || entrySize < 0 || entrySize > MAX_BACKUP_ENTRY_BYTES) {
+      throw new Error(`完整备份中的文件 ${entryPath} 大小无效或超过安全限制。`);
+    }
+    extractedBytes += entrySize;
+    if (extractedBytes > MAX_BACKUP_EXTRACTED_BYTES) {
+      throw new Error('完整备份解压后的总大小超过安全限制。');
     }
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.writeFileSync(destination, entry.getData());

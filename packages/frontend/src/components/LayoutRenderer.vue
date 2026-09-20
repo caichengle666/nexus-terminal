@@ -84,6 +84,13 @@ const leftResizeHandleRef = ref<HTMLElement | null>(null); // +++ Ref for left h
 const rightResizeHandleRef = ref<HTMLElement | null>(null); // +++ Ref for right handle +++
 const customHtmlLayerRef = ref<HTMLElement | null>(null); // +++ Ref for custom HTML layer +++
 
+const handleStabilizedTerminalResize = ({ sessionId, width, height }: { sessionId: string; width: number; height: number }) => {
+  if (props.layoutNode.component === 'terminal' && sessionId === props.activeSessionId && customHtmlLayerRef.value) {
+    customHtmlLayerRef.value.style.width = `${width}px`;
+    customHtmlLayerRef.value.style.height = `${height}px`;
+  }
+};
+
 // --- Component Mapping ---
 // 使用 defineAsyncComponent 优化加载，并映射 PaneName 到实际组件
 const componentMap: Record<PaneName, Component> = {
@@ -406,12 +413,6 @@ const getIconClasses = (paneName: PaneName): string[] => {
 
 // --- Sidebar Resize Logic ---
 onMounted(() => {
-  const handleStabilizedTerminalResize = ({ sessionId, width, height }: { sessionId: string; width: number; height: number }) => {
-    if (props.layoutNode.component === 'terminal' && sessionId === props.activeSessionId && customHtmlLayerRef.value) {
-      customHtmlLayerRef.value.style.width = `${width}px`;
-      customHtmlLayerRef.value.style.height = `${height}px`;
-    }
-  };
   subscribeToWorkspaceEvent('terminal:stabilizedResize', handleStabilizedTerminalResize);
 
 
@@ -514,13 +515,7 @@ watch(terminalCustomHTML, (newHtmlContent, oldHtmlContent) => {
 
 
 onBeforeUnmount(() => {
-  const handleStabilizedTerminalResizeHandler = ({ sessionId, width, height }: { sessionId: string; width: number; height: number }) => {
-    if (props.layoutNode.component === 'terminal' && sessionId === props.activeSessionId && customHtmlLayerRef.value) {
-      customHtmlLayerRef.value.style.width = `${width}px`;
-      customHtmlLayerRef.value.style.height = `${height}px`;
-    }
-  };
-  unsubscribeFromWorkspaceEvent('terminal:stabilizedResize', handleStabilizedTerminalResizeHandler); // Use the same handler reference if possible
+  unsubscribeFromWorkspaceEvent('terminal:stabilizedResize', handleStabilizedTerminalResize);
 });
 
 

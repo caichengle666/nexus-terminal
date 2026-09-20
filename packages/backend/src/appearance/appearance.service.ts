@@ -7,10 +7,40 @@ import axios from 'axios';
 import sanitize from 'sanitize-filename'; // 用于清理文件名
 import { resolveBackendDataPath } from '../utils/paths';
 
+const sanitizeHtml = require('sanitize-html');
+
 // 预设 HTML 主题的存储路径 (作为只读预设)
 const PRESET_HTML_THEMES_DIR = path.join(__dirname, '../../html-presets/');
 
 const USER_CUSTOM_HTML_THEMES_DIR = resolveBackendDataPath('custom_html_theme');
+const BACKGROUND_FILE_API_PREFIX = '/api/v1/appearance/background/file/';
+const REMOTE_HTML_MAX_BYTES = 100 * 1024;
+
+const getStoredBackgroundFilePath = (filePath: string): string | null => {
+    if (!filePath.startsWith(BACKGROUND_FILE_API_PREFIX)) return null;
+    const filename = filePath.slice(BACKGROUND_FILE_API_PREFIX.length);
+    if (!filename || filename !== path.basename(filename)) return null;
+    return resolveBackendDataPath('background', filename);
+};
+
+const sanitizeRemoteHtml = (html: string): string => sanitizeHtml(html, {
+    allowedTags: [
+        'div', 'span', 'p', 'br', 'section', 'main', 'style', 'canvas',
+        'svg', 'g', 'defs', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
+        'linearGradient', 'radialGradient', 'stop', 'filter', 'feGaussianBlur',
+        'feColorMatrix', 'feBlend', 'feComposite', 'feOffset', 'feMerge', 'feMergeNode',
+    ],
+    allowedAttributes: {
+        '*': [
+            'class', 'id', 'style', 'width', 'height', 'viewBox', 'xmlns',
+            'd', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'rx', 'ry',
+            'x', 'y', 'x1', 'x2', 'y1', 'y2', 'points', 'offset', 'stop-color',
+            'stop-opacity', 'filter', 'transform', 'opacity', 'preserveAspectRatio',
+            'aria-*', 'data-*',
+        ],
+    },
+    allowedSchemes: ['https'],
+});
 
 
 // 确保预设 html-themes 目录存在
@@ -207,12 +237,10 @@ export const removePageBackground = async (): Promise<boolean> => {
     const filePath = currentSettings.pageBackgroundImage;
 
     if (filePath) {
-        // 构建文件的绝对路径
-        // 注意：这里的路径拼接逻辑需要与上传时的逻辑一致
-        // 假设 filePath 是相对于项目根目录的 /uploads/backgrounds/xxx
-        const absolutePath = path.join(__dirname, '../../', filePath); // 调整相对路径层级
+        const absolutePath = getStoredBackgroundFilePath(filePath);
 
         try {
+            if (!absolutePath) throw new Error('背景文件路径格式无效。');
             await fs.unlink(absolutePath);
             console.log(`[AppearanceService] 已删除页面背景文件: ${absolutePath}`);
         } catch (error: any) {
@@ -244,9 +272,10 @@ export const removeTerminalBackground = async (): Promise<boolean> => {
     const filePath = currentSettings.terminalBackgroundImage;
 
     if (filePath) {
-        const absolutePath = path.join(__dirname, '../../', filePath); // 调整相对路径层级
+        const absolutePath = getStoredBackgroundFilePath(filePath);
 
         try {
+            if (!absolutePath) throw new Error('背景文件路径格式无效。');
             await fs.unlink(absolutePath);
             console.log(`[AppearanceService] 已删除终端背景文件: ${absolutePath}`);
         } catch (error: any) {
@@ -654,20 +683,29 @@ export const getRemoteHtmlPresetContent = async (fileUrl: string): Promise<strin
     if (!fileUrl || typeof fileUrl !== 'string') {
         throw new Error('无效的远程文件 URL。');
     }
-    // 基本的 URL 校验，确保它看起来像一个可下载的链接
-    if (!fileUrl.startsWith('http://') && !fileUrl.startsWith('https://')) {
-        throw new Error('文件 URL 必须是有效的 HTTP/HTTPS 链接。');
+    let parsedUrl: URL;
+    try {
+        parsedUrl = new URL(fileUrl);
+    } catch {
+        throw new Error('文件 URL 格式无效。');
+    }
+    if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'raw.githubusercontent.com') {
+        throw new Error('远程主题文件只允许来自 raw.githubusercontent.com。');
     }
 
     try {
         console.log(`[AppearanceService] 正在从远程 URL 获取主题内容: ${fileUrl}`);
         const response = await axios.get(fileUrl, {
             responseType: 'text', // 确保获取的是文本内容
+            timeout: 8000,
+            maxRedirects: 0,
+            maxContentLength: REMOTE_HTML_MAX_BYTES,
+            maxBodyLength: REMOTE_HTML_MAX_BYTES,
         });
 
         if (response.status === 200 && typeof response.data === 'string') {
             console.log(`[AppearanceService] 成功从 ${fileUrl} 获取主题内容。`);
-            return response.data;
+            return sanitizeRemoteHtml(response.data);
         } else {
             console.error(`[AppearanceService] 从 ${fileUrl} 获取内容失败: 状态 ${response.status}`, response.data);
             throw new Error(`无法从远程 URL (${fileUrl}) 获取内容。状态: ${response.status}`);

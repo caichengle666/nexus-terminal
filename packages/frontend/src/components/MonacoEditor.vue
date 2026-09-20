@@ -11,7 +11,7 @@ import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker.js?worker
 import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker.js?worker';
 import TypeScriptWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker.js?worker';
 
-self.MonacoEnvironment = {
+(self as typeof self & { MonacoEnvironment?: unknown }).MonacoEnvironment = {
   getWorker(_moduleId: string, label: string) {
     if (label === 'json') return new JsonWorker();
     if (label === 'css' || label === 'scss' || label === 'less') return new CssWorker();
@@ -136,7 +136,7 @@ onMounted(() => {
     }
 
     // 监听滚动事件
-    editorInstance.onDidScrollChange((e) => {
+    editorInstance.onDidScrollChange((_e: monaco.IScrollEvent) => {
       if (editorInstance) {
         // 只有当滚动是由用户操作或实际视口变化引起时才发出
         // setScrollPosition 也会触发此事件，需要避免循环

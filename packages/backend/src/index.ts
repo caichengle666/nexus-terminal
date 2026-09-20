@@ -186,7 +186,7 @@ const app = express();
 const server = http.createServer(app);
 
 // --- 信任代理设置 ---
-app.set('trust proxy', true);
+app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
 
 // --- 中间件 ---
 app.use(ipWhitelistMiddleware as RequestHandler);
@@ -244,16 +244,19 @@ const startServer = () => {
     const sessionMiddleware = session({
         store: new FileStore({
             path: sessionsPath,
-            ttl: 31536000, // 1 year
+            ttl: 7776000, // 90 days
             // logFn: console.log // 可选：启用详细日志
         }),
         // 直接从 process.env 读取，initializeEnvironment 已确保其存在
         secret: process.env.SESSION_SECRET as string,
         resave: false,
         saveUninitialized: false,
-        proxy: true, // 信任反向代理设置的 X-Forwarded-Proto 头
+        proxy: process.env.TRUST_PROXY === 'true', // 仅在显式启用可信代理时读取 X-Forwarded-Proto
         cookie: {
             httpOnly: true,
+            sameSite: 'lax',
+            secure: process.env.SESSION_COOKIE_SECURE === 'true',
+            maxAge: undefined,
         }
     });
     app.use(sessionMiddleware);
