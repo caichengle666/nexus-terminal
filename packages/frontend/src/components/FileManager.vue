@@ -25,6 +25,7 @@ import { useUiNotificationsStore } from '../stores/uiNotifications.store';
 
 
 type SftpManagerInstance = ReturnType<typeof createSftpActionsManager>;
+const FILE_MANAGER_REFRESH_INTERVAL_MS = 30000;
 
 
 // --- Props ---
@@ -1093,9 +1094,22 @@ const saveLayoutSettings = () => {
 };
 
 // --- 生命周期钩子 ---
+let backgroundRefreshTimer: ReturnType<typeof setInterval> | null = null;
+
+const refreshCurrentDirectoryIfActive = () => {
+  const manager = currentSftpManager.value;
+  if (!manager || document.hidden || props.sessionId !== sessionStore.activeSessionId) return;
+  if (!props.wsDeps.isConnected.value || manager.isLoading.value) return;
+  manager.loadDirectory(manager.currentPath.value, true);
+};
+
+const handleVisibilityChange = () => {
+  if (!document.hidden) refreshCurrentDirectoryIfActive();
+};
+
 onMounted(() => {
-    // --- 移除 onMounted 中的加载逻辑 ---
-    // Initial load logic is handled by watchEffect below and the main sftp loading watchEffect
+    backgroundRefreshTimer = setInterval(refreshCurrentDirectoryIfActive, FILE_MANAGER_REFRESH_INTERVAL_MS);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
 // +++ 使用 watchEffect 响应式地加载和应用布局设置 +++
@@ -1144,6 +1158,7 @@ watchEffect(() => {
 
 // 使用 watchEffect 监听连接和 SFTP 就绪状态以触发初始加载
 // 恢复使用 props.wsDeps
+let refreshedCurrentReadyCycle = false;
 watchEffect((onCleanup) => {
     let unregisterSuccess: (() => void) | undefined;
     let unregisterError: (() => void) | undefined;
@@ -1157,6 +1172,10 @@ watchEffect((onCleanup) => {
     };
 
     onCleanup(cleanupListeners);
+
+    if (!props.wsDeps.isConnected.value || !props.wsDeps.isSftpReady.value) {
+        refreshedCurrentReadyCycle = false;
+    }
 
     // 修改：添加 ?. 访问 isLoading, 检查 manager 的 initialLoadDone
     // 只有在连接就绪、SFTP 就绪、管理器存在、未加载且 initialLoadDone 为 false 时才获取初始路径
@@ -1175,6 +1194,7 @@ watchEffect((onCleanup) => {
                 if (!currentSftpManager.value) return;
                 const absolutePath = payload.absolutePath;
                 console.log(`[FileManager ${props.sessionId}-${props.instanceId}] Received initial absolute path for '.': ${absolutePath}. Loading directory.`);
+                refreshedCurrentReadyCycle = true;
                 // 修改：添加 ?. 访问 loadDirectory 和 setInitialLoadDone
                 currentSftpManager.value?.loadDirectory(absolutePath);
                 currentSftpManager.value?.setInitialLoadDone(true); // 设置 manager 内部状态
@@ -1201,19 +1221,19 @@ watchEffect((onCleanup) => {
             console.error(`[FileManager ${props.sessionId}-${props.instanceId}] Timeout getting initial realpath for '.' (ID: ${requestId}).`);
             // 超时也标记初始加载尝试完成
             currentSftpManager.value?.setInitialLoadDone(true);
+            refreshedCurrentReadyCycle = true;
             cleanupListeners();
         }, 10000); // 10 秒超时
 
-    } else if (currentSftpManager.value && props.wsDeps.isConnected.value && props.wsDeps.isSftpReady.value && currentSftpManager.value.initialLoadDone.value) {
+    } else if (currentSftpManager.value && props.wsDeps.isConnected.value && props.wsDeps.isSftpReady.value && currentSftpManager.value.initialLoadDone.value && !refreshedCurrentReadyCycle) {
         // 连接恢复，并且之前已经加载过 (initialLoadDone is true)
         // 显式地重新加载管理器中记录的当前路径，以防内部状态被重置
         const pathBeforeReconnect = currentSftpManager.value.currentPath.value;
         console.log(`[FileManager ${props.sessionId}-${props.instanceId}] Connection re-established. Explicitly reloading previous path: ${pathBeforeReconnect}`);
+        refreshedCurrentReadyCycle = true;
         // 检查是否正在加载，避免并发请求
         if (!currentSftpManager.value.isLoading.value) {
-             // 使用 false 参数可能表示非强制刷新，如果 SFTP 管理器支持的话
-             // 主要目的是确保视图与管理器状态同步到重连前的路径
-            currentSftpManager.value.loadDirectory(pathBeforeReconnect, false);
+            currentSftpManager.value.loadDirectory(pathBeforeReconnect, true);
         } else {
             console.log(`[FileManager ${props.sessionId}-${props.instanceId}] SFTP manager is currently loading, skipping explicit path reload on reconnect.`);
         }
@@ -1298,6 +1318,11 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  if (backgroundRefreshTimer) {
+    clearInterval(backgroundRefreshTimer);
+    backgroundRefreshTimer = null;
+  }
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
  // 注销搜索框动作
  if (unregisterSearchFocusAction) {
    unregisterSearchFocusAction();

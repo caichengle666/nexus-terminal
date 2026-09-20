@@ -40,7 +40,7 @@ const fs = require('fs');
 const os = require('os');
 const iconv = require('iconv-lite');
 const { createProxyMiddleware } = require('http-proxy-middleware');
-const { installPortableUpdate } = require('./updater-service');
+const { consumePortableUpdateResult, installPortableUpdate } = require('./updater-service');
 const { extractExpectedChecksum, verifyUpdateSignature } = require('./update-verification');
 const updateNetwork = require('./update-network');
 const updateDownloadService = require('./update-download-service');
@@ -911,6 +911,23 @@ app.on('ready', () => {
     // 发生严重错误，可能需要退出应用
     app.quit();
   });
+  const updaterDir = path.join(app.getPath('temp'), 'nexus-terminal-updater');
+  const portableUpdateResult = consumePortableUpdateResult(updaterDir);
+  if (portableUpdateResult?.status === 'rolled-back' || portableUpdateResult?.status === 'failed') {
+    setTimeout(() => {
+      const options = {
+        type: 'error',
+        title: 'Nexus Terminal 更新未完成',
+        message: portableUpdateResult.status === 'rolled-back' ? '新版本安装失败，已恢复旧版本。' : '新版本安装失败，且自动恢复未完成。',
+        detail: portableUpdateResult.message || '请重新下载更新或手动安装。',
+        buttons: ['确定'],
+      };
+      const resultDialog = mainWindow
+        ? dialog.showMessageBox(mainWindow, options)
+        : dialog.showMessageBox(options);
+      resultDialog.catch(error => console.error('[Updater] Failed to show portable update result:', error));
+    }, 1000);
+  }
 });
 
 // 当全部窗口关闭时退出。
@@ -994,6 +1011,9 @@ ipcMain.handle('get-installation-kind', () => {
 ipcMain.handle('download-update', async (event, payload = {}) => {
   if (updateDownloadState) return { ok: false, message: '已有更新正在下载。' };
   if (!payload.url || typeof payload.url !== 'string') return { ok: false, message: '更新下载地址无效。' };
+  if (!payload.checksumUrl || typeof payload.checksumUrl !== 'string') {
+    return { ok: false, message: '此版本缺少官方 SHA-256 校验文件，已拒绝自动更新。' };
+  }
 
   let parsedUrl;
   try {
@@ -1062,19 +1082,19 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     let result;
     let updatePath = targetPath;
     let fallbackUsed = false;
-    let checksumText = null;
-    if (payload.checksumUrl) {
-      sendProgress('fetching-checksum', { message: '正在获取校验文件…' });
-      checksumText = await updateDownloadService.fetchTextAsset(payload.checksumUrl, downloadContext, {
-        allowMirrors: true,
-        mirrorUrls: payload.mirrorUrls,
-      });
-    }
+    sendProgress('fetching-checksum', { message: '正在从官方源获取校验文件…' });
+    const checksumText = await updateDownloadService.fetchTextAsset(payload.checksumUrl, downloadContext, {
+      allowMirrors: false,
+      mirrorUrls: [],
+    });
     if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
     const getExpectedChecksum = filePath => checksumText
       ? extractExpectedChecksum(checksumText, path.basename(filePath))
       : null;
     const expectedPrimaryChecksum = getExpectedChecksum(targetPath);
+    if (!expectedPrimaryChecksum) {
+      throw new Error(`官方校验文件中没有找到 ${path.basename(targetPath)} 的 SHA-256。`);
+    }
     try {
       result = await updateDownloadService.downloadAsset(payload.url, targetPath, downloadContext, (receivedBytes, totalBytes) => {
         sendProgress('downloading', {
@@ -1091,6 +1111,9 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
       const fallbackUrl = validateUpdateUrl(payload.fallbackUrl);
       fallbackPath = path.join(updaterDir, getSafeUpdateFilename(fallbackUrl));
       const expectedFallbackChecksum = getExpectedChecksum(fallbackPath);
+      if (!expectedFallbackChecksum) {
+        throw new Error(`官方校验文件中没有找到 ${path.basename(fallbackPath)} 的 SHA-256。`);
+      }
       sendProgress('downloading', { receivedBytes: 0, totalBytes: 0, progress: 0, fallback: true });
       result = await updateDownloadService.downloadAsset(payload.fallbackUrl, fallbackPath, downloadContext, (receivedBytes, totalBytes) => {
         sendProgress('downloading', {
@@ -1108,7 +1131,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
 
     const expectedChecksum = getExpectedChecksum(updatePath);
-    if (payload.checksumUrl && !expectedChecksum) {
+    if (!expectedChecksum) {
       throw new Error(`校验文件中没有找到 ${path.basename(updatePath)} 的 SHA-256。`);
     }
     if (expectedChecksum && expectedChecksum !== result.sha256.toLowerCase()) {

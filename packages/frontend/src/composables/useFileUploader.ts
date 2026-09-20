@@ -1,4 +1,4 @@
-import { reactive, nextTick, onUnmounted, type Ref, watch, watchEffect } from 'vue';
+import { reactive, nextTick, onUnmounted, type Ref, watchEffect } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { FileListItem } from '../types/sftp.types';
 import type { UploadItem } from '../types/upload.types';
@@ -6,7 +6,8 @@ import type { WebSocketMessage, MessagePayload } from '../types/websocket.types'
 import type { WebSocketDependencies } from './useSftpActions';
 import { useTransferStore } from '../stores/transfer.store';
 
-const UPLOAD_CHUNK_SIZE = 65536; // 64KB; base64 后仍适合移动网络与代理传输
+const UPLOAD_CHUNK_SIZE = 256 * 1024;
+const TRANSFER_SYNC_INTERVAL_MS = 250;
 const UPLOAD_READY_TIMEOUT_MS = 10000;
 const UPLOAD_CHUNK_ACK_TIMEOUT_MS = 30000;
 const UPLOAD_FINALIZE_TIMEOUT_MS = 60000;
@@ -35,21 +36,23 @@ export function useFileUploader(
     const uploads = reactive<Record<string, UploadItem>>({});
     const uploadTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
     const uploadStartAttempts = new Map<string, number>();
-    const ownedUploadIds = new Set<string>();
+    const lastTransferSyncAt = new Map<string, number>();
 
-    watch(uploads, (currentUploads) => {
-        const currentIds = new Set(Object.keys(currentUploads));
-        Object.values(currentUploads).forEach(upload => {
-            ownedUploadIds.add(upload.id);
-            transferStore.upsertLocalUpload(upload, sessionIdForLog.value, () => cancelUpload(upload.id));
-        });
-        ownedUploadIds.forEach(uploadId => {
-            if (!currentIds.has(uploadId)) {
-                transferStore.removeLocalUpload(uploadId);
-                ownedUploadIds.delete(uploadId);
-            }
-        });
-    }, { deep: true, immediate: true });
+    const syncUploadTask = (uploadId: string, force = false) => {
+        const upload = uploads[uploadId];
+        if (!upload) return;
+        const now = Date.now();
+        const lastSyncAt = lastTransferSyncAt.get(uploadId) ?? 0;
+        if (!force && now - lastSyncAt < TRANSFER_SYNC_INTERVAL_MS) return;
+        lastTransferSyncAt.set(uploadId, now);
+        transferStore.upsertLocalUpload(upload, sessionIdForLog.value, () => cancelUpload(upload.id));
+    };
+
+    const removeUpload = (uploadId: string) => {
+        delete uploads[uploadId];
+        lastTransferSyncAt.delete(uploadId);
+        transferStore.removeLocalUpload(uploadId);
+    };
 
     const clearUploadTimeout = (uploadId: string) => {
         const timeoutId = uploadTimeouts.get(uploadId);
@@ -69,6 +72,7 @@ export function useFileUploader(
         clearUploadTimeout(uploadId);
         upload.status = 'error';
         upload.error = message;
+        syncUploadTask(uploadId, true);
         if (notifyBackend && wsDeps.value.isConnected.value) {
             wsDeps.value.sendMessage({ type: 'sftp:upload:cancel', payload: { uploadId } });
         }
@@ -209,9 +213,17 @@ export function useFileUploader(
             acknowledgedBytes: 0,
             status: 'pending'
         };
+        syncUploadTask(uploadId, true);
 
         console.log(`[FileUploader ${sessionIdForLog.value}] Starting upload ${uploadId} to ${finalRemotePath}`);
-        sendUploadStart(uploadId);
+        if (wsDeps.value.isSftpReady.value) {
+            sendUploadStart(uploadId);
+        } else {
+            wsDeps.value.sendMessage({ type: 'sftp:initialize', payload: {} });
+            uploadTimeouts.set(uploadId, setTimeout(() => {
+                failUpload(uploadId, '等待 SFTP 会话恢复超时，请重试上传', false);
+            }, UPLOAD_READY_TIMEOUT_MS));
+        }
     };
 
     const cancelUpload = (uploadId: string, notifyBackend = true) => {
@@ -220,6 +232,7 @@ export function useFileUploader(
             console.log(`[FileUploader ${sessionIdForLog.value}] Cancelling upload ${uploadId}`);
             upload.status = 'cancelled';
             removeUploadTracking(uploadId);
+            syncUploadTask(uploadId, true);
 
             if (notifyBackend && wsDeps.value.isConnected.value) {
                 wsDeps.value.sendMessage({ type: 'sftp:upload:cancel', payload: { uploadId } });
@@ -227,7 +240,7 @@ export function useFileUploader(
 
             setTimeout(() => {
                 if (uploads[uploadId]?.status === 'cancelled') {
-                    delete uploads[uploadId];
+                    removeUpload(uploadId);
                 }
             }, 3000);
         }
@@ -236,7 +249,7 @@ export function useFileUploader(
     const dismissUpload = (uploadId: string) => {
         const upload = uploads[uploadId];
         if (!upload || ['pending', 'uploading', 'paused'].includes(upload.status)) return;
-        delete uploads[uploadId];
+        removeUpload(uploadId);
         removeUploadTracking(uploadId);
     };
 
@@ -251,6 +264,7 @@ export function useFileUploader(
             upload.status = 'uploading';
             upload.nextChunkIndex = typeof payload?.nextChunkIndex === 'number' ? payload.nextChunkIndex : 0;
             upload.acknowledgedBytes = typeof payload?.bytesWritten === 'number' ? payload.bytesWritten : 0;
+            syncUploadTask(uploadId, true);
             sendNextChunk(uploadId);
         } else {
             console.warn(`[FileUploader ${sessionIdForLog.value}] Received upload:ready for unknown or non-pending upload ID: ${uploadId}`);
@@ -266,9 +280,11 @@ export function useFileUploader(
             removeUploadTracking(uploadId);
             upload.status = 'success';
             upload.progress = 100;
+            upload.acknowledgedBytes = upload.file.size;
+            syncUploadTask(uploadId, true);
             setTimeout(() => {
                 if (uploads[uploadId]?.status === 'success') {
-                    delete uploads[uploadId];
+                    removeUpload(uploadId);
                 }
             }, 3000);
         } else {
@@ -292,6 +308,7 @@ export function useFileUploader(
             console.error(`[FileUploader ${sessionIdForLog.value}] Upload ${uploadId} error:`, errorMessage);
             upload.status = 'error';
             upload.error = errorMessage;
+            syncUploadTask(uploadId, true);
         } else {
              console.warn(`[FileUploader ${sessionIdForLog.value}] Received upload:error for unknown upload ID: ${uploadId}`);
         }
@@ -303,6 +320,7 @@ export function useFileUploader(
         const upload = uploads[uploadId];
         if (upload && upload.status === 'uploading') {
             upload.status = 'paused';
+            syncUploadTask(uploadId, true);
         }
     };
 
@@ -312,6 +330,7 @@ export function useFileUploader(
         const upload = uploads[uploadId];
         if (upload && upload.status === 'paused') {
             upload.status = 'uploading';
+            syncUploadTask(uploadId, true);
             sendNextChunk(uploadId);
         }
     };
@@ -326,9 +345,10 @@ export function useFileUploader(
             if (upload.status !== 'cancelled') {
                 upload.status = 'cancelled';
             }
+            syncUploadTask(uploadId, true);
             setTimeout(() => {
                 if (uploads[uploadId]?.status === 'cancelled') {
-                    delete uploads[uploadId];
+                    removeUpload(uploadId);
                 }
             }, 3000);
         }
@@ -342,6 +362,8 @@ export function useFileUploader(
         if (upload && upload.status === 'uploading') {
             if (typeof payload?.bytesWritten === 'number' && typeof payload?.totalSize === 'number') {
                 upload.progress = payload.totalSize === 0 ? 100 : Math.min(100, Math.round((payload.bytesWritten / payload.totalSize) * 100));
+                upload.acknowledgedBytes = payload.bytesWritten;
+                syncUploadTask(uploadId);
             } else {
                 console.warn(`[FileUploader ${sessionIdForLog.value}] Received upload:progress with incorrect payload format:`, payload);
             }
@@ -363,6 +385,7 @@ export function useFileUploader(
         if (typeof payload?.totalSize === 'number') {
             upload.progress = payload.totalSize === 0 ? 100 : Math.min(100, Math.round(((upload.acknowledgedBytes ?? 0) / payload.totalSize) * 100));
         }
+        syncUploadTask(uploadId);
 
         if (!payload?.isComplete) {
             nextTick(() => sendNextChunk(uploadId));
@@ -376,6 +399,21 @@ export function useFileUploader(
     const onConnectionClosed = () => {
         Object.keys(uploads).forEach(uploadId => {
             failUpload(uploadId, '终端连接已断开，上传未完成', false);
+        });
+    };
+
+    const onSftpSessionReady = () => {
+        Object.values(uploads).forEach(upload => {
+            if (upload.status === 'pending' && !uploadStartAttempts.has(upload.id)) {
+                clearUploadTimeout(upload.id);
+                sendUploadStart(upload.id);
+            }
+        });
+    };
+
+    const onSftpUnavailable = () => {
+        Object.keys(uploads).forEach(uploadId => {
+            failUpload(uploadId, 'SFTP 会话已断开，上传未完成', false);
         });
     };
 
@@ -394,6 +432,8 @@ export function useFileUploader(
         const unregisterUploadProgress = wsDeps.value.onMessage('sftp:upload:progress', onUploadProgress);
         const unregisterUploadChunkAck = wsDeps.value.onMessage('sftp:upload:chunk:ack', onUploadChunkAck);
         const unregisterConnectionClosed = wsDeps.value.onMessage('internal:closed', onConnectionClosed);
+        const unregisterSftpReady = wsDeps.value.onMessage('sftp_ready', onSftpSessionReady);
+        const unregisterSftpUnavailable = wsDeps.value.onMessage('sftp_unavailable', onSftpUnavailable);
 
         onCleanup(() => {
             unregisterUploadReady?.();
@@ -405,6 +445,8 @@ export function useFileUploader(
             unregisterUploadProgress?.();
             unregisterUploadChunkAck?.();
             unregisterConnectionClosed?.();
+            unregisterSftpReady?.();
+            unregisterSftpUnavailable?.();
         });
     });
 
@@ -415,6 +457,7 @@ export function useFileUploader(
         uploadTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
         uploadTimeouts.clear();
         uploadStartAttempts.clear();
+        lastTransferSyncAt.clear();
     });
 
     return {

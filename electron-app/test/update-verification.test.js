@@ -8,6 +8,7 @@ const { EventEmitter } = require('node:events');
 
 const { extractExpectedChecksum } = require('../update-verification');
 const { requestWithRedirect } = require('../update-network');
+const { buildPortableLaunchScript, consumePortableUpdateResult } = require('../updater-service');
 const {
   buildMirrorUrl,
   buildDownloadSources,
@@ -40,6 +41,47 @@ test('rejects ambiguous normalized filename matches', () => {
     `${portableHash}  Nexus.Terminal.Setup.0.9.22.28.exe`,
   ].join('\n');
   assert.equal(extractExpectedChecksum(manifest, 'Nexus.Terminal.Setup.0.9.22.28.exe'), null);
+});
+
+test('portable replacement script backs up, replaces, and rolls back on failure', () => {
+  const script = buildPortableLaunchScript({
+    currentProcessId: 123,
+    executable: 'C:\\temp\\portable\\Nexus Terminal.exe',
+    extractPath: 'C:\\temp\\portable',
+    targetDirectory: 'C:\\apps\\Nexus Terminal',
+    backupPath: 'C:\\temp\\backup',
+    resultPath: 'C:\\temp\\portable-update-result.json',
+  });
+  assert.match(script, /Copy-Item/);
+  assert.match(script, /Remove-Item/);
+  assert.match(script, /rolled-back/);
+  assert.match(script, /portable-update-result\.json/);
+});
+
+test('consumes portable update results and only cleans paths inside the updater directory', () => {
+  const updaterDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-portable-result-'));
+  const backupPath = path.join(updaterDir, 'backup-1');
+  const extractPath = path.join(updaterDir, 'portable-1');
+  const externalPath = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-portable-external-'));
+  fs.mkdirSync(backupPath);
+  fs.mkdirSync(extractPath);
+  fs.writeFileSync(path.join(updaterDir, 'portable-update-result.json'), JSON.stringify({
+    status: 'rolled-back',
+    message: 'copy failed',
+    backupPath,
+    extractPath,
+    externalPath,
+  }));
+  try {
+    const result = consumePortableUpdateResult(updaterDir);
+    assert.equal(result.status, 'rolled-back');
+    assert.equal(fs.existsSync(backupPath), false);
+    assert.equal(fs.existsSync(extractPath), false);
+    assert.equal(fs.existsSync(externalPath), true);
+  } finally {
+    fs.rmSync(updaterDir, { recursive: true, force: true });
+    fs.rmSync(externalPath, { recursive: true, force: true });
+  }
 });
 
 test('rejects when the update request reports socket hang up', async () => {

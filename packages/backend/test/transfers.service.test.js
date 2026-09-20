@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { EventEmitter } = require('node:events');
+const { SftpService } = require('../dist/sftp/sftp.service.js');
 const { TransfersService } = require('../dist/transfers/transfers.service.js');
 
 const toLocalPath = (root, remotePath) => path.join(root, remotePath.replace(/^\/+/, ''));
@@ -84,4 +86,41 @@ test('target path mapping cannot escape the selected directory', () => {
     () => service.safeJoinTargetPath('/uploads', '../outside.txt'),
     /目标路径超出指定目录/,
   );
+});
+
+test('SFTP initialization is deduplicated and stale channel events do not clear a replacement', async () => {
+  const sentMessages = [];
+  const channels = [];
+  let initializationCount = 0;
+  const state = {
+    dbConnectionId: 1,
+    ws: {
+      readyState: 1,
+      send(message) { sentMessages.push(JSON.parse(message)); },
+    },
+    sshClient: {
+      sftp(callback) {
+        initializationCount += 1;
+        const channel = new EventEmitter();
+        channel.end = () => {};
+        channels.push(channel);
+        setImmediate(() => callback(null, channel));
+      },
+    },
+  };
+  const service = new SftpService(new Map([['session-1', state]]));
+
+  await Promise.all([
+    service.initializeSftpSession('session-1'),
+    service.initializeSftpSession('session-1'),
+  ]);
+  assert.equal(initializationCount, 1);
+  assert.equal(sentMessages.filter(message => message.type === 'sftp_ready').length, 1);
+
+  const firstChannel = state.sftp;
+  state.sftp = undefined;
+  await service.initializeSftpSession('session-1');
+  const replacementChannel = state.sftp;
+  firstChannel.emit('close');
+  assert.equal(state.sftp, replacementChannel);
 });

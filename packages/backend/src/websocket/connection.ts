@@ -156,6 +156,16 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
                         case 'sftp:decompress':
                             await handleSftpOperation(ws, type, payload, requestId);
                             break;
+                        case 'sftp:initialize':
+                            if (!sessionId) {
+                                if (ws.readyState === WebSocket.OPEN) {
+                                    ws.send(JSON.stringify({ type: 'sftp_error', payload: { message: '无效的会话' } }));
+                                }
+                                break;
+                            }
+                            if (payload?.force) sftpService.cleanupSftpSession(sessionId);
+                            await sftpService.initializeSftpSession(sessionId);
+                            break;
 
                         // SFTP Upload Cases
                         case 'sftp:upload:start':
