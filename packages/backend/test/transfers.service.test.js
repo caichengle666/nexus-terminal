@@ -127,6 +127,62 @@ test('SFTP initialization is deduplicated and stale channel events do not clear 
   assert.equal(state.sftp, replacementChannel);
 });
 
+test('SFTP initialization timeout rejects and closes a late stale channel', async () => {
+  const sentMessages = [];
+  let initializationCallback;
+  let lateChannelEndCount = 0;
+  const state = {
+    dbConnectionId: 1,
+    ws: {
+      readyState: 1,
+      send(message) { sentMessages.push(JSON.parse(message)); },
+    },
+    sshClient: {
+      sftp(callback) { initializationCallback = callback; },
+    },
+  };
+  const service = new SftpService(new Map([['session-1', state]]), { initializationTimeoutMs: 20 });
+
+  await assert.rejects(service.initializeSftpSession('session-1'), /SFTP 初始化超时/);
+  const lateChannel = new EventEmitter();
+  lateChannel.end = () => { lateChannelEndCount += 1; };
+  initializationCallback(null, lateChannel);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(state.sftp, undefined);
+  assert.equal(lateChannelEndCount, 1);
+  assert.ok(sentMessages.some(message => message.type === 'sftp_error' && /初始化超时/.test(message.payload.message)));
+});
+
+test('hanging directory read times out, invalidates its channel, and ignores a late callback', async () => {
+  const sentMessages = [];
+  let readdirCallback;
+  let channelEndCount = 0;
+  const sftp = new EventEmitter();
+  sftp.readdir = (_path, callback) => { readdirCallback = callback; };
+  sftp.end = () => { channelEndCount += 1; };
+  const state = {
+    dbConnectionId: 1,
+    ws: {
+      readyState: 1,
+      send(message) { sentMessages.push(JSON.parse(message)); },
+    },
+    sshClient: {},
+    sftp,
+  };
+  const service = new SftpService(new Map([['session-1', state]]), { metadataTimeoutMs: 20 });
+
+  await service.readdir('session-1', '/slow', 'request-1');
+  readdirCallback(null, []);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(state.sftp, undefined);
+  assert.equal(channelEndCount, 1);
+  assert.equal(sentMessages.filter(message => message.type === 'sftp:readdir:success').length, 0);
+  assert.equal(sentMessages.filter(message => message.type === 'sftp:readdir:error').length, 1);
+  assert.equal(sentMessages.filter(message => message.type === 'sftp_unavailable').length, 1);
+});
+
 test('recursive directory deletion rejects dangerous root-like paths', async () => {
   const sentMessages = [];
   let execCount = 0;

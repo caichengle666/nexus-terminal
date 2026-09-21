@@ -174,6 +174,7 @@ const startWidth = ref(0);
 
 // --- 辅助函数 ---
 const generateRequestId = (): string => `req-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+const REALPATH_TIMEOUT_MS = 25000;
 
 
 // UI 格式化函数保持不变
@@ -479,7 +480,7 @@ const handleItemAction = (item: FileListItem) => {
     timeoutId = setTimeout(() => {
       cleanupListeners();
       console.error(`[FileManager ${props.sessionId}-${props.instanceId}] Timeout getting realpath for symlink '${itemPath}' (ID: ${requestId}).`);
-    }, 10000); // 10 秒超时
+    }, REALPATH_TIMEOUT_MS);
     wsSend({ type: 'sftp:realpath', requestId: requestId, payload: { path: itemPath } });
     return; // Handled by async callbacks
   }
@@ -1208,8 +1209,10 @@ watchEffect((onCleanup) => {
                 console.error(`[FileManager ${props.sessionId}-${props.instanceId}] Failed to get realpath for '${requestedPath}':`, payload);
                 // TODO: 可以考虑通过 manager instance 暴露错误状态
                 // 目前仅记录日志。
-                // 即使获取 realpath 失败，也标记初始加载尝试完成，避免重复尝试
-                currentSftpManager.value?.setInitialLoadDone(true);
+                // 通道失效时保留未完成状态，SFTP 恢复后重新解析用户初始目录。
+                if (props.wsDeps.isSftpReady.value) {
+                    currentSftpManager.value?.setInitialLoadDone(true);
+                }
                 cleanupListeners();
             }
         });
@@ -1223,7 +1226,7 @@ watchEffect((onCleanup) => {
             currentSftpManager.value?.setInitialLoadDone(true);
             refreshedCurrentReadyCycle = true;
             cleanupListeners();
-        }, 10000); // 10 秒超时
+        }, REALPATH_TIMEOUT_MS);
 
     } else if (currentSftpManager.value && props.wsDeps.isConnected.value && props.wsDeps.isSftpReady.value && currentSftpManager.value.initialLoadDone.value && !refreshedCurrentReadyCycle) {
         // 连接恢复，并且之前已经加载过 (initialLoadDone is true)

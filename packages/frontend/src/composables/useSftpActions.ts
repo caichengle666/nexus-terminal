@@ -49,7 +49,7 @@ export interface SftpManagerInstance {
 
 // Helper function
 const generateRequestId = (): string => `req-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-const DIRECTORY_LOAD_TIMEOUT_MS = 15000;
+const DIRECTORY_LOAD_TIMEOUT_MS = 30000;
 
 // Helper function
 const joinPath = (base: string, name: string): string => {

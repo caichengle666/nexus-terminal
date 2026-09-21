@@ -60,6 +60,9 @@ const UPLOAD_READY_TIMEOUT_MS = 8000;
 const UPLOAD_WRITE_TIMEOUT_MS = 30000;
 const UPLOAD_CLOSE_TIMEOUT_MS = 20000;
 const UPLOAD_FINALIZE_TIMEOUT_MS = 20000;
+const SFTP_INITIALIZATION_TIMEOUT_MS = 15000;
+const SFTP_METADATA_TIMEOUT_MS = 20000;
+const MAX_DIRECTORY_ENTRIES = 50000;
 
 const quoteShellArgument = (value: string): string => `'${value.replace(/'/g, `'"'"'`)}'`;
 
@@ -77,15 +80,80 @@ interface ActiveUpload {
     drainPromise?: Promise<void> | null; // +++ For managing drain event listeners +++
 }
 
+interface SftpServiceOptions {
+    initializationTimeoutMs?: number;
+    metadataTimeoutMs?: number;
+}
+
 export class SftpService {
     private clientStates: Map<string, ClientState>; // 使用导入的 ClientState
     private activeUploads: Map<string, ActiveUpload>; // Map<uploadId, ActiveUpload>
     private initializationPromises: Map<string, Promise<void>>;
+    private initializationTokens = new Map<string, symbol>();
+    private readonly initializationTimeoutMs: number;
+    private readonly metadataTimeoutMs: number;
 
-    constructor(clientStates: Map<string, ClientState>) {
+    constructor(clientStates: Map<string, ClientState>, options: SftpServiceOptions = {}) {
         this.clientStates = clientStates;
         this.activeUploads = new Map(); // Initialize the map
         this.initializationPromises = new Map();
+        this.initializationTimeoutMs = options.initializationTimeoutMs ?? SFTP_INITIALIZATION_TIMEOUT_MS;
+        this.metadataTimeoutMs = options.metadataTimeoutMs ?? SFTP_METADATA_TIMEOUT_MS;
+    }
+
+    private invalidateSftpSession(sessionId: string, sftpInstance: SFTPWrapper, message: string): void {
+        const state = this.clientStates.get(sessionId);
+        if (!state || state.sftp !== sftpInstance) return;
+
+        state.sftp = undefined;
+        try {
+            sftpInstance.end();
+        } catch (error) {
+            console.warn(`[SFTP] 关闭会话 ${sessionId} 的失效 SFTP 通道时出错:`, error);
+        }
+        if (state.ws.readyState === WebSocket.OPEN) {
+            state.ws.send(JSON.stringify({ type: 'sftp_unavailable', payload: { connectionId: state.dbConnectionId, message } }));
+        }
+    }
+
+    private runMetadataOperation<T>(
+        sessionId: string,
+        requestId: string,
+        operationName: string,
+        start: (sftp: SFTPWrapper, callback: (error: Error | null | undefined, value?: T) => void) => void
+    ): Promise<T> {
+        const state = this.clientStates.get(sessionId);
+        const sftpInstance = state?.sftp;
+        if (!state || !sftpInstance) return Promise.reject(new Error('SFTP 会话未就绪'));
+
+        return new Promise<T>((resolve, reject) => {
+            let settled = false;
+            const startedAt = Date.now();
+            const finish = (error?: Error | null, value?: T) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeoutId);
+                const elapsedMs = Date.now() - startedAt;
+                if (error) {
+                    console.warn(`[SFTP ${sessionId}] ${operationName} 失败，耗时 ${elapsedMs}ms (ID: ${requestId}): ${error.message}`);
+                    reject(error);
+                } else {
+                    console.debug(`[SFTP ${sessionId}] ${operationName} 完成，耗时 ${elapsedMs}ms (ID: ${requestId})`);
+                    resolve(value as T);
+                }
+            };
+            const timeoutId = setTimeout(() => {
+                const timeoutError = new Error(`${operationName} 请求超时 (${this.metadataTimeoutMs}ms)`);
+                this.invalidateSftpSession(sessionId, sftpInstance, `${operationName} 超时，SFTP 通道已重置`);
+                finish(timeoutError);
+            }, this.metadataTimeoutMs);
+
+            try {
+                start(sftpInstance, finish);
+            } catch (error: any) {
+                finish(error instanceof Error ? error : new Error(String(error)));
+            }
+        });
     }
 
     /**
@@ -99,14 +167,41 @@ export class SftpService {
         const pendingInitialization = this.initializationPromises.get(sessionId);
         if (pendingInitialization) return pendingInitialization;
 
+        const initializationToken = Symbol(sessionId);
+        this.initializationTokens.set(sessionId, initializationToken);
         const initialization = new Promise<void>((resolve, reject) => {
+            let settled = false;
+            const finish = (error?: Error) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeoutId);
+                if (error) reject(error);
+                else resolve();
+            };
+            const timeoutId = setTimeout(() => {
+                if (this.initializationTokens.get(sessionId) === initializationToken) {
+                    this.initializationTokens.delete(sessionId);
+                }
+                const error = new Error(`SFTP 初始化超时 (${this.initializationTimeoutMs}ms)`);
+                console.error(`[SFTP] 会话 ${sessionId} 初始化超时。`);
+                if (state.ws.readyState === WebSocket.OPEN) {
+                    state.ws.send(JSON.stringify({ type: 'sftp_error', payload: { connectionId: state.dbConnectionId, message: error.message } }));
+                }
+                finish(error);
+            }, this.initializationTimeoutMs);
+
             state.sshClient.sftp((err, sftpInstance) => {
+                if (this.initializationTokens.get(sessionId) !== initializationToken) {
+                    try { sftpInstance?.end(); } catch { }
+                    finish(new Error('SFTP 初始化已失效或被替换'));
+                    return;
+                }
                 if (err) {
                     console.error(`[SFTP] 为会话 ${sessionId} 初始化 SFTP 会话失败:`, err);
                     if (state.ws.readyState === WebSocket.OPEN) {
                         state.ws.send(JSON.stringify({ type: 'sftp_error', payload: { connectionId: state.dbConnectionId, message: 'SFTP 初始化失败' } }));
                     }
-                    reject(err);
+                    finish(err);
                 } else {
                     console.log(`[SFTP] 为会话 ${sessionId} 初始化 SFTP 会话成功。`);
                     state.sftp = sftpInstance;
@@ -125,7 +220,7 @@ export class SftpService {
                     sftpInstance.on('end', () => markUnavailable('SFTP 会话已结束'));
                     sftpInstance.on('close', () => markUnavailable('SFTP 会话已关闭'));
                     sftpInstance.on('error', (sftpErr: Error) => markUnavailable('SFTP 会话错误', sftpErr));
-                    resolve();
+                    finish();
                 }
             });
         });
@@ -136,6 +231,9 @@ export class SftpService {
             if (this.initializationPromises.get(sessionId) === initialization) {
                 this.initializationPromises.delete(sessionId);
             }
+            if (this.initializationTokens.get(sessionId) === initializationToken) {
+                this.initializationTokens.delete(sessionId);
+            }
         }
     }
 
@@ -145,6 +243,7 @@ export class SftpService {
      */
     cleanupSftpSession(sessionId: string): void {
         this.initializationPromises.delete(sessionId);
+        this.initializationTokens.delete(sessionId);
         const state = this.clientStates.get(sessionId);
         if (state?.sftp) {
             console.log(`[SFTP] 正在清理 ${sessionId} 的 SFTP 会话...`);
@@ -172,26 +271,29 @@ export class SftpService {
         }
         console.debug(`[SFTP ${sessionId}] Received readdir request for ${path} (ID: ${requestId})`);
         try {
-            state.sftp.readdir(path, (err, list) => {
-                 if (err) {
-                    console.error(`[SFTP ${sessionId}] readdir ${path} failed (ID: ${requestId}):`, err);
-                    state.ws.send(JSON.stringify({ type: 'sftp:readdir:error', path: path, payload: `读取目录失败: ${err.message}`, requestId: requestId }));
-                 } else {
-                    const files = list.map((item) => ({
-                        filename: item.filename,
-                        longname: item.longname,
-                        attrs: {
-                            size: item.attrs.size, uid: item.attrs.uid, gid: item.attrs.gid, mode: item.attrs.mode,
-                            atime: item.attrs.atime * 1000, mtime: item.attrs.mtime * 1000,
-                            isDirectory: item.attrs.isDirectory(), isFile: item.attrs.isFile(), isSymbolicLink: item.attrs.isSymbolicLink(),
-                         }
-                     }));
-                    state.ws.send(JSON.stringify({ type: 'sftp:readdir:success', path: path, payload: files, requestId: requestId }));
-                 }
+            const list = await this.runMetadataOperation<SftpDirEntry[]>(sessionId, requestId, `读取目录 ${path}`, (sftp, callback) => {
+                sftp.readdir(path, callback);
             });
+            if (list.length > MAX_DIRECTORY_ENTRIES) {
+                throw new Error(`目录包含 ${list.length} 个条目，超过 ${MAX_DIRECTORY_ENTRIES} 个安全上限`);
+            }
+            const files = list.map((item) => ({
+                filename: item.filename,
+                longname: item.longname,
+                attrs: {
+                    size: item.attrs.size, uid: item.attrs.uid, gid: item.attrs.gid, mode: item.attrs.mode,
+                    atime: item.attrs.atime * 1000, mtime: item.attrs.mtime * 1000,
+                    isDirectory: item.attrs.isDirectory(), isFile: item.attrs.isFile(), isSymbolicLink: item.attrs.isSymbolicLink(),
+                }
+            }));
+            if (state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({ type: 'sftp:readdir:success', path: path, payload: files, requestId: requestId }));
+            }
         } catch (error: any) {
              console.error(`[SFTP ${sessionId}] readdir ${path} caught unexpected error (ID: ${requestId}):`, error);
-             state.ws.send(JSON.stringify({ type: 'sftp:readdir:error', path: path, payload: `读取目录时发生意外错误: ${error.message}`, requestId: requestId }));
+             if (state.ws.readyState === WebSocket.OPEN) {
+                 state.ws.send(JSON.stringify({ type: 'sftp:readdir:error', path: path, payload: `读取目录失败: ${error.message}`, requestId: requestId }));
+             }
         }
     }
 
@@ -202,26 +304,25 @@ export class SftpService {
              console.warn(`[SFTP] SFTP 未准备好，无法在 ${sessionId} 上执行 stat (ID: ${requestId})`);
              state?.ws.send(JSON.stringify({ type: 'sftp:stat:error', path: path, payload: 'SFTP 会话未就绪', requestId: requestId })); // Use specific error type
              return;
-         }
+        }
         console.debug(`[SFTP ${sessionId}] Received stat request for ${path} (ID: ${requestId})`);
         try {
-            state.sftp.lstat(path, (err, stats: Stats) => {
-                if (err) {
-                    console.error(`[SFTP ${sessionId}] stat ${path} failed (ID: ${requestId}):`, err);
-                    state.ws.send(JSON.stringify({ type: 'sftp:stat:error', path: path, payload: `获取状态失败: ${err.message}`, requestId: requestId }));
-                } else {
-                     const fileStats = {
-                         size: stats.size, uid: stats.uid, gid: stats.gid, mode: stats.mode,
-                         atime: stats.atime * 1000, mtime: stats.mtime * 1000,
-                         isDirectory: stats.isDirectory(), isFile: stats.isFile(), isSymbolicLink: stats.isSymbolicLink(),
-                     };
-                    // Send specific success type
-                    state.ws.send(JSON.stringify({ type: 'sftp:stat:success', path: path, payload: fileStats, requestId: requestId }));
-                }
+            const stats = await this.runMetadataOperation<Stats>(sessionId, requestId, `读取状态 ${path}`, (sftp, callback) => {
+                sftp.lstat(path, callback);
             });
+            const fileStats = {
+                size: stats.size, uid: stats.uid, gid: stats.gid, mode: stats.mode,
+                atime: stats.atime * 1000, mtime: stats.mtime * 1000,
+                isDirectory: stats.isDirectory(), isFile: stats.isFile(), isSymbolicLink: stats.isSymbolicLink(),
+            };
+            if (state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({ type: 'sftp:stat:success', path: path, payload: fileStats, requestId: requestId }));
+            }
         } catch (error: any) {
              console.error(`[SFTP ${sessionId}] stat ${path} caught unexpected error (ID: ${requestId}):`, error);
-             state.ws.send(JSON.stringify({ type: 'sftp:stat:error', path: path, payload: `获取状态时发生意外错误: ${error.message}`, requestId: requestId }));
+             if (state.ws.readyState === WebSocket.OPEN) {
+                 state.ws.send(JSON.stringify({ type: 'sftp:stat:error', path: path, payload: `获取状态失败: ${error.message}`, requestId: requestId }));
+             }
         }
     }
 
@@ -733,69 +834,31 @@ export class SftpService {
         }
         console.debug(`[SFTP ${sessionId}] Received realpath request for ${path} (ID: ${requestId})`);
         try {
-            state.sftp.realpath(path, (err, absPath) => {
-                if (err) {
-                    console.error(`[SFTP ${sessionId}] realpath ${path} failed (ID: ${requestId}):`, err);
-                    state.ws.send(JSON.stringify({ type: 'sftp:realpath:error', path: path, payload: { requestedPath: path, error: `获取绝对路径失败: ${err.message}` }, requestId: requestId }));
-                } else {
-                    console.log(`[SFTP ${sessionId}] realpath ${path} -> ${absPath} success (ID: ${requestId}). Fetching target type...`);
-                    // 再次检查 state 和 state.sftp 是否仍然有效，因为回调是异步的
-                    const currentState = this.clientStates.get(sessionId);
-                    if (!currentState || !currentState.sftp) {
-                        console.warn(`[SFTP ${sessionId}] SFTP session for ${absPath} became invalid before stat call (ID: ${requestId}).`);
-                        // 即使 SFTP 会话失效，也尝试发送已解析的路径，但标记错误
-                        state.ws.send(JSON.stringify({
-                            type: 'sftp:realpath:error',
-                            path: path, // 原始请求路径
-                            payload: {
-                                requestedPath: path,
-                                absolutePath: absPath,
-                                error: 'SFTP 会话在获取目标类型前已失效'
-                            },
-                            requestId: requestId
-                        }));
-                        return;
-                    }
-                    // 对 absPath 执行 stat 操作以获取其真实类型
-                    currentState.sftp.stat(absPath, (statErr, stats) => { // 使用 sftp.stat()
-                        if (statErr) {
-                            console.error(`[SFTP ${sessionId}] stat on realpath target ${absPath} failed (ID: ${requestId}):`, statErr);
-                            // 如果 stat 失败，发送带有错误信息的 realpath:error，但仍包含已解析的路径
-                            state.ws.send(JSON.stringify({
-                                type: 'sftp:realpath:error',
-                                path: path, // 原始请求路径
-                                payload: {
-                                    requestedPath: path,
-                                    absolutePath: absPath, // 仍然发送已解析的路径
-                                    error: `获取目标类型失败: ${statErr.message}`
-                                },
-                                requestId: requestId
-                            }));
-                        } else {
-                            let targetType: 'file' | 'directory' | 'unknown' = 'unknown';
-                            if (stats.isFile()) {
-                                targetType = 'file';
-                            } else if (stats.isDirectory()) {
-                                targetType = 'directory';
-                            }
-                            console.log(`[SFTP ${sessionId}] Target type for ${absPath} is ${targetType} (ID: ${requestId})`);
-                            state.ws.send(JSON.stringify({
-                                type: 'sftp:realpath:success',
-                                path: path, // 原始请求路径
-                                payload: {
-                                    requestedPath: path,
-                                    absolutePath: absPath,
-                                    targetType: targetType // 新增字段
-                                },
-                                requestId: requestId
-                            }));
-                        }
+            const result = await this.runMetadataOperation<{ absolutePath: string; stats: Stats }>(sessionId, requestId, `解析路径 ${path}`, (sftp, callback) => {
+                sftp.realpath(path, (realpathError, absolutePath) => {
+                    if (realpathError) return callback(realpathError);
+                    sftp.stat(absolutePath, (statError, stats) => {
+                        if (statError) return callback(statError);
+                        callback(null, { absolutePath, stats });
                     });
-                }
+                });
             });
+            let targetType: 'file' | 'directory' | 'unknown' = 'unknown';
+            if (result.stats.isFile()) targetType = 'file';
+            else if (result.stats.isDirectory()) targetType = 'directory';
+            if (state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({
+                    type: 'sftp:realpath:success',
+                    path: path,
+                    payload: { requestedPath: path, absolutePath: result.absolutePath, targetType },
+                    requestId: requestId
+                }));
+            }
         } catch (error: any) {
             console.error(`[SFTP ${sessionId}] realpath ${path} caught unexpected error (ID: ${requestId}):`, error);
-            state.ws.send(JSON.stringify({ type: 'sftp:realpath:error', path: path, payload: `获取绝对路径时发生意外错误: ${error.message}`, requestId: requestId }));
+            if (state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({ type: 'sftp:realpath:error', path: path, payload: { requestedPath: path, error: `获取绝对路径失败: ${error.message}` }, requestId: requestId }));
+            }
         }
     }
 
