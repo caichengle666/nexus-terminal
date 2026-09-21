@@ -222,14 +222,22 @@ export function useVersionCheck() {
     updateChecksumVerified.value = false;
     updateSignatureStatus.value = null;
     try {
+      const safeProxy = proxy
+        ? {
+          type: proxy.type,
+          host: proxy.host,
+          port: proxy.port,
+          username: proxy.username,
+        }
+        : undefined;
       const result = await electronApi.downloadUpdate({
         url: updateDownloadUrl.value,
         checksumUrl: updateChecksumUrl.value,
         fallbackUrl: updatePortableUrl.value,
         version: latestVersion.value,
         requestId,
-        proxy,
-        mirrorUrls: updateMirrorUrls.value,
+        proxy: safeProxy,
+        mirrorUrls: [...updateMirrorUrls.value],
       });
       if (requestId !== activeUpdateRequestId) return;
       if (!result?.ok) {
