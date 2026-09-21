@@ -398,6 +398,26 @@ async function createWindow() {
     },
   });
   mainWindow.setAlwaysOnTop(isAlwaysOnTop);
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const hasSelection = Boolean(params.selectionText);
+    const isEditable = Boolean(params.isEditable);
+    const hasLink = Boolean(params.linkURL);
+    if (!hasSelection && !isEditable && !hasLink) return;
+
+    const menuItems = [];
+    if (hasSelection) menuItems.push({ role: 'copy' });
+    if (isEditable) {
+      menuItems.push(
+        { role: 'cut' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      );
+    }
+    if (hasLink) menuItems.push({ role: 'copyLink' });
+    if (menuItems.length > 0 && !mainWindow.isDestroyed()) {
+      Menu.buildFromTemplate(menuItems).popup({ window: mainWindow });
+    }
+  });
   createTray();
   createFloatingNotificationBell();
 

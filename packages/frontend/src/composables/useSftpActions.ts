@@ -1,4 +1,4 @@
-import { ref, readonly, reactive, computed, type Ref, type ComputedRef } from 'vue'; 
+import { ref, reactive, computed, type Ref, type ComputedRef } from 'vue';
 import type { FileListItem, FileAttributes, EditorFileContent, SftpReadFileSuccessPayload, SftpReadFileRequestPayload } from '../types/sftp.types';
 import type { WebSocketMessage, MessagePayload, MessageHandler } from '../types/websocket.types';
 
@@ -50,6 +50,9 @@ export interface SftpManagerInstance {
 // Helper function
 const generateRequestId = (): string => `req-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 const DIRECTORY_LOAD_TIMEOUT_MS = 30000;
+const DIRECTORY_REQUEST_COALESCE_MS = 250;
+const DIRECTORY_RETRY_BACKOFFS_MS = [0, 1500, 4000, 9000];
+const MAX_DIRECTORY_RETRY_ATTEMPTS = DIRECTORY_RETRY_BACKOFFS_MS.length;
 
 // Helper function
 const joinPath = (base: string, name: string): string => {
@@ -92,11 +95,23 @@ export function createSftpActionsManager(
 ): SftpManagerInstance { // Add explicit return type
     const { sendMessage, onMessage, isConnected, isSftpReady } = wsDeps; // 使用注入的依赖
 
-    // const fileList = ref<FileListItem[]>([]); // 不再直接使用 fileList ref
     const isLoading = ref<boolean>(false);
     const loadingRequestId = ref<string | null>(null); // 跟踪当前加载请求 ID
+    const lastDirectoryRequestAt = { current: 0 };
+    const lastDirectoryRequestPath = { current: '' };
+    const pendingDirectoryPath = { current: '/' };
+    const directoryRetryCount = { current: 0 };
+    const lastForceInitAt = { current: 0 };
+
+    const reinitializeAfterStaleFailure = () => {
+        if (!isConnected.value) return;
+        const now = Date.now();
+        if (now - lastForceInitAt.current < 2000) return;
+        lastForceInitAt.current = now;
+        console.warn(`[SFTP ${instanceSessionId}] 触发 force init（已合并限流）。`);
+        sendMessage({ type: 'sftp:initialize', payload: { force: true } });
+    };
     let directoryLoadTimeoutId: ReturnType<typeof setTimeout> | null = null;
-    // const error = ref<string | null>(null); // 不再使用本地 error ref
     const instanceSessionId = sessionId; // 保存会话 ID 用于日志
     const uiNotificationsStore = useUiNotificationsStore(); // 初始化 UI 通知 store
     const initialLoadDone = ref<boolean>(false); // +++ 跟踪此实例是否已完成初始加载 +++
@@ -173,9 +188,6 @@ export function createSftpActionsManager(
         unregisterCallbacks.forEach(cb => cb());
         unregisterCallbacks.length = 0; // 清空数组
     };
-
-    // 不再需要 clearSftpError 函数
-    // const clearSftpError = () => { ... };
 
     // --- Action Methods ---
 
@@ -268,56 +280,95 @@ export function createSftpActionsManager(
         return currentNode; // Return the final node found or created
     };
 
-    const loadDirectory = (path: string, forceRefresh: boolean = false) => { // 添加 forceRefresh 参数
-        // *** 修改：检查文件树 ***
+    const scheduleDirectoryRetry = (path: string, reason: string) => {
+        pendingDirectoryPath.current = path;
+        resetDirectoryLoading();
+        if (!isConnected.value) {
+            resetDirectoryLoading();
+            return;
+        }
+        if (directoryRetryCount.current >= MAX_DIRECTORY_RETRY_ATTEMPTS) {
+            resetDirectoryLoading();
+            console.error(`[SFTP ${instanceSessionId}] 加载目录 ${path} 已重试 ${MAX_DIRECTORY_RETRY_ATTEMPTS} 次，停止重试。`);
+            uiNotificationsStore.showError(`${t('fileManager.errors.loadDirectoryFailed')}: ${reason}`);
+            directoryRetryCount.current = 0;
+            return;
+        }
+        const delayMs = DIRECTORY_RETRY_BACKOFFS_MS[Math.min(directoryRetryCount.current, DIRECTORY_RETRY_BACKOFFS_MS.length - 1)];
+        directoryRetryCount.current += 1;
+        console.warn(`[SFTP ${instanceSessionId}] 目录操作将于 ${delayMs}ms 后重试 (第 ${directoryRetryCount.current}/${MAX_DIRECTORY_RETRY_ATTEMPTS} 次)。原因: ${reason}`);
+        directoryLoadTimeoutId = setTimeout(() => {
+            directoryLoadTimeoutId = null;
+            if (loadingRequestId.value) return;
+            if (!isConnected.value) { resetDirectoryLoading(); return; }
+            if (!isSftpReady.value) {
+                reinitializeAfterStaleFailure();
+                scheduleDirectoryRetry(path, reason);
+                return;
+            }
+            loadDirectoryInternal(path, false);
+        }, delayMs);
+    };
+
+    const loadDirectoryInternal = (path: string, forceRefresh: boolean) => {
+        pendingDirectoryPath.current = path;
         const targetNode = findNodeByPath(fileTree, path);
 
-        if (targetNode && targetNode.childrenLoaded && !forceRefresh) { // 检查 forceRefresh
+        if (targetNode && targetNode.childrenLoaded && !forceRefresh) {
             console.log(`[SFTP ${instanceSessionId}] 使用文件树缓存加载目录: ${path}`);
-            // fileList 将通过 computed 属性更新，这里只需更新 currentPathRef
             isLoading.value = false;
             currentPathRef.value = path;
-            return; // 子节点已加载且非强制刷新，无需请求
+            directoryRetryCount.current = 0;
+            return;
         }
-
-        // If node doesn't exist, children not loaded, or forceRefresh is true, proceed to fetch from backend.
-        // The onSftpReaddirSuccess handler will manage adding/updating the node in the tree.
 
         if (!isSftpReady.value) {
             resetDirectoryLoading();
             if (isConnected.value) {
                 console.warn(`[SFTP ${instanceSessionId}] SFTP 未就绪，正在请求重新初始化。`);
                 sendMessage({ type: 'sftp:initialize', payload: {} });
+                scheduleDirectoryRetry(path, 'SFTP 未就绪');
             } else {
                 uiNotificationsStore.showError(t('fileManager.errors.sftpNotReady'));
             }
             return;
         }
-        // *** 如果已经在加载，则阻止新的加载请求 ***
         if (isLoading.value) {
             if (forceRefresh) {
                 console.warn(`[SFTP ${instanceSessionId}] 强制刷新将替换未完成的目录请求。`);
                 resetDirectoryLoading();
             } else {
-            console.warn(`[SFTP ${instanceSessionId}] 尝试加载目录 ${path} 但已在加载中。`);
-            return;
+                console.warn(`[SFTP ${instanceSessionId}] 尝试加载目录 ${path} 但已在加载中。`);
+                return;
             }
         }
 
-        console.log(`[SFTP ${instanceSessionId}] ${forceRefresh ? '强制' : ''}加载目录: ${path}`); // 日志改为中文，并标明是否强制
+        console.log(`[SFTP ${instanceSessionId}] ${forceRefresh ? '强制' : ''}加载目录: ${path}`);
         isLoading.value = true;
-        // error.value = null; // 不再需要
-        // currentPathRef.value = path; // <-- 移除此行，延迟更新
         const requestId = generateRequestId();
-        loadingRequestId.value = requestId; // 记录当前加载请求 ID
+        loadingRequestId.value = requestId;
+        lastDirectoryRequestAt.current = Date.now();
+        lastDirectoryRequestPath.current = path;
         sendMessage({ type: 'sftp:readdir', requestId: requestId, payload: { path } });
         directoryLoadTimeoutId = setTimeout(() => {
             if (loadingRequestId.value !== requestId) return;
             console.error(`[SFTP ${instanceSessionId}] 加载目录 ${path} 超时。`);
             resetDirectoryLoading();
-            uiNotificationsStore.showError(`${t('fileManager.errors.loadDirectoryFailed')}: 请求超时`);
-            if (isConnected.value) sendMessage({ type: 'sftp:initialize', payload: { force: true } });
+            reinitializeAfterStaleFailure();
+            scheduleDirectoryRetry(path, '请求超时');
         }, DIRECTORY_LOAD_TIMEOUT_MS);
+    };
+
+    const loadDirectory = (path: string, forceRefresh: boolean = false) => {
+        const now = Date.now();
+        if (!forceRefresh && !loadingRequestId.value
+            && lastDirectoryRequestPath.current === path
+            && (now - lastDirectoryRequestAt.current) < DIRECTORY_REQUEST_COALESCE_MS) {
+            console.warn(`[SFTP ${instanceSessionId}] 目录 ${path} 请求过快，已合并。`);
+            return;
+        }
+        if (!loadingRequestId.value) directoryRetryCount.current = 0;
+        loadDirectoryInternal(path, forceRefresh);
     };
 
     const createDirectory = (newDirName: string) => {
@@ -771,32 +822,39 @@ export function createSftpActionsManager(
     };
 
     const onSftpReaddirError = (payload: MessagePayload, message: WebSocketMessage) => {
-        // 类型断言，因为我们知道 readdir:error 的 payload 是 string
-        const errorPayload = payload as string;
+        const errorPayload = typeof payload === 'string'
+            ? payload
+            : (typeof payload?.message === 'string' ? payload.message : String(payload ?? '未知错误'));
         const errorPath = message.path;
 
-        // 检查请求 ID 是否匹配当前加载请求
         if (message.requestId !== loadingRequestId.value) {
              console.log(`[SFTP ${instanceSessionId}] Received stale readdir error for ${errorPath} (ID: ${message.requestId}, expected: ${loadingRequestId.value}). Ignoring.`);
-             return; // 忽略过时的错误响应
+             return;
         }
 
-        console.error(`[SFTP ${instanceSessionId}] 加载目录 ${errorPath} 出错:`, errorPayload); // 日志改为中文
-        // error.value = errorPayload; // 使用通知
-        uiNotificationsStore.showError(`${t('fileManager.errors.loadDirectoryFailed')}: ${errorPayload}`);
-
-        // 重置加载状态，因为这是匹配的响应
-        resetDirectoryLoading();
-        console.log(`[SFTP ${instanceSessionId}] isLoading reset after failed readdir for ${errorPath}.`);
+        console.error(`[SFTP ${instanceSessionId}] 加载目录 ${errorPath} 出错:`, errorPayload);
+        const transientKeywords = ['超时', 'timeout', 'ECONNRESET', 'reset', 'timed out', 'unavailable', '未就绪'];
+        const isTransient = transientKeywords.some(k => errorPayload.toLowerCase().includes(k.toLowerCase()));
+        if (isConnected.value && isTransient) {
+            console.warn(`[SFTP ${instanceSessionId}] readdir 返回瞬时错误，将触发重试。`);
+            reinitializeAfterStaleFailure();
+            scheduleDirectoryRetry(errorPath || pendingDirectoryPath.current || currentPathRef.value || '/', errorPayload);
+        } else {
+            resetDirectoryLoading();
+            uiNotificationsStore.showError(`${t('fileManager.errors.loadDirectoryFailed')}: ${errorPayload}`);
+            console.log(`[SFTP ${instanceSessionId}] isLoading reset after failed readdir for ${errorPath}.`);
+        }
     };
-
     const onSftpUnavailable = (payload: MessagePayload) => {
         const message = typeof payload?.message === 'string' ? payload.message : 'SFTP 会话已断开';
+        const pendingPath = pendingDirectoryPath.current || currentPathRef.value || '/';
         if (isLoading.value) resetDirectoryLoading();
         console.warn(`[SFTP ${instanceSessionId}] ${message}`);
-        if (isConnected.value) sendMessage({ type: 'sftp:initialize', payload: {} });
+        if (isConnected.value) {
+            sendMessage({ type: 'sftp:initialize', payload: {} });
+            scheduleDirectoryRetry(pendingPath, message);
+        }
     };
-
     const onSftpGenericError = (payload: MessagePayload) => {
         const requestId = typeof payload?.requestId === 'string' ? payload.requestId : null;
         if (isLoading.value && (!requestId || requestId === loadingRequestId.value)) {
@@ -808,12 +866,7 @@ export function createSftpActionsManager(
         if (isLoading.value) resetDirectoryLoading();
     };
 
-    // 移除通用的 onActionSuccessRefresh
-
     // *** 具体操作成功后的处理函数 ***
-
-    // *** 移除旧的 invalidateCache ***
-    // const invalidateCache = (path: string) => { ... };
 
     // *** 辅助函数 - 从文件树中移除节点 ***
     const removeNodeFromTree = (parentPath: string, filename: string): boolean => {
@@ -1218,9 +1271,6 @@ export function createSftpActionsManager(
     // 的消息处理器直接在 compressItems 和 decompressItem 方法内部通过 onMessage 临时注册和注销，
     // 因为它们与特定的 Promise 相关联。
 
-    // 移除 onUnmounted 块
-
-    // *** 计算属性 fileList ***
     const fileList = computed<FileListItem[]>(() => {
         const node = findNodeByPath(fileTree, currentPathRef.value);
         if (node && node.childrenLoaded && node.children) {
@@ -1239,8 +1289,7 @@ export function createSftpActionsManager(
         // State
        fileList: fileList, // 暴露计算属性 (类型已在接口中定义为 Readonly<ComputedRef>)
        isLoading: isLoading, // (类型已在接口中定义为 Readonly<Ref>)
-       // error: readonly(error), // 移除 error
-       fileTree: fileTree, // (类型已在接口中定义为 Readonly<FileTreeNode>)
+        fileTree: fileTree, // (类型已在接口中定义为 Readonly<FileTreeNode>)
        initialLoadDone: initialLoadDone, // (类型已在接口中定义为 Readonly<Ref>)
 
         // Methods
@@ -1257,15 +1306,8 @@ export function createSftpActionsManager(
        compressItems, // +++ 暴露 compressItems +++
        decompressItem, // +++ 暴露 decompressItem +++
        joinPath, // 暴露辅助函数
-       // clearSftpError, // 移除 clearSftpError
-
-        // Cleanup function
-       currentPath: currentPathRef, // (类型已在接口中定义为 Readonly<Ref>)
-       setInitialLoadDone: (value: boolean) => { initialLoadDone.value = value; }, // +++ 暴露设置初始加载状态的方法 +++
-
-        // Cleanup function
-        // Cleanup function
-        cleanup,
+        currentPath: currentPathRef, // (类型已在接口中定义为 Readonly<Ref>)
+        setInitialLoadDone: (value: boolean) => { initialLoadDone.value = value; }, // +++ 暴露设置初始加载状态的方法 +++
+         cleanup,
     };
 }
-
