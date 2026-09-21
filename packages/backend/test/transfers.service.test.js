@@ -183,6 +183,85 @@ test('hanging directory read times out, invalidates its channel, and ignores a l
   assert.equal(sentMessages.filter(message => message.type === 'sftp_unavailable').length, 1);
 });
 
+test('health monitoring replaces a hung SFTP channel without reconnecting SSH', async () => {
+  const sentMessages = [];
+  const channels = [];
+  let initializationCount = 0;
+  const state = {
+    dbConnectionId: 1,
+    ws: {
+      readyState: 1,
+      send(message) { sentMessages.push(JSON.parse(message)); },
+    },
+    sshClient: {
+      sftp(callback) {
+        initializationCount += 1;
+        const channel = new EventEmitter();
+        channel.end = () => {};
+        channel.realpath = initializationCount === 1
+          ? (_path, _done) => {}
+          : (_path, done) => setImmediate(() => done(null, '/home/test'));
+        channels.push(channel);
+        setImmediate(() => callback(null, channel));
+      },
+    },
+  };
+  const service = new SftpService(new Map([['session-1', state]]), {
+    healthIntervalMs: 10,
+    healthTimeoutMs: 10,
+    initializationTimeoutMs: 30,
+    recoveryDelaysMs: [0],
+  });
+
+  await service.initializeSftpSession('session-1');
+  await new Promise(resolve => setTimeout(resolve, 55));
+
+  assert.equal(initializationCount, 2);
+  assert.equal(state.sftp, channels[1]);
+  assert.equal(sentMessages.filter(message => message.type === 'sftp_ready').length, 2);
+  assert.equal(sentMessages.filter(message => message.type === 'sftp_reconnect_required').length, 0);
+  service.cleanupSftpSession('session-1');
+});
+
+test('health recovery exhaustion requests a full SSH reconnect', async () => {
+  const sentMessages = [];
+  let initializationCount = 0;
+  const state = {
+    dbConnectionId: 1,
+    ws: {
+      readyState: 1,
+      send(message) { sentMessages.push(JSON.parse(message)); },
+    },
+    sshClient: {
+      sftp(callback) {
+        initializationCount += 1;
+        if (initializationCount > 1) {
+          setImmediate(() => callback(new Error('subsystem unavailable')));
+          return;
+        }
+        const channel = new EventEmitter();
+        channel.end = () => {};
+        channel.realpath = (_path, _done) => {};
+        setImmediate(() => callback(null, channel));
+      },
+    },
+  };
+  const service = new SftpService(new Map([['session-1', state]]), {
+    healthIntervalMs: 10,
+    healthTimeoutMs: 10,
+    initializationTimeoutMs: 30,
+    recoveryDelaysMs: [0, 0],
+  });
+
+  await service.initializeSftpSession('session-1');
+  await new Promise(resolve => setTimeout(resolve, 65));
+
+  assert.equal(initializationCount, 3);
+  assert.equal(state.sftp, undefined);
+  assert.equal(sentMessages.filter(message => message.type === 'sftp_reconnect_required').length, 1);
+  service.cleanupSftpSession('session-1');
+});
+
 test('recursive directory deletion rejects dangerous root-like paths', async () => {
   const sentMessages = [];
   let execCount = 0;

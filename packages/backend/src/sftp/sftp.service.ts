@@ -62,6 +62,9 @@ const UPLOAD_CLOSE_TIMEOUT_MS = 20000;
 const UPLOAD_FINALIZE_TIMEOUT_MS = 20000;
 const SFTP_INITIALIZATION_TIMEOUT_MS = 15000;
 const SFTP_METADATA_TIMEOUT_MS = 20000;
+const SFTP_HEALTH_INTERVAL_MS = 30000;
+const SFTP_HEALTH_TIMEOUT_MS = 8000;
+const SFTP_RECOVERY_DELAYS_MS = [0, 2000, 5000];
 const MAX_DIRECTORY_ENTRIES = 50000;
 
 const quoteShellArgument = (value: string): string => `'${value.replace(/'/g, `'"'"'`)}'`;
@@ -83,6 +86,9 @@ interface ActiveUpload {
 interface SftpServiceOptions {
     initializationTimeoutMs?: number;
     metadataTimeoutMs?: number;
+    healthIntervalMs?: number;
+    healthTimeoutMs?: number;
+    recoveryDelaysMs?: number[];
 }
 
 export class SftpService {
@@ -90,8 +96,15 @@ export class SftpService {
     private activeUploads: Map<string, ActiveUpload>; // Map<uploadId, ActiveUpload>
     private initializationPromises: Map<string, Promise<void>>;
     private initializationTokens = new Map<string, symbol>();
+    private healthTimers = new Map<string, NodeJS.Timeout>();
+    private healthChecksInFlight = new Set<string>();
+    private recoveryPromises = new Map<string, Promise<void>>();
+    private recoveryTokens = new Map<string, symbol>();
     private readonly initializationTimeoutMs: number;
     private readonly metadataTimeoutMs: number;
+    private readonly healthIntervalMs: number;
+    private readonly healthTimeoutMs: number;
+    private readonly recoveryDelaysMs: number[];
 
     constructor(clientStates: Map<string, ClientState>, options: SftpServiceOptions = {}) {
         this.clientStates = clientStates;
@@ -99,6 +112,9 @@ export class SftpService {
         this.initializationPromises = new Map();
         this.initializationTimeoutMs = options.initializationTimeoutMs ?? SFTP_INITIALIZATION_TIMEOUT_MS;
         this.metadataTimeoutMs = options.metadataTimeoutMs ?? SFTP_METADATA_TIMEOUT_MS;
+        this.healthIntervalMs = options.healthIntervalMs ?? SFTP_HEALTH_INTERVAL_MS;
+        this.healthTimeoutMs = options.healthTimeoutMs ?? SFTP_HEALTH_TIMEOUT_MS;
+        this.recoveryDelaysMs = options.recoveryDelaysMs ?? SFTP_RECOVERY_DELAYS_MS;
     }
 
     private invalidateSftpSession(sessionId: string, sftpInstance: SFTPWrapper, message: string): void {
@@ -120,7 +136,9 @@ export class SftpService {
         sessionId: string,
         requestId: string,
         operationName: string,
-        start: (sftp: SFTPWrapper, callback: (error: Error | null | undefined, value?: T) => void) => void
+        start: (sftp: SFTPWrapper, callback: (error: Error | null | undefined, value?: T) => void) => void,
+        timeoutMs: number = this.metadataTimeoutMs,
+        logSuccess: boolean = true
     ): Promise<T> {
         const state = this.clientStates.get(sessionId);
         const sftpInstance = state?.sftp;
@@ -138,15 +156,17 @@ export class SftpService {
                     console.warn(`[SFTP ${sessionId}] ${operationName} 失败，耗时 ${elapsedMs}ms (ID: ${requestId}): ${error.message}`);
                     reject(error);
                 } else {
-                    console.debug(`[SFTP ${sessionId}] ${operationName} 完成，耗时 ${elapsedMs}ms (ID: ${requestId})`);
+                    if (logSuccess) {
+                        console.debug(`[SFTP ${sessionId}] ${operationName} 完成，耗时 ${elapsedMs}ms (ID: ${requestId})`);
+                    }
                     resolve(value as T);
                 }
             };
             const timeoutId = setTimeout(() => {
-                const timeoutError = new Error(`${operationName} 请求超时 (${this.metadataTimeoutMs}ms)`);
+                const timeoutError = new Error(`${operationName} 请求超时 (${timeoutMs}ms)`);
                 this.invalidateSftpSession(sessionId, sftpInstance, `${operationName} 超时，SFTP 通道已重置`);
                 finish(timeoutError);
-            }, this.metadataTimeoutMs);
+            }, timeoutMs);
 
             try {
                 start(sftpInstance, finish);
@@ -154,6 +174,94 @@ export class SftpService {
                 finish(error instanceof Error ? error : new Error(String(error)));
             }
         });
+    }
+
+    private stopHealthMonitoring(sessionId: string): void {
+        const timer = this.healthTimers.get(sessionId);
+        if (timer) clearTimeout(timer);
+        this.healthTimers.delete(sessionId);
+        this.healthChecksInFlight.delete(sessionId);
+    }
+
+    private startHealthMonitoring(sessionId: string): void {
+        this.stopHealthMonitoring(sessionId);
+        const timer = setTimeout(async () => {
+            this.healthTimers.delete(sessionId);
+            const healthy = await this.checkSftpHealth(sessionId);
+            if (healthy) this.startHealthMonitoring(sessionId);
+        }, this.healthIntervalMs);
+        timer.unref?.();
+        this.healthTimers.set(sessionId, timer);
+    }
+
+    private async checkSftpHealth(sessionId: string): Promise<boolean> {
+        if (this.healthChecksInFlight.has(sessionId)) return true;
+        const state = this.clientStates.get(sessionId);
+        const sftpInstance = state?.sftp;
+        if (!state || !sftpInstance || state.isCleaningUp) return false;
+        if (Array.from(this.activeUploads.values()).some(upload => upload.sessionId === sessionId)) {
+            return true;
+        }
+
+        this.healthChecksInFlight.add(sessionId);
+        try {
+            await this.runMetadataOperation<string>(sessionId, `health-${Date.now()}`, 'SFTP 健康检测', (sftp, callback) => {
+                sftp.realpath('.', callback);
+            }, this.healthTimeoutMs, false);
+            return true;
+        } catch (error: any) {
+            console.warn(`[SFTP ${sessionId}] 健康检测失败，准备恢复通道: ${error.message}`);
+            this.invalidateSftpSession(sessionId, sftpInstance, 'SFTP 健康检测失败，正在恢复通道');
+            void this.recoverSftpSession(sessionId, error.message);
+            return false;
+        } finally {
+            this.healthChecksInFlight.delete(sessionId);
+        }
+    }
+
+    private recoverSftpSession(sessionId: string, reason: string): Promise<void> {
+        const pendingRecovery = this.recoveryPromises.get(sessionId);
+        if (pendingRecovery) return pendingRecovery;
+
+        const recoveryToken = Symbol(sessionId);
+        this.recoveryTokens.set(sessionId, recoveryToken);
+        const recovery = (async () => {
+            for (let attempt = 0; attempt < this.recoveryDelaysMs.length; attempt += 1) {
+                const state = this.clientStates.get(sessionId);
+                if (!state || state.isCleaningUp || this.recoveryTokens.get(sessionId) !== recoveryToken) return;
+                if (state.sftp) {
+                    this.startHealthMonitoring(sessionId);
+                    return;
+                }
+
+                const delayMs = this.recoveryDelaysMs[attempt];
+                if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
+                if (this.recoveryTokens.get(sessionId) !== recoveryToken) return;
+
+                try {
+                    console.log(`[SFTP ${sessionId}] 尝试恢复 SFTP 通道 (${attempt + 1}/${this.recoveryDelaysMs.length})。`);
+                    await this.initializeSftpSession(sessionId);
+                    console.log(`[SFTP ${sessionId}] SFTP 通道恢复成功。`);
+                    return;
+                } catch (error: any) {
+                    console.warn(`[SFTP ${sessionId}] 第 ${attempt + 1} 次恢复失败: ${error.message}`);
+                }
+            }
+
+            const state = this.clientStates.get(sessionId);
+            if (state && !state.isCleaningUp && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({
+                    type: 'sftp_reconnect_required',
+                    payload: { connectionId: state.dbConnectionId, message: `SFTP 通道恢复失败，需要重新连接 SSH。原因: ${reason}` }
+                }));
+            }
+        })();
+        this.recoveryPromises.set(sessionId, recovery);
+        recovery.finally(() => {
+            if (this.recoveryPromises.get(sessionId) === recovery) this.recoveryPromises.delete(sessionId);
+            if (this.recoveryTokens.get(sessionId) === recoveryToken) this.recoveryTokens.delete(sessionId);
+        });
+        return recovery;
     }
 
     /**
@@ -213,13 +321,16 @@ export class SftpService {
                         if (error) console.error(`[SFTP] 会话 ${sessionId} 的 SFTP 会话出错:`, error);
                         else console.log(`[SFTP] 会话 ${sessionId} 的 SFTP 会话不可用: ${message}`);
                         state.sftp = undefined;
+                        this.stopHealthMonitoring(sessionId);
                         if (state.ws.readyState === WebSocket.OPEN) {
                             state.ws.send(JSON.stringify({ type: 'sftp_unavailable', payload: { connectionId: state.dbConnectionId, message } }));
                         }
+                        void this.recoverSftpSession(sessionId, message);
                     };
                     sftpInstance.on('end', () => markUnavailable('SFTP 会话已结束'));
                     sftpInstance.on('close', () => markUnavailable('SFTP 会话已关闭'));
                     sftpInstance.on('error', (sftpErr: Error) => markUnavailable('SFTP 会话错误', sftpErr));
+                    this.startHealthMonitoring(sessionId);
                     finish();
                 }
             });
@@ -244,11 +355,14 @@ export class SftpService {
     cleanupSftpSession(sessionId: string): void {
         this.initializationPromises.delete(sessionId);
         this.initializationTokens.delete(sessionId);
+        this.stopHealthMonitoring(sessionId);
+        this.recoveryTokens.delete(sessionId);
         const state = this.clientStates.get(sessionId);
         if (state?.sftp) {
             console.log(`[SFTP] 正在清理 ${sessionId} 的 SFTP 会话...`);
-            state.sftp.end();
+            const sftpInstance = state.sftp;
             state.sftp = undefined;
+            sftpInstance.end();
         }
         // Also clean up any active uploads associated with this session
         this.activeUploads.forEach((upload, uploadId) => {

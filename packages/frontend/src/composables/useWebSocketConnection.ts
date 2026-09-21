@@ -40,6 +40,15 @@ export function createWebSocketConnectionManager(
     let lastUrl = ''; // 保存上次连接的 URL
     let intentionalDisconnect = false; // 标记是否为用户主动断开
     let reconnectInProgress = false;
+    let sftpReconnectRequested = false;
+    let sftpFullReconnectAttempts = 0;
+    const maxSftpFullReconnectAttempts = 2;
+    let sftpStableResetTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const clearSftpStableReset = () => {
+        if (sftpStableResetTimeoutId) clearTimeout(sftpStableResetTimeoutId);
+        sftpStableResetTimeoutId = null;
+    };
 
 
     /**
@@ -206,6 +215,7 @@ export function createWebSocketConnectionManager(
 
                     // --- 更新此实例的连接状态 ---
                     if (message.type === 'ssh:connected') {
+                        sftpReconnectRequested = false;
                         if (connectionStatus.value !== 'connected') {
                             connectionStatus.value = 'connected';
                             statusMessage.value = getStatusText('connected');
@@ -231,8 +241,36 @@ export function createWebSocketConnectionManager(
                     } else if (message.type === 'sftp_ready') {
                         console.log(`[WebSocket ${instanceSessionId}] SFTP 会话已就绪。`);
                         isSftpReady.value = true;
+                        sftpReconnectRequested = false;
+                        clearSftpStableReset();
+                        sftpStableResetTimeoutId = setTimeout(() => {
+                            sftpFullReconnectAttempts = 0;
+                            sftpStableResetTimeoutId = null;
+                        }, 120000);
                     } else if (message.type === 'sftp_unavailable' || message.type === 'sftp_error') {
                         isSftpReady.value = false;
+                        clearSftpStableReset();
+                    } else if (message.type === 'sftp_reconnect_required') {
+                        isSftpReady.value = false;
+                        clearSftpStableReset();
+                        if (!intentionalDisconnect && !reconnectInProgress && !sftpReconnectRequested) {
+                            const reason = typeof message.payload?.message === 'string' ? message.payload.message : 'SFTP 健康检测失败';
+                            if (sftpFullReconnectAttempts >= maxSftpFullReconnectAttempts) {
+                                connectionStatus.value = 'error';
+                                statusMessage.value = reason;
+                                console.error(`[WebSocket ${instanceSessionId}] SFTP 完整重连已达到上限，需要用户检查 VPS 的 SSH/SFTP 服务。`);
+                                dispatchMessage('internal:reconnect-status', { phase: 'failed', message: reason }, { type: 'internal:reconnect-status' });
+                            } else {
+                                sftpFullReconnectAttempts += 1;
+                                sftpReconnectRequested = true;
+                                console.warn(`[WebSocket ${instanceSessionId}] ${reason}，正在执行完整连接恢复 (${sftpFullReconnectAttempts}/${maxSftpFullReconnectAttempts})。`);
+                                setTimeout(() => {
+                                    void reconnect(lastUrl).then(success => {
+                                        if (!success) sftpReconnectRequested = false;
+                                    });
+                                }, 0);
+                            }
+                        }
                     }
                     // --- 状态更新结束 ---
 
@@ -293,6 +331,7 @@ export function createWebSocketConnectionManager(
      */
     const disconnect = () => {
         intentionalDisconnect = true; // 标记为主动断开
+        clearSftpStableReset();
         if (reconnectTimeoutId) {
             clearTimeout(reconnectTimeoutId); // 清除重连定时器
             reconnectTimeoutId = null;
