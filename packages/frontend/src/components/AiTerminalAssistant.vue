@@ -1012,12 +1012,13 @@ const deleteHistory = async () => {
             <button
               v-if="message.role === 'assistant' && message.content?.trim()"
               type="button"
-              class="ml-auto flex h-6 w-6 items-center justify-center rounded text-text-secondary transition hover:bg-hover hover:text-foreground"
+              class="ml-auto flex h-6 items-center gap-1 rounded border border-border/60 px-1.5 text-[11px] text-text-secondary transition hover:bg-hover hover:text-foreground"
               title="复制 AI 回复"
               aria-label="复制 AI 回复"
-              @click="copyText(message.content || '')"
+              @click.stop="copyText(message.content || '')"
             >
               <i class="fas fa-copy text-[11px]" aria-hidden="true" />
+              <span>复制</span>
             </button>
           </div>
           <div
