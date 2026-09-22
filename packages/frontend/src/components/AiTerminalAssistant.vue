@@ -72,10 +72,14 @@ const conversationMessages = computed(() => visibleMessages.value.filter(message
 )));
 const conversationScroller = ref<HTMLElement | null>(null);
 const shouldAutoFollow = ref(true);
-const scrollConversationToBottom = async () => {
-  await nextTick();
-  const scroller = conversationScroller.value;
-  if (scroller) scroller.scrollTop = scroller.scrollHeight;
+let scrollFrame: number | null = null;
+const scrollConversationToBottom = () => {
+  if (scrollFrame !== null) return;
+  scrollFrame = window.requestAnimationFrame(() => {
+    scrollFrame = null;
+    const scroller = conversationScroller.value;
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  });
 };
 const handleConversationScroll = () => {
   const scroller = conversationScroller.value;
@@ -157,6 +161,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown);
   document.removeEventListener('keydown', handleDocumentKeydown);
+  if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame);
 });
 
 const sessionLabel = computed(() => activeSession.value?.connectionName || '没有活动终端');

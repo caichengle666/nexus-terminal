@@ -278,9 +278,23 @@ export const useAiStore = defineStore('ai', () => {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let streamedContent = '';
+    let streamUpdateTimer: ReturnType<typeof setTimeout> | null = null;
     let finishReason: string | undefined;
     let model: string | undefined;
     let completed = false;
+
+    const flushPartialMessage = () => {
+      streamUpdateTimer = null;
+      partialMessage.content = streamedContent;
+      if (toolCalls.length > 0) partialMessage.tool_calls = toolCalls.filter(Boolean);
+      else delete partialMessage.tool_calls;
+    };
+
+    const schedulePartialMessageUpdate = () => {
+      if (streamUpdateTimer) return;
+      streamUpdateTimer = setTimeout(flushPartialMessage, 50);
+    };
 
     const processLine = (line: string) => {
       if (!line.startsWith('data:')) return;
@@ -294,7 +308,10 @@ export const useAiStore = defineStore('ai', () => {
       if (typeof chunk?.model === 'string' && chunk.model.trim()) model = chunk.model.trim();
       const choice = chunk?.choices?.[0];
       const delta = choice?.delta;
-      if (typeof delta?.content === 'string') partialMessage.content = `${partialMessage.content || ''}${delta.content}`;
+      if (typeof delta?.content === 'string') {
+        streamedContent += delta.content;
+        schedulePartialMessageUpdate();
+      }
       if (choice?.finish_reason) finishReason = choice.finish_reason;
       if (Array.isArray(delta?.tool_calls)) {
         delta.tool_calls.forEach((part: any) => {
@@ -311,7 +328,7 @@ export const useAiStore = defineStore('ai', () => {
           if (part.function?.name) target.function.name += part.function.name;
           if (part.function?.arguments) target.function.arguments += part.function.arguments;
         });
-        partialMessage.tool_calls = toolCalls.filter(Boolean);
+        schedulePartialMessageUpdate();
       }
     };
 
@@ -327,12 +344,16 @@ export const useAiStore = defineStore('ai', () => {
         if (done) break;
       }
       if (buffer.trim()) processLine(buffer.trim());
+      if (streamUpdateTimer) clearTimeout(streamUpdateTimer);
+      flushPartialMessage();
       if (!completed && !finishReason) {
         const error: any = new Error('AI 流式输出中途断开。');
         error.partial = true;
         throw error;
       }
     } catch (error: any) {
+      if (streamUpdateTimer) clearTimeout(streamUpdateTimer);
+      flushPartialMessage();
       if ((partialMessage.content || partialMessage.tool_calls?.length) && !context.runtime.stopRequested) {
         error.partial = true;
         error.partialMessage = partialMessage;
