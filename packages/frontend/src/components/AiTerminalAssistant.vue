@@ -384,6 +384,13 @@ const escapeHtml = (value: string) => value
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
 
+type MessageRenderCache = {
+  source: string;
+  html: string;
+  commandBlocks: string[];
+};
+const messageRenderCache = new WeakMap<object, MessageRenderCache>();
+
 const renderMarkdown = (content?: string | null) => {
   const text = content || '';
   const escaped = escapeHtml(text);
@@ -408,6 +415,19 @@ const extractCommandBlocks = (content?: string | null) => {
     if (block) blocks.push(block);
   }
   return blocks.slice(0, 4);
+};
+
+const getMessageRenderCache = (message: object & { content?: string | null; tool_calls?: unknown[] }) => {
+  const source = message.content || (message.tool_calls?.length ? '正在调用终端工具...' : '');
+  const cached = messageRenderCache.get(message);
+  if (cached?.source === source) return cached;
+  const next = {
+    source,
+    html: renderMarkdown(source),
+    commandBlocks: extractCommandBlocks(message.content),
+  };
+  messageRenderCache.set(message, next);
+  return next;
 };
 
 const copyText = async (text: string) => {
@@ -1028,11 +1048,11 @@ const deleteHistory = async () => {
           </div>
           <div
             class="ai-message-content break-words text-sm leading-relaxed"
-            v-html="renderMarkdown(message.content || (message.tool_calls ? '正在调用终端工具...' : ''))"
+            v-html="getMessageRenderCache(message).html"
           />
-          <div v-if="message.role === 'assistant' && extractCommandBlocks(message.content).length > 0" class="mt-3 space-y-2">
+          <div v-if="message.role === 'assistant' && getMessageRenderCache(message).commandBlocks.length > 0" class="mt-3 space-y-2">
             <div
-              v-for="command in extractCommandBlocks(message.content)"
+              v-for="command in getMessageRenderCache(message).commandBlocks"
               :key="command"
               class="rounded border border-border/70 bg-header/30 p-2"
             >
