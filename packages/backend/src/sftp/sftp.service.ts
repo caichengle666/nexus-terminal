@@ -61,10 +61,13 @@ const UPLOAD_WRITE_TIMEOUT_MS = 30000;
 const UPLOAD_CLOSE_TIMEOUT_MS = 20000;
 const UPLOAD_FINALIZE_TIMEOUT_MS = 20000;
 const SFTP_INITIALIZATION_TIMEOUT_MS = 15000;
-const SFTP_METADATA_TIMEOUT_MS = 20000;
+const SFTP_METADATA_TIMEOUT_MS = 60000;
 const SFTP_HEALTH_INTERVAL_MS = 30000;
 const SFTP_HEALTH_TIMEOUT_MS = 8000;
 const SFTP_RECOVERY_DELAYS_MS = [0, 2000, 5000];
+const SFTP_COPY_INACTIVITY_TIMEOUT_MS = 120000;
+const SFTP_COMMAND_START_TIMEOUT_MS = 30000;
+const SFTP_COMMAND_INACTIVITY_TIMEOUT_MS = 300000;
 const MAX_DIRECTORY_ENTRIES = 50000;
 
 const quoteShellArgument = (value: string): string => `'${value.replace(/'/g, `'"'"'`)}'`;
@@ -98,6 +101,7 @@ export class SftpService {
     private initializationTokens = new Map<string, symbol>();
     private healthTimers = new Map<string, NodeJS.Timeout>();
     private healthChecksInFlight = new Set<string>();
+    private activeSessionActivities = new Map<string, number>();
     private recoveryPromises = new Map<string, Promise<void>>();
     private recoveryTokens = new Map<string, symbol>();
     private readonly initializationTimeoutMs: number;
@@ -115,6 +119,16 @@ export class SftpService {
         this.healthIntervalMs = options.healthIntervalMs ?? SFTP_HEALTH_INTERVAL_MS;
         this.healthTimeoutMs = options.healthTimeoutMs ?? SFTP_HEALTH_TIMEOUT_MS;
         this.recoveryDelaysMs = options.recoveryDelaysMs ?? SFTP_RECOVERY_DELAYS_MS;
+    }
+
+    beginSessionActivity(sessionId: string): void {
+        this.activeSessionActivities.set(sessionId, (this.activeSessionActivities.get(sessionId) ?? 0) + 1);
+    }
+
+    endSessionActivity(sessionId: string): void {
+        const remaining = (this.activeSessionActivities.get(sessionId) ?? 0) - 1;
+        if (remaining > 0) this.activeSessionActivities.set(sessionId, remaining);
+        else this.activeSessionActivities.delete(sessionId);
     }
 
     private invalidateSftpSession(sessionId: string, sftpInstance: SFTPWrapper, message: string): void {
@@ -138,12 +152,14 @@ export class SftpService {
         operationName: string,
         start: (sftp: SFTPWrapper, callback: (error: Error | null | undefined, value?: T) => void) => void,
         timeoutMs: number = this.metadataTimeoutMs,
-        logSuccess: boolean = true
+        logSuccess: boolean = true,
+        recoverOnTimeout: boolean = true
     ): Promise<T> {
         const state = this.clientStates.get(sessionId);
         const sftpInstance = state?.sftp;
         if (!state || !sftpInstance) return Promise.reject(new Error('SFTP 会话未就绪'));
 
+        this.beginSessionActivity(sessionId);
         return new Promise<T>((resolve, reject) => {
             let settled = false;
             const startedAt = Date.now();
@@ -151,6 +167,7 @@ export class SftpService {
                 if (settled) return;
                 settled = true;
                 clearTimeout(timeoutId);
+                this.endSessionActivity(sessionId);
                 const elapsedMs = Date.now() - startedAt;
                 if (error) {
                     console.warn(`[SFTP ${sessionId}] ${operationName} 失败，耗时 ${elapsedMs}ms (ID: ${requestId}): ${error.message}`);
@@ -165,6 +182,7 @@ export class SftpService {
             const timeoutId = setTimeout(() => {
                 const timeoutError = new Error(`${operationName} 请求超时 (${timeoutMs}ms)`);
                 this.invalidateSftpSession(sessionId, sftpInstance, `${operationName} 超时，SFTP 通道已重置`);
+                if (recoverOnTimeout) void this.recoverSftpSession(sessionId, timeoutError.message);
                 finish(timeoutError);
             }, timeoutMs);
 
@@ -199,7 +217,8 @@ export class SftpService {
         const state = this.clientStates.get(sessionId);
         const sftpInstance = state?.sftp;
         if (!state || !sftpInstance || state.isCleaningUp) return false;
-        if (Array.from(this.activeUploads.values()).some(upload => upload.sessionId === sessionId)) {
+        if ((this.activeSessionActivities.get(sessionId) ?? 0) > 0
+            || Array.from(this.activeUploads.values()).some(upload => upload.sessionId === sessionId)) {
             return true;
         }
 
@@ -207,7 +226,7 @@ export class SftpService {
         try {
             await this.runMetadataOperation<string>(sessionId, `health-${Date.now()}`, 'SFTP 健康检测', (sftp, callback) => {
                 sftp.realpath('.', callback);
-            }, this.healthTimeoutMs, false);
+            }, this.healthTimeoutMs, false, false);
             return true;
         } catch (error: any) {
             console.warn(`[SFTP ${sessionId}] 健康检测失败，准备恢复通道: ${error.message}`);
@@ -357,6 +376,7 @@ export class SftpService {
         this.initializationTokens.delete(sessionId);
         this.stopHealthMonitoring(sessionId);
         this.recoveryTokens.delete(sessionId);
+        this.activeSessionActivities.delete(sessionId);
         const state = this.clientStates.get(sessionId);
         if (state?.sftp) {
             console.log(`[SFTP] 正在清理 ${sessionId} 的 SFTP 会话...`);
@@ -989,6 +1009,7 @@ export class SftpService {
 
         const copiedItemsDetails: any[] = []; // Store details of successfully copied items
         let firstError: Error | null = null;
+        this.beginSessionActivity(sessionId);
 
         try {
             // Ensure destination directory exists
@@ -1047,6 +1068,8 @@ export class SftpService {
         } catch (error: any) {
             console.error(`[SFTP ${sessionId}] Copy operation failed (ID: ${requestId}):`, error);
             state.ws.send(JSON.stringify({ type: 'sftp:copy:error', payload: `复制操作失败: ${error.message}`, requestId: requestId }));
+        } finally {
+            this.endSessionActivity(sessionId);
         }
     }
 
@@ -1063,6 +1086,7 @@ export class SftpService {
 
         const movedItemsDetails: any[] = [];
         let firstError: Error | null = null;
+        this.beginSessionActivity(sessionId);
 
         try {
              // Ensure destination directory exists (important for move)
@@ -1129,6 +1153,8 @@ export class SftpService {
         } catch (error: any) {
             console.error(`[SFTP ${sessionId}] Move operation failed (ID: ${requestId}):`, error);
             state.ws.send(JSON.stringify({ type: 'sftp:move:error', payload: `移动操作失败: ${error.message}`, requestId: requestId }));
+        } finally {
+            this.endSessionActivity(sessionId);
         }
     }
 
@@ -1138,10 +1164,19 @@ export class SftpService {
             const readStream = sftp.createReadStream(sourcePath);
             const writeStream = sftp.createWriteStream(destPath);
             let errorOccurred = false;
+            let inactivityTimeout: NodeJS.Timeout;
+
+            const resetInactivityTimeout = () => {
+                clearTimeout(inactivityTimeout);
+                inactivityTimeout = setTimeout(() => {
+                    onError(new Error('复制超过 2 分钟没有数据传输'));
+                }, SFTP_COPY_INACTIVITY_TIMEOUT_MS);
+            };
 
             const onError = (err: Error) => {
                 if (errorOccurred) return;
                 errorOccurred = true;
+                clearTimeout(inactivityTimeout);
                 // Ensure streams are destroyed on error
                 readStream.destroy();
                 writeStream.destroy();
@@ -1150,14 +1185,17 @@ export class SftpService {
             };
 
             readStream.on('error', onError);
+            readStream.on('data', resetInactivityTimeout);
             writeStream.on('error', onError);
 
             writeStream.on('close', () => { // Use 'close' for write stream completion
                 if (!errorOccurred) {
+                    clearTimeout(inactivityTimeout);
                     resolve();
                 }
             });
 
+            resetInactivityTimeout();
             readStream.pipe(writeStream);
         });
     }
@@ -1393,8 +1431,20 @@ export class SftpService {
         console.log(`[SFTP Compress ${sessionId}] Executing command: ${command} (ID: ${requestId})`);
 
         // --- 执行命令 ---
+        let commandStarted = false;
+        const commandStartTimeout = setTimeout(() => {
+            if (commandStarted) return;
+            commandStarted = true;
+            this.sendCompressError(state.ws, '启动压缩命令超时', requestId);
+        }, SFTP_COMMAND_START_TIMEOUT_MS);
         try {
             state.sshClient.exec(command, (err, stream) => {
+                if (commandStarted) {
+                    stream?.close();
+                    return;
+                }
+                commandStarted = true;
+                clearTimeout(commandStartTimeout);
                 if (err) {
                     console.error(`[SFTP Compress ${sessionId}] Failed to start exec for compress (ID: ${requestId}):`, err);
                     this.sendCompressError(state.ws, `执行压缩命令失败: ${err.message}`, requestId);
@@ -1404,17 +1454,33 @@ export class SftpService {
                 let stdoutData = '';
                 let stderrData = '';
                 let code: number | null = null; // Track exit code
+                let responseSent = false;
+                let inactivityTimeout: NodeJS.Timeout;
+                const resetInactivityTimeout = () => {
+                    clearTimeout(inactivityTimeout);
+                    inactivityTimeout = setTimeout(() => {
+                        if (responseSent) return;
+                        responseSent = true;
+                        stream.close();
+                        this.sendCompressError(state.ws, '压缩命令超时', requestId, '压缩命令超过 5 分钟没有输出');
+                    }, SFTP_COMMAND_INACTIVITY_TIMEOUT_MS);
+                };
 
                 stream.on('data', (data: Buffer) => {
                     stdoutData += data.toString();
+                    resetInactivityTimeout();
                     // console.debug(`[SFTP Compress ${sessionId}] stdout: ${data.toString()}`);
                 });
                 stream.stderr.on('data', (data: Buffer) => {
                     stderrData += data.toString();
+                    resetInactivityTimeout();
                     // console.debug(`[SFTP Compress ${sessionId}] stderr: ${data.toString()}`);
                 });
 
                 stream.on('close', (exitCode: number | null) => {
+                    clearTimeout(inactivityTimeout);
+                    if (responseSent) return;
+                    responseSent = true;
                     code = exitCode; // Store exit code
                     console.log(`[SFTP Compress ${sessionId}] Command finished with code ${code} (ID: ${requestId}). Stderr: ${stderrData.trim()}`);
                     if (code === 0 && !this.isErrorInStdErr(stderrData)) { // 检查退出码和 stderr
@@ -1433,14 +1499,18 @@ export class SftpService {
                     }
                 });
                  stream.on('error', (streamErr: Error) => { 
+                     clearTimeout(inactivityTimeout);
                      console.error(`[SFTP Compress ${sessionId}] Command stream error (ID: ${requestId}):`, streamErr);
-                     // 避免重复发送错误
-                     if (!stderrData && code === undefined) { // 仅当 close 事件未触发且 stderr 为空时发送
+                     if (!responseSent && code === null) {
+                          responseSent = true;
                           this.sendCompressError(state.ws, '压缩命令流错误', requestId, streamErr.message);
                      }
                  });
+                resetInactivityTimeout();
             });
         } catch (execError: any) {
+            commandStarted = true;
+            clearTimeout(commandStartTimeout);
             console.error(`[SFTP Compress ${sessionId}] Compress command caught unexpected error during exec setup (ID: ${requestId}):`, execError);
             this.sendCompressError(state.ws, `执行压缩时发生意外错误: ${execError.message}`, requestId);
         }
@@ -1520,8 +1590,20 @@ export class SftpService {
         console.log(`[SFTP Decompress ${sessionId}] Executing command: ${command} (ID: ${requestId})`);
 
         // --- 执行命令 ---
+        let commandStarted = false;
+        const commandStartTimeout = setTimeout(() => {
+            if (commandStarted) return;
+            commandStarted = true;
+            this.sendDecompressError(state.ws, '启动解压命令超时', requestId);
+        }, SFTP_COMMAND_START_TIMEOUT_MS);
         try {
             state.sshClient.exec(command, (err, stream) => {
+                if (commandStarted) {
+                    stream?.close();
+                    return;
+                }
+                commandStarted = true;
+                clearTimeout(commandStartTimeout);
                 if (err) {
                     console.error(`[SFTP Decompress ${sessionId}] Failed to start exec for decompress (ID: ${requestId}):`, err);
                     this.sendDecompressError(state.ws, `执行解压命令失败: ${err.message}`, requestId);
@@ -1531,17 +1613,33 @@ export class SftpService {
                 let stdoutData = '';
                 let stderrData = '';
                 let code: number | null = null; // Track exit code
+                let responseSent = false;
+                let inactivityTimeout: NodeJS.Timeout;
+                const resetInactivityTimeout = () => {
+                    clearTimeout(inactivityTimeout);
+                    inactivityTimeout = setTimeout(() => {
+                        if (responseSent) return;
+                        responseSent = true;
+                        stream.close();
+                        this.sendDecompressError(state.ws, '解压命令超时', requestId, '解压命令超过 5 分钟没有输出');
+                    }, SFTP_COMMAND_INACTIVITY_TIMEOUT_MS);
+                };
 
                 stream.on('data', (data: Buffer) => {
                     stdoutData += data.toString();
+                    resetInactivityTimeout();
                     // console.debug(`[SFTP Decompress ${sessionId}] stdout: ${data.toString()}`);
                 });
                 stream.stderr.on('data', (data: Buffer) => {
                     stderrData += data.toString();
+                    resetInactivityTimeout();
                     // console.debug(`[SFTP Decompress ${sessionId}] stderr: ${data.toString()}`);
                 });
 
                 stream.on('close', (exitCode: number | null) => {
+                    clearTimeout(inactivityTimeout);
+                    if (responseSent) return;
+                    responseSent = true;
                      code = exitCode; // Store exit code
                     console.log(`[SFTP Decompress ${sessionId}] Command finished with code ${code} (ID: ${requestId}). Stderr: ${stderrData.trim()}`);
                     if (code === 0 && !this.isErrorInStdErr(stderrData)) { // 检查退出码和 stderr
@@ -1560,14 +1658,18 @@ export class SftpService {
                     }
                 });
                  stream.on('error', (streamErr: Error) => {
+                     clearTimeout(inactivityTimeout);
                      console.error(`[SFTP Decompress ${sessionId}] Command stream error (ID: ${requestId}):`, streamErr);
-                     // 避免重复发送错误
-                     if (!stderrData && code === undefined) { // 仅当 close 事件未触发且 stderr 为空时发送
+                     if (!responseSent && code === null) {
+                         responseSent = true;
                          this.sendDecompressError(state.ws, '解压命令流错误', requestId, streamErr.message);
                      }
                  });
+                resetInactivityTimeout();
             });
         } catch (execError: any) {
+            commandStarted = true;
+            clearTimeout(commandStartTimeout);
             console.error(`[SFTP Decompress ${sessionId}] Decompress command caught unexpected error during exec setup (ID: ${requestId}):`, execError);
             this.sendDecompressError(state.ws, `执行解压时发生意外错误: ${execError.message}`, requestId);
         }
@@ -1597,36 +1699,61 @@ export class SftpService {
                 }
                 const checkCmd = checkCommands[currentCheckIndex];
                 console.log(`[SFTP Command Check ${sessionId}] Executing: ${checkCmd}`);
-                state.sshClient.exec(checkCmd, (err, stream) => {
-                    if (err) {
-                        console.error(`[SFTP Command Check ${sessionId}] Failed to start exec for "${checkCmd}":`, err);
-                        currentCheckIndex++;
-                        tryCommand(); // 尝试下一个检查命令
-                        return;
-                    }
-                    let output = '';
-                    stream.on('data', (data: Buffer) => {
-                        output += data.toString();
-                    });
-                    stream.on('close', (code: number | null) => {
-                        if (code === 0 && output.trim() !== '') {
-                            console.log(`[SFTP Command Check ${sessionId}] Command '${commandName}' found using "${checkCmd}". Output: ${output.trim()}`);
-                            resolve(true);
-                        } else {
-                            console.log(`[SFTP Command Check ${sessionId}] Command '${commandName}' not found with "${checkCmd}" (code: ${code}, output: "${output.trim()}").`);
+                let attemptFinished = false;
+                const attemptTimeout = setTimeout(() => {
+                    if (attemptFinished) return;
+                    attemptFinished = true;
+                    currentCheckIndex++;
+                    tryCommand();
+                }, this.metadataTimeoutMs);
+                try {
+                    state.sshClient.exec(checkCmd, (err, stream) => {
+                        if (attemptFinished) {
+                            stream?.close();
+                            return;
+                        }
+                        if (err) {
+                            attemptFinished = true;
+                            clearTimeout(attemptTimeout);
+                            console.error(`[SFTP Command Check ${sessionId}] Failed to start exec for "${checkCmd}":`, err);
                             currentCheckIndex++;
                             tryCommand(); // 尝试下一个检查命令
+                            return;
                         }
+                        let output = '';
+                        stream.on('data', (data: Buffer) => {
+                            output += data.toString();
+                        });
+                        stream.on('close', (code: number | null) => {
+                            if (attemptFinished) return;
+                            attemptFinished = true;
+                            clearTimeout(attemptTimeout);
+                            if (code === 0 && output.trim() !== '') {
+                                console.log(`[SFTP Command Check ${sessionId}] Command '${commandName}' found using "${checkCmd}". Output: ${output.trim()}`);
+                                resolve(true);
+                            } else {
+                                console.log(`[SFTP Command Check ${sessionId}] Command '${commandName}' not found with "${checkCmd}" (code: ${code}, output: "${output.trim()}").`);
+                                currentCheckIndex++;
+                                tryCommand(); // 尝试下一个检查命令
+                            }
+                        });
+                        stream.stderr.on('data', (data: Buffer) => {
+                            // console.debug(`[SFTP Command Check ${sessionId}] stderr for "${checkCmd}": ${data.toString()}`);
+                        });
+                        stream.on('error', (streamErr: Error) => {
+                            if (attemptFinished) return;
+                            attemptFinished = true;
+                            clearTimeout(attemptTimeout);
+                            console.error(`[SFTP Command Check ${sessionId}] Stream error for "${checkCmd}":`, streamErr);
+                            currentCheckIndex++;
+                            tryCommand(); // 尝试下一个检查命令
+                        });
                     });
-                    stream.stderr.on('data', (data: Buffer) => {
-                        // console.debug(`[SFTP Command Check ${sessionId}] stderr for "${checkCmd}": ${data.toString()}`);
-                    });
-                    stream.on('error', (streamErr: Error) => {
-                        console.error(`[SFTP Command Check ${sessionId}] Stream error for "${checkCmd}":`, streamErr);
-                        currentCheckIndex++;
-                        tryCommand(); // 尝试下一个检查命令
-                    });
-                });
+                } catch (error) {
+                    attemptFinished = true;
+                    clearTimeout(attemptTimeout);
+                    reject(error);
+                }
             };
             tryCommand();
         });
@@ -1642,7 +1769,7 @@ export class SftpService {
             if (error.includes('在服务器上未找到')) {
                  ws.send(JSON.stringify({ type: 'sftp:command_not_found', payload: { operation: 'compress', command: error.match(/'([^']+)'/)?.[1] || 'unknown', message: details || error }, requestId }));
             } else {
-                 ws.send(JSON.stringify({ type: 'sftp:compress:error', payload }));
+                 ws.send(JSON.stringify({ type: 'sftp:compress:error', payload, requestId }));
             }
          } else {
              console.warn(`[SFTP Compress] WebSocket closed or invalid, cannot send error for request ${requestId}.`);
@@ -1658,7 +1785,7 @@ export class SftpService {
             if (error.includes('在服务器上未找到')) {
                 ws.send(JSON.stringify({ type: 'sftp:command_not_found', payload: { operation: 'decompress', command: error.match(/'([^']+)'/)?.[1] || 'unknown', message: details || error }, requestId }));
             } else {
-                ws.send(JSON.stringify({ type: 'sftp:decompress:error', payload }));
+                ws.send(JSON.stringify({ type: 'sftp:decompress:error', payload, requestId }));
             }
         } else {
              console.warn(`[SFTP Decompress] WebSocket closed or invalid, cannot send error for request ${requestId}.`);

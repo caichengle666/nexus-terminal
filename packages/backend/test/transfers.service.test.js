@@ -170,7 +170,7 @@ test('hanging directory read times out, invalidates its channel, and ignores a l
     sshClient: {},
     sftp,
   };
-  const service = new SftpService(new Map([['session-1', state]]), { metadataTimeoutMs: 20 });
+  const service = new SftpService(new Map([['session-1', state]]), { metadataTimeoutMs: 20, recoveryDelaysMs: [] });
 
   await service.readdir('session-1', '/slow', 'request-1');
   readdirCallback(null, []);
@@ -181,6 +181,81 @@ test('hanging directory read times out, invalidates its channel, and ignores a l
   assert.equal(sentMessages.filter(message => message.type === 'sftp:readdir:success').length, 0);
   assert.equal(sentMessages.filter(message => message.type === 'sftp:readdir:error').length, 1);
   assert.equal(sentMessages.filter(message => message.type === 'sftp_unavailable').length, 1);
+});
+
+test('compression stream errors include the request id and are sent only once', async () => {
+  const sentMessages = [];
+  const stream = new EventEmitter();
+  stream.stderr = new EventEmitter();
+  stream.close = () => {};
+  const state = {
+    ws: {
+      readyState: 1,
+      send(message) { sentMessages.push(JSON.parse(message)); },
+    },
+    sshClient: {
+      exec(command, callback) {
+        if (command.startsWith('command -v')) {
+          const checkStream = new EventEmitter();
+          checkStream.stderr = new EventEmitter();
+          setImmediate(() => {
+            callback(null, checkStream);
+            setImmediate(() => {
+              checkStream.emit('data', Buffer.from('/usr/bin/zip\n'));
+              checkStream.emit('close', 0);
+            });
+          });
+          return;
+        }
+        setImmediate(() => callback(null, stream));
+      },
+    },
+  };
+  const service = new SftpService(new Map([['session-1', state]]));
+
+  await service.compress('session-1', {
+    sources: ['/tmp/source'],
+    destinationArchiveName: 'source.zip',
+    format: 'zip',
+    targetDirectory: '/tmp',
+    requestId: 'compress-1',
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  stream.emit('error', new Error('stream failed'));
+  stream.emit('close', 1);
+
+  const errors = sentMessages.filter(message => message.type === 'sftp:compress:error');
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].requestId, 'compress-1');
+  assert.equal(errors[0].payload.requestId, 'compress-1');
+});
+
+test('health monitoring skips probes while a session activity is active', async () => {
+  let realpathCount = 0;
+  const sftp = new EventEmitter();
+  sftp.end = () => {};
+  sftp.realpath = (_path, callback) => {
+    realpathCount += 1;
+    setImmediate(() => callback(null, '/home/test'));
+  };
+  const state = {
+    dbConnectionId: 1,
+    ws: { readyState: 1, send() {} },
+    sshClient: {},
+    sftp,
+  };
+  const service = new SftpService(new Map([['session-1', state]]), {
+    healthIntervalMs: 10,
+    healthTimeoutMs: 10,
+  });
+
+  service.beginSessionActivity('session-1');
+  service.startHealthMonitoring?.('session-1');
+  await new Promise(resolve => setTimeout(resolve, 25));
+  service.endSessionActivity('session-1');
+
+  assert.equal(realpathCount, 0);
+  service.cleanupSftpSession('session-1');
 });
 
 test('health monitoring replaces a hung SFTP channel without reconnecting SSH', async () => {

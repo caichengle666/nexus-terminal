@@ -49,7 +49,7 @@ export interface SftpManagerInstance {
 
 // Helper function
 const generateRequestId = (): string => `req-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-const DIRECTORY_LOAD_TIMEOUT_MS = 30000;
+const DIRECTORY_LOAD_TIMEOUT_MS = 75000;
 const DIRECTORY_REQUEST_COALESCE_MS = 250;
 const DIRECTORY_RETRY_BACKOFFS_MS = [0, 1500, 4000, 9000];
 const MAX_DIRECTORY_RETRY_ATTEMPTS = DIRECTORY_RETRY_BACKOFFS_MS.length;
@@ -101,22 +101,11 @@ export function createSftpActionsManager(
     const lastDirectoryRequestPath = { current: '' };
     const pendingDirectoryPath = { current: '/' };
     const directoryRetryCount = { current: 0 };
-    const lastForceInitAt = { current: 0 };
-
-    const reinitializeAfterStaleFailure = () => {
-        if (!isConnected.value) return;
-        const now = Date.now();
-        if (now - lastForceInitAt.current < 2000) return;
-        lastForceInitAt.current = now;
-        console.warn(`[SFTP ${instanceSessionId}] 触发 force init（已合并限流）。`);
-        sendMessage({ type: 'sftp:initialize', payload: { force: true } });
-    };
     let directoryLoadTimeoutId: ReturnType<typeof setTimeout> | null = null;
     const instanceSessionId = sessionId; // 保存会话 ID 用于日志
     const uiNotificationsStore = useUiNotificationsStore(); // 初始化 UI 通知 store
     const initialLoadDone = ref<boolean>(false); // +++ 跟踪此实例是否已完成初始加载 +++
     const fileOperationTaskIds = new Map<string, string>();
-    const fileOperationTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
     const beginFileOperationTask = (title: string, message: string, requestId: string) => {
         const taskId = uiNotificationsStore.addTaskNotification({
@@ -128,18 +117,12 @@ export function createSftpActionsManager(
             progress: 0,
         });
         fileOperationTaskIds.set(requestId, taskId);
-        fileOperationTimeouts.set(requestId, setTimeout(() => {
-            finishFileOperationTask(requestId, 'error', 'SFTP 操作等待超时，请检查连接后重试。');
-        }, 60000));
         return taskId;
     };
 
     const finishFileOperationTask = (requestId: string, status: 'success' | 'error' | 'cancelled', message: string) => {
         const taskId = fileOperationTaskIds.get(requestId);
         if (!taskId) return;
-        const timeout = fileOperationTimeouts.get(requestId);
-        if (timeout) clearTimeout(timeout);
-        fileOperationTimeouts.delete(requestId);
         fileOperationTaskIds.delete(requestId);
         uiNotificationsStore.updateTaskNotification(taskId, { status, progress: 100, message });
     };
@@ -182,8 +165,6 @@ export function createSftpActionsManager(
     const cleanup = () => {
         console.log(`[SFTP ${instanceSessionId}] Cleaning up message handlers.`);
         resetDirectoryLoading();
-        fileOperationTimeouts.forEach(timeout => clearTimeout(timeout));
-        fileOperationTimeouts.clear();
         fileOperationTaskIds.clear();
         unregisterCallbacks.forEach(cb => cb());
         unregisterCallbacks.length = 0; // 清空数组
@@ -302,8 +283,6 @@ export function createSftpActionsManager(
             if (loadingRequestId.value) return;
             if (!isConnected.value) { resetDirectoryLoading(); return; }
             if (!isSftpReady.value) {
-                reinitializeAfterStaleFailure();
-                scheduleDirectoryRetry(path, reason);
                 return;
             }
             loadDirectoryInternal(path, false);
@@ -327,7 +306,6 @@ export function createSftpActionsManager(
             if (isConnected.value) {
                 console.warn(`[SFTP ${instanceSessionId}] SFTP 未就绪，正在请求重新初始化。`);
                 sendMessage({ type: 'sftp:initialize', payload: {} });
-                scheduleDirectoryRetry(path, 'SFTP 未就绪');
             } else {
                 uiNotificationsStore.showError(t('fileManager.errors.sftpNotReady'));
             }
@@ -354,7 +332,6 @@ export function createSftpActionsManager(
             if (loadingRequestId.value !== requestId) return;
             console.error(`[SFTP ${instanceSessionId}] 加载目录 ${path} 超时。`);
             resetDirectoryLoading();
-            reinitializeAfterStaleFailure();
             scheduleDirectoryRetry(path, '请求超时');
         }, DIRECTORY_LOAD_TIMEOUT_MS);
     };
@@ -622,18 +599,8 @@ export function createSftpActionsManager(
            let unregisterSuccess: (() => void) | null = null;
            let unregisterError: (() => void) | null = null;
 
-           const timeoutId = setTimeout(() => {
-               unregisterSuccess?.();
-               unregisterError?.();
-               const errMsg = t('fileManager.errors.compressTimeout'); // 使用 i18n
-               uiNotificationsStore.showError(errMsg);
-               finishFileOperationTask(requestId, 'error', errMsg);
-               reject(new Error(errMsg));
-           }, 60000); // 60 秒超时
-
            unregisterSuccess = onMessage('sftp:compress:success', (payload: MessagePayload, message: WebSocketMessage) => {
                if (message.requestId === requestId) {
-                   clearTimeout(timeoutId);
                    unregisterSuccess?.();
                    unregisterError?.();
                    uiNotificationsStore.showSuccess(t('fileManager.notifications.compressSuccess', { name: archiveName })); // 使用 i18n
@@ -646,7 +613,6 @@ export function createSftpActionsManager(
            unregisterError = onMessage('sftp:compress:error', (payload: MessagePayload, message: WebSocketMessage) => {
                const errorPayload = payload as { error: string, details?: string };
                if (message.requestId === requestId) {
-                   clearTimeout(timeoutId);
                    unregisterSuccess?.();
                    unregisterError?.();
                    const errorMsg = errorPayload.details || errorPayload.error || t('fileManager.errors.compressFailed'); // 基础错误信息
@@ -681,18 +647,8 @@ export function createSftpActionsManager(
            let unregisterSuccess: (() => void) | null = null;
            let unregisterError: (() => void) | null = null;
 
-           const timeoutId = setTimeout(() => {
-               unregisterSuccess?.();
-               unregisterError?.();
-               const errMsg = t('fileManager.errors.decompressTimeout'); // 使用 i18n
-               uiNotificationsStore.showError(errMsg);
-               finishFileOperationTask(requestId, 'error', errMsg);
-               reject(new Error(errMsg));
-           }, 60000); // 60 秒超时
-
            unregisterSuccess = onMessage('sftp:decompress:success', (payload: MessagePayload, message: WebSocketMessage) => {
                if (message.requestId === requestId) {
-                   clearTimeout(timeoutId);
                    unregisterSuccess?.();
                    unregisterError?.();
                    uiNotificationsStore.showSuccess(t('fileManager.notifications.decompressSuccess', { name: item.filename })); // 使用 i18n
@@ -705,7 +661,6 @@ export function createSftpActionsManager(
            unregisterError = onMessage('sftp:decompress:error', (payload: MessagePayload, message: WebSocketMessage) => {
                 const errorPayload = payload as { error: string, details?: string };
                if (message.requestId === requestId) {
-                   clearTimeout(timeoutId);
                    unregisterSuccess?.();
                    unregisterError?.();
                    const errorMsg = errorPayload.details || errorPayload.error || t('fileManager.errors.decompressFailed'); // 基础错误信息
@@ -837,7 +792,6 @@ export function createSftpActionsManager(
         const isTransient = transientKeywords.some(k => errorPayload.toLowerCase().includes(k.toLowerCase()));
         if (isConnected.value && isTransient) {
             console.warn(`[SFTP ${instanceSessionId}] readdir 返回瞬时错误，将触发重试。`);
-            reinitializeAfterStaleFailure();
             scheduleDirectoryRetry(errorPath || pendingDirectoryPath.current || currentPathRef.value || '/', errorPayload);
         } else {
             resetDirectoryLoading();
@@ -847,13 +801,14 @@ export function createSftpActionsManager(
     };
     const onSftpUnavailable = (payload: MessagePayload) => {
         const message = typeof payload?.message === 'string' ? payload.message : 'SFTP 会话已断开';
-        const pendingPath = pendingDirectoryPath.current || currentPathRef.value || '/';
         if (isLoading.value) resetDirectoryLoading();
         console.warn(`[SFTP ${instanceSessionId}] ${message}`);
-        if (isConnected.value) {
-            sendMessage({ type: 'sftp:initialize', payload: {} });
-            scheduleDirectoryRetry(pendingPath, message);
-        }
+    };
+    const onSftpReady = () => {
+        if (!isConnected.value || loadingRequestId.value) return;
+        const pendingPath = pendingDirectoryPath.current || currentPathRef.value || '/';
+        directoryRetryCount.current = 0;
+        loadDirectoryInternal(pendingPath, false);
     };
     const onSftpGenericError = (payload: MessagePayload) => {
         const requestId = typeof payload?.requestId === 'string' ? payload.requestId : null;
@@ -1224,6 +1179,7 @@ export function createSftpActionsManager(
     // --- Register Handlers & Store Unregister Callbacks ---
     unregisterCallbacks.push(onMessage('sftp:readdir:success', onSftpReaddirSuccess));
     unregisterCallbacks.push(onMessage('sftp:readdir:error', onSftpReaddirError));
+    unregisterCallbacks.push(onMessage('sftp_ready', onSftpReady));
     unregisterCallbacks.push(onMessage('sftp_unavailable', onSftpUnavailable));
     unregisterCallbacks.push(onMessage('sftp_error', onSftpGenericError));
     unregisterCallbacks.push(onMessage('internal:closed', onConnectionClosed));
