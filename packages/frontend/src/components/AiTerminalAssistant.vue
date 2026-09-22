@@ -43,6 +43,7 @@ const {
   config,
   activeSession,
   activeSessionId,
+  activeModelId,
   canSend,
   canQueueGuidance,
   hasActiveTerminal,
@@ -356,8 +357,8 @@ const messageAvatarClass = (role: string) => {
 };
 
 const messageShellClass = (role: string) => {
-  if (role === 'user') return 'ml-auto border-primary/40 bg-primary/15 text-foreground shadow-primary/5';
-  if (role === 'assistant') return 'mr-auto border-border/80 bg-background text-foreground shadow-black/5';
+  if (role === 'user') return 'ml-auto border-primary/35 bg-primary/12 text-foreground';
+  if (role === 'assistant') return 'mr-auto border-border/55 bg-background/35 text-foreground';
   if (role === 'tool') return 'mx-auto max-w-[92%] border-warning/40 bg-warning/10 text-warning';
   if (role === 'system') return 'mx-auto max-w-[92%] border-border/60 bg-header/40 text-text-secondary';
   return 'mr-auto border-border/70 bg-header/30 text-foreground';
@@ -745,7 +746,7 @@ const deleteHistory = async () => {
 <template>
   <div class="ai-terminal-assistant flex h-full min-h-0 flex-col bg-background text-foreground">
     <input ref="importFileInput" type="file" accept=".json,application/json" class="hidden" @change="importSessionFile" />
-    <div class="ai-assistant-header flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+    <div class="ai-assistant-header flex items-center justify-between gap-3 border-b border-border/70 bg-header/20 px-3 py-2.5">
       <div class="ai-header-main flex min-w-0 items-center gap-2.5">
         <button
           v-if="mobileOverlay"
@@ -758,12 +759,15 @@ const deleteHistory = async () => {
         >
           <i class="fas fa-arrow-left text-sm text-text-secondary" aria-hidden="true" />
         </button>
-        <div class="ai-header-title flex-shrink-0 text-sm font-semibold">AI 终端助手</div>
+        <div class="ai-header-title flex-shrink-0 text-sm font-semibold tracking-tight">AI 终端助手</div>
         <span class="ai-header-divider h-3 w-px flex-shrink-0 bg-border" />
         <div class="ai-header-session min-w-0 truncate text-xs text-text-secondary" :title="sessionLabel">{{ sessionLabel }}</div>
-        <div class="ai-header-status flex min-w-0 items-center gap-1.5 text-xs text-text-secondary">
+        <div class="ai-header-status flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">
           <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="isRunning ? 'animate-pulse bg-primary' : taskStatus === 'error' ? 'bg-error' : 'bg-success'" />
           <span class="truncate">{{ formatTaskStatus(taskStatus) }}</span>
+        </div>
+        <div class="ai-header-model min-w-0 truncate text-[10px] text-text-secondary/60" :title="activeModelId || '未选择模型'">
+          模型 · {{ activeModelId || '未选择模型' }}
         </div>
       </div>
       <div class="flex flex-shrink-0 items-center gap-1">
@@ -978,7 +982,7 @@ const deleteHistory = async () => {
     </div>
 
     <div class="relative flex-1 min-h-0 overflow-hidden">
-      <div ref="conversationScroller" class="h-full space-y-3 overflow-y-auto p-3 text-sm" @scroll="handleConversationScroll">
+      <div ref="conversationScroller" class="ai-conversation h-full space-y-4 overflow-y-auto p-3 text-sm" @scroll="handleConversationScroll">
       <div
         v-for="(message, index) in conversationMessages"
         :key="index"
@@ -986,7 +990,7 @@ const deleteHistory = async () => {
         :class="message.role === 'user' ? 'justify-end' : message.role === 'assistant' ? 'justify-start' : 'justify-center'"
       >
         <div
-          class="max-w-[88%] rounded border px-3 py-2 shadow-sm"
+          class="ai-message-shell max-w-[88%] rounded border px-3 py-2"
           :class="messageShellClass(message.role)"
         >
           <div class="mb-1 flex items-center gap-1.5 text-xs font-medium" :class="messageLabelClass(message.role)">
@@ -994,7 +998,7 @@ const deleteHistory = async () => {
               v-if="message.role === 'assistant'"
               :src="nexusAiAvatar"
               alt="Nexus AI"
-              class="h-6 w-6 flex-shrink-0 rounded-full border border-primary/50 object-cover shadow-sm shadow-primary/30"
+              class="h-6 w-6 flex-shrink-0 rounded-full border border-primary/40 object-cover"
             />
             <span
               v-else
@@ -1005,6 +1009,16 @@ const deleteHistory = async () => {
               <i :class="messageIconClass(message.role)" aria-hidden="true" />
             </span>
             <span>{{ messageLabel(message.role) }}</span>
+            <button
+              v-if="message.role === 'assistant' && message.content?.trim()"
+              type="button"
+              class="ml-auto flex h-6 w-6 items-center justify-center rounded text-text-secondary transition hover:bg-hover hover:text-foreground"
+              title="复制 AI 回复"
+              aria-label="复制 AI 回复"
+              @click="copyText(message.content || '')"
+            >
+              <i class="fas fa-copy text-[11px]" aria-hidden="true" />
+            </button>
           </div>
           <div
             class="ai-message-content break-words text-sm leading-relaxed"
@@ -1034,7 +1048,7 @@ const deleteHistory = async () => {
         </div>
       </div>
 
-      <div v-if="isRunning && activeActivities.length > 0" class="mr-auto max-w-[88%] rounded border border-border/70 bg-header/35 px-3 py-2 text-xs text-text-secondary shadow-sm">
+      <div v-if="isRunning && activeActivities.length > 0" class="ai-activity mr-auto max-w-[88%] rounded border border-border/60 bg-header/25 px-3 py-2 text-xs text-text-secondary">
         <div class="mb-1 flex items-center gap-1.5 font-medium text-foreground">
           <img :src="nexusAiAvatar" alt="Nexus AI" class="h-5 w-5 rounded-full border border-primary/40 object-cover" />
           <span>Nexus AI · 运行动态</span>
@@ -1053,7 +1067,7 @@ const deleteHistory = async () => {
         </div>
       </div>
 
-      <div v-if="errorMessage" class="rounded border border-error/40 bg-error/10 p-2.5 text-error">
+      <div v-if="errorMessage" class="ai-error rounded border border-error/35 bg-error/8 p-2.5 text-error">
         <div class="flex items-center justify-between gap-2">
           <span class="min-w-0 truncate text-sm font-semibold">{{ continuationAvailable ? 'AI 输出已截断' : 'AI 执行出错' }}：{{ errorMessage }}</span>
           <span class="flex-shrink-0 text-[11px] text-error/70">需处理</span>
@@ -1109,12 +1123,12 @@ const deleteHistory = async () => {
       </aside>
     </div>
 
-    <div class="border-t border-primary/40 bg-header/20 p-2.5 shadow-[0_-2px_12px_rgba(0,0,0,0.08)]">
+    <div class="ai-composer border-t border-border/70 bg-header/15 p-2.5">
       <div class="mb-1.5 flex items-stretch gap-2">
         <textarea
           ref="textareaInput"
           v-model="userInput"
-          class="h-16 min-w-0 flex-1 resize-none rounded border border-primary/50 bg-input px-2.5 py-2 text-sm text-foreground outline-none transition placeholder:text-text-secondary/70 focus:border-primary focus:ring-2 focus:ring-primary/30"
+          class="h-16 min-w-0 flex-1 resize-none rounded border border-border bg-input px-2.5 py-2 text-sm text-foreground outline-none transition placeholder:text-text-secondary/70 focus:border-primary focus:ring-2 focus:ring-primary/25"
           :placeholder="isRunning ? '输入补充要求，发送后将在当前步骤结束时应用' : '例如：查看当前报错，直接输入排查命令并修复'"
           @keydown="handleInputKeydown"
         />
@@ -1136,7 +1150,7 @@ const deleteHistory = async () => {
           v-for="task in quickTasks"
           :key="task.label"
           type="button"
-          class="rounded border border-border/70 bg-background/40 px-2 py-1 text-[11px] text-text-secondary transition hover:border-primary/50 hover:bg-hover hover:text-foreground"
+          class="rounded border border-border/60 bg-background/25 px-2.5 py-1 text-[11px] text-text-secondary transition hover:border-primary/50 hover:bg-hover hover:text-foreground"
           @click="useQuickTask(task.prompt)"
         >
           {{ task.label }}
@@ -1204,6 +1218,40 @@ const deleteHistory = async () => {
 <style scoped>
 .ai-terminal-assistant {
   container-type: inline-size;
+}
+
+.ai-conversation {
+  scrollbar-gutter: stable;
+}
+
+.ai-message-shell {
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.ai-message-shell :deep(p:first-child) {
+  margin-top: 0;
+}
+
+.ai-message-shell :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.ai-message-shell :deep(pre) {
+  border: 1px solid color-mix(in srgb, var(--color-border, #334155) 55%, transparent);
+}
+
+.ai-activity {
+  opacity: 0.92;
+}
+
+.ai-composer textarea {
+  min-height: 4rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-message-shell {
+    transition: none;
+  }
 }
 
 @container (max-width: 420px) {

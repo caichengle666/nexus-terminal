@@ -158,6 +158,7 @@ export const useAiStore = defineStore('ai', () => {
     if (!sessionRuntimes.value[key]) {
       sessionRuntimes.value[key] = {
         isRunning: false,
+        modelId: undefined,
         stopRequested: false,
         taskStatus: 'idle',
         errorMessage: '',
@@ -266,6 +267,7 @@ export const useAiStore = defineStore('ai', () => {
       return response.json().then(data => ({
         message: data?.choices?.[0]?.message as AiChatMessage,
         finishReason: data?.choices?.[0]?.finish_reason,
+        model: typeof data?.model === 'string' ? data.model : undefined,
         streamed: false,
       }));
     }
@@ -277,6 +279,7 @@ export const useAiStore = defineStore('ai', () => {
     const decoder = new TextDecoder();
     let buffer = '';
     let finishReason: string | undefined;
+    let model: string | undefined;
     let completed = false;
 
     const processLine = (line: string) => {
@@ -288,6 +291,7 @@ export const useAiStore = defineStore('ai', () => {
         return;
       }
       const chunk = JSON.parse(value);
+      if (typeof chunk?.model === 'string' && chunk.model.trim()) model = chunk.model.trim();
       const choice = chunk?.choices?.[0];
       const delta = choice?.delta;
       if (typeof delta?.content === 'string') partialMessage.content = `${partialMessage.content || ''}${delta.content}`;
@@ -338,7 +342,7 @@ export const useAiStore = defineStore('ai', () => {
       throw error;
     }
 
-    return { message: partialMessage, finishReason, streamed: true };
+    return { message: partialMessage, finishReason, model, streamed: true };
   };
 
   const requestChatCompletion = async (context: AiRunContext, payload: Record<string, any>, signal?: AbortSignal) => {
@@ -353,6 +357,7 @@ export const useAiStore = defineStore('ai', () => {
       return {
         message: response.data?.choices?.[0]?.message as AiChatMessage,
         finishReason: response.data?.choices?.[0]?.finish_reason,
+        model: typeof response.data?.model === 'string' ? response.data.model : undefined,
         streamed: false,
       };
     }
@@ -1827,6 +1832,9 @@ export const useAiStore = defineStore('ai', () => {
       if (!assistantMessage) {
         throw new Error('AI 返回格式无效。');
       }
+      if (typeof response?.model === 'string' && response.model.trim()) {
+        context.runtime.modelId = response.model.trim();
+      }
 
       const finishReason = response?.finishReason;
       const wasTruncated = finishReason === 'length' || finishReason === 'max_tokens';
@@ -2220,6 +2228,7 @@ export const useAiStore = defineStore('ai', () => {
     config,
     activeSession,
     activeSessionId,
+    activeModelId: computed(() => currentRuntime.value.modelId || config.value.model || ''),
     canSend,
     canQueueGuidance,
     hasActiveTerminal,

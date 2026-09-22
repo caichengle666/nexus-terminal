@@ -145,6 +145,7 @@ export type AiRunContext = {
 
 export type AiRuntimeState = {
   isRunning: boolean;
+  modelId?: string;
   stopRequested: boolean;
   taskStatus: AiTaskStatus;
   errorMessage: string;
