@@ -3,6 +3,7 @@ import { ref, watch, computed, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAppearanceStore } from '../../stores/appearance.store';
 import { useUiNotificationsStore } from '../../stores/uiNotifications.store';
+import apiClient from '../../utils/apiClient';
 import { storeToRefs } from 'pinia';
 import { defaultUiTheme, uiThemePresets, type UiThemePreset } from '../../features/appearance/config/default-themes';
 import { safeJsonParse } from '../../stores/appearance.store';
@@ -22,6 +23,78 @@ const themeParseError = ref<string | null>(null);
 const customUiThemes = ref<CustomUiTheme[]>([]);
 const isCreatingCustomTheme = ref(false);
 const customThemeName = ref('');
+const isGeneratingTheme = ref(false);
+const nonColorThemeKeys = ['--font-family-sans-serif', '--base-padding', '--base-margin'];
+
+const generateAiUiTheme = async () => {
+  if (isGeneratingTheme.value) return;
+  isGeneratingTheme.value = true;
+
+  try {
+    const { data: aiConfig } = await apiClient.get('/ai/config');
+    if (!aiConfig?.apiBaseUrl || !aiConfig?.model || !aiConfig?.hasApiKey) {
+      throw new Error(t('styleCustomizer.aiThemeSetupRequired', '请先在 AI 助手设置中配置 API 地址、密钥和模型。'));
+    }
+
+    const themeTemplate = Object.fromEntries(
+      Object.keys(defaultUiTheme).map(key => [key, editableUiTheme.value[key] ?? defaultUiTheme[key]]),
+    );
+    const response = await apiClient.post('/ai/chat', {
+      temperature: 1,
+      responseFormat: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a UI theme designer. Return only one valid JSON object with exactly two keys: "name" and "theme". Give the theme a short, creative Chinese name that reflects its palette. In "theme", keep exactly the provided CSS variable keys. Create a coherent, visually polished and distinctly original color palette. Change color-related values only; preserve font, spacing, and non-color values. Use CSS color values, and do not add CSS rules or properties.',
+        },
+        {
+          role: 'user',
+          content: `Create a fresh random UI color theme. Random seed: ${Date.now()}. Return JSON in this shape: {"name":"中文主题名","theme":{...}}. Use exactly these CSS variable keys and values as the starting template for the theme object:\n${JSON.stringify(themeTemplate)}`,
+        },
+      ],
+    }, { timeout: 130000 });
+
+    const content = response.data?.choices?.[0]?.message?.content;
+    const responseText = typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content.filter(part => part?.type === 'text').map(part => part.text).join('')
+        : '';
+    const jsonText = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    const generatedResult = JSON.parse(jsonText);
+    const generatedTheme = generatedResult?.theme;
+    const expectedKeys = Object.keys(defaultUiTheme);
+
+    if (!generatedResult || typeof generatedResult.name !== 'string' || !generatedResult.name.trim()
+      || generatedResult.name.trim().length > 40
+      || Object.keys(generatedResult).some(key => !['name', 'theme'].includes(key))
+      || !generatedTheme || typeof generatedTheme !== 'object' || Array.isArray(generatedTheme)
+      || expectedKeys.some(key => typeof generatedTheme[key] !== 'string' || generatedTheme[key].length > 200)
+      || Object.keys(generatedTheme).some(key => !expectedKeys.includes(key))
+      || expectedKeys.some(key => !nonColorThemeKeys.includes(key) && !CSS.supports('color', generatedTheme[key]))) {
+      throw new Error(t('styleCustomizer.aiThemeInvalidResponse', 'AI 返回的主题格式无效，请重试。'));
+    }
+
+    editableUiTheme.value = Object.fromEntries(expectedKeys.map(key => [
+      key,
+      nonColorThemeKeys.includes(key) ? themeTemplate[key] : generatedTheme[key],
+    ]));
+    customThemeName.value = generatedResult.name.trim();
+    isCreatingCustomTheme.value = true;
+    notificationsStore.addNotification({
+      type: 'success',
+      message: t('styleCustomizer.aiThemeGenerated', 'AI 配色已生成并预览，确认后再保存。'),
+    });
+  } catch (error: any) {
+    console.error('AI 随机生成 UI 主题失败:', error);
+    notificationsStore.addNotification({
+      type: 'error',
+      message: error.response?.data?.message || error.message || t('styleCustomizer.aiThemeGenerateFailed', 'AI 配色生成失败。'),
+    });
+  } finally {
+    isGeneratingTheme.value = false;
+  }
+};
 
 const loadCustomUiThemes = () => {
   try {
@@ -245,6 +318,19 @@ defineExpose({
 <template>
   <section>
     <h3 class="mt-0 border-b border-border pb-2 mb-4 text-lg font-semibold text-foreground">{{ t('styleCustomizer.uiStyles') }}</h3>
+    <div class="mb-3 flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        class="inline-flex min-h-9 items-center gap-2 rounded border border-primary/50 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-wait disabled:opacity-60"
+        :disabled="isGeneratingTheme"
+        :aria-busy="isGeneratingTheme"
+        @click="generateAiUiTheme"
+      >
+        <i :class="isGeneratingTheme ? 'fas fa-spinner fa-spin' : 'fas fa-wand-magic-sparkles'" aria-hidden="true" />
+        {{ isGeneratingTheme ? t('styleCustomizer.aiThemeGenerating', 'AI 正在创作配色...') : t('styleCustomizer.aiThemeGenerate', 'AI 随机生成配色') }}
+      </button>
+      <span class="text-xs text-text-secondary">{{ t('styleCustomizer.aiThemePreviewHint', '生成后先预览，满意后再保存。') }}</span>
+    </div>
     <UiAppearancePreview class="mb-5" :theme="editableUiTheme" />
     <div class="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start md:items-center gap-2 md:gap-3 mb-6">
         <label class="text-left text-foreground text-sm font-medium mb-1 md:mb-0">{{ t('styleCustomizer.themeModeLabel', '主题模式:') }}</label>

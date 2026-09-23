@@ -9,6 +9,7 @@ export interface AiChatRequest {
   messages: unknown;
   tools?: unknown;
   toolChoice?: unknown;
+  responseFormat?: unknown;
   temperature?: unknown;
   stream?: unknown;
   maxRequestKb?: unknown;
@@ -123,6 +124,7 @@ export const forwardChatCompletion = async (payload: AiChatRequest) => {
     messages,
     tools,
     toolChoice,
+    responseFormat,
     temperature,
   } = payload;
   const { apiBaseUrl, apiKey, model } = await resolveConfig(payload);
@@ -139,8 +141,8 @@ export const forwardChatCompletion = async (payload: AiChatRequest) => {
     {
       model,
       messages,
-      tools,
-      tool_choice: toolChoice || 'auto',
+      ...(Array.isArray(tools) && tools.length > 0 ? { tools, tool_choice: toolChoice || 'auto' } : {}),
+      response_format: responseFormat,
       temperature: typeof temperature === 'number' ? temperature : 0.2,
     },
     {
@@ -160,7 +162,7 @@ export const forwardChatCompletion = async (payload: AiChatRequest) => {
 
 export const forwardChatCompletionStream = async (payload: AiChatRequest) => {
   validateRequestBudget(payload);
-  const { messages, tools, toolChoice, temperature } = payload;
+  const { messages, tools, toolChoice, responseFormat, temperature } = payload;
   const { apiBaseUrl, apiKey, model } = await resolveConfig(payload);
 
   if (!apiKey || !model || !Array.isArray(messages)) {
@@ -175,8 +177,8 @@ export const forwardChatCompletionStream = async (payload: AiChatRequest) => {
     {
       model,
       messages,
-      tools,
-      tool_choice: toolChoice || 'auto',
+      ...(Array.isArray(tools) && tools.length > 0 ? { tools, tool_choice: toolChoice || 'auto' } : {}),
+      response_format: responseFormat,
       temperature: typeof temperature === 'number' ? temperature : 0.2,
       stream: true,
     },

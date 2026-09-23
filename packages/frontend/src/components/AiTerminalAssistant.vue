@@ -201,6 +201,9 @@ const timelineItems = computed(() => latestToolRuns.value
     duration: formatToolDuration(run),
     failed: run.status === 'error',
   })));
+const currentActivityId = computed(() => [...activeActivities.value]
+  .reverse()
+  .find(activity => activity.state === 'active')?.id || null);
 const renderedToolRuns = computed(() => latestToolRuns.value.slice(0, toolRenderLimit.value));
 const hasMoreToolRuns = computed(() => toolRenderLimit.value < latestToolRuns.value.length);
 const loadMoreToolRuns = () => {
@@ -245,6 +248,24 @@ const formatTaskStatus = (status: AiTaskStatus) => {
   if (status === 'interrupted') return '输出已截断';
   if (status === 'error') return '出错';
   return '空闲';
+};
+
+const activityTextClass = (activity: { id: string; state: 'active' | 'done' | 'error' }) => {
+  if (activity.state === 'error') return 'text-error';
+  if (activity.state === 'done') return 'text-success';
+  if (activity.id !== currentActivityId.value) return 'text-text-secondary';
+  if (taskStatus.value === 'awaitingConfirmation') return 'text-warning';
+  if (taskStatus.value === 'runningTool' || taskStatus.value === 'waitingOutput') return 'text-link-active';
+  return 'text-primary';
+};
+
+const activityDotClass = (activity: { id: string; state: 'active' | 'done' | 'error' }) => {
+  if (activity.state === 'error') return 'bg-error';
+  if (activity.state === 'done') return 'bg-success';
+  if (activity.id !== currentActivityId.value) return 'bg-text-secondary/60';
+  if (taskStatus.value === 'awaitingConfirmation') return 'animate-pulse bg-warning';
+  if (taskStatus.value === 'runningTool' || taskStatus.value === 'waitingOutput') return 'animate-pulse bg-link-active';
+  return 'animate-pulse bg-primary';
 };
 
 const formatToolSummary = (run: AiToolRun) => {
@@ -1123,13 +1144,18 @@ const deleteHistory = async () => {
           <span>Nexus AI · 运行动态</span>
         </div>
         <div class="space-y-1.5">
-          <div v-for="activity in activeActivities" :key="activity.id" class="flex items-start gap-2">
+          <div
+            v-for="activity in activeActivities"
+            :key="activity.id"
+            class="ai-activity-item flex items-start gap-2 transition-colors duration-300"
+            :class="activityTextClass(activity)"
+          >
             <span
-              class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full"
-              :class="activity.state === 'error' ? 'bg-error' : activity.state === 'done' ? 'bg-success' : 'animate-pulse bg-primary'"
+              class="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full transition-colors duration-300"
+              :class="activityDotClass(activity)"
             />
             <div class="min-w-0">
-              <div class="text-foreground">{{ activity.title }}</div>
+              <div class="font-medium transition-colors duration-300">{{ activity.title }}</div>
               <div v-if="activity.detail" class="mt-0.5 truncate text-[11px] text-text-secondary">{{ activity.detail }}</div>
             </div>
           </div>
@@ -1432,6 +1458,10 @@ const deleteHistory = async () => {
 
 .ai-activity {
   opacity: 0.92;
+}
+
+.ai-activity-item {
+  min-height: 1.25rem;
 }
 
 .ai-composer textarea {
