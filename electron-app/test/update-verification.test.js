@@ -6,7 +6,7 @@ const test = require('node:test');
 const https = require('node:https');
 const { EventEmitter } = require('node:events');
 
-const { extractExpectedChecksum } = require('../update-verification');
+const { classifyWindowsSignature, extractExpectedChecksum } = require('../update-verification');
 const { requestWithRedirect } = require('../update-network');
 const { buildPortableLaunchScript, consumePortableUpdateResult } = require('../updater-service');
 const {
@@ -41,6 +41,16 @@ test('rejects ambiguous normalized filename matches', () => {
     `${portableHash}  Nexus.Terminal.Setup.0.9.22.28.exe`,
   ].join('\n');
   assert.equal(extractExpectedChecksum(manifest, 'Nexus.Terminal.Setup.0.9.22.28.exe'), null);
+});
+
+test('does not block updates when Windows signature cannot be verified', () => {
+  assert.deepEqual(classifyWindowsSignature('UnknownError', 0), { status: 'unavailable', detail: 'UnknownError' });
+  assert.deepEqual(classifyWindowsSignature('NotTrusted', 0), { status: 'unavailable', detail: 'NotTrusted' });
+  assert.deepEqual(classifyWindowsSignature('NotSigned', 0), { status: 'unavailable', detail: '未签名' });
+});
+
+test('blocks an explicit Authenticode hash mismatch', () => {
+  assert.deepEqual(classifyWindowsSignature('HashMismatch', 0), { status: 'invalid', detail: 'HashMismatch' });
 });
 
 test('portable replacement script backs up, replaces, and rolls back on failure', () => {

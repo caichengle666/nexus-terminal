@@ -12,6 +12,19 @@ const extractExpectedChecksum = (text, filename) => {
   return matches.length === 1 ? matches[0] : null;
 };
 
+const normalizeSignatureStatus = value => String(value || '').trim().toLowerCase();
+
+// SHA-256 from the trusted update manifest is the hard integrity check. Windows
+// Authenticode is advisory here because portable/unsigned builds and certificates
+// that cannot be validated locally otherwise make valid updates unusable.
+const classifyWindowsSignature = (status, exitCode) => {
+  const normalized = normalizeSignatureStatus(status);
+  if (normalized === 'valid') return { status: 'valid', detail: status };
+  if (normalized === 'hashmismatch') return { status: 'invalid', detail: status || '签名哈希不匹配' };
+  if (normalized === 'notsigned') return { status: 'unavailable', detail: '未签名' };
+  return { status: 'unavailable', detail: status || (exitCode === 0 ? '无法验证签名' : '无法读取签名状态') };
+};
+
 const verifyUpdateSignature = (filePath, platform = process.platform) => new Promise(resolve => {
   if (platform === 'win32') {
     const escapedPath = filePath.replace(/'/g, "''");
@@ -19,10 +32,7 @@ const verifyUpdateSignature = (filePath, platform = process.platform) => new Pro
     let output = '';
     child.stdout.on('data', data => { output += data.toString(); });
     child.on('close', code => {
-      const status = output.trim();
-      if (status === 'Valid') return resolve({ status: 'valid', detail: status });
-      if (status === 'NotSigned' || code !== 0) return resolve({ status: 'unavailable', detail: status || '无法读取签名状态' });
-      return resolve({ status: 'invalid', detail: status || '签名校验失败' });
+      resolve(classifyWindowsSignature(output, code));
     });
     child.on('error', error => resolve({ status: 'unavailable', detail: error.message }));
     return;
@@ -42,4 +52,4 @@ const verifyUpdateSignature = (filePath, platform = process.platform) => new Pro
   resolve({ status: 'unavailable', detail: 'Linux AppImage 当前没有统一签名接口' });
 });
 
-module.exports = { extractExpectedChecksum, verifyUpdateSignature };
+module.exports = { classifyWindowsSignature, extractExpectedChecksum, verifyUpdateSignature };
