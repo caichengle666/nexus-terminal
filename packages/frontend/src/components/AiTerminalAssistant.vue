@@ -128,7 +128,10 @@ const focusFirstPopupItem = (container: HTMLElement | null) => {
 watch(activeSessionId, closePopupMenus);
 
 const handleDocumentKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Escape') closePopupMenus();
+  if (event.key !== 'Escape') return;
+  closePopupMenus();
+  showConfig.value = false;
+  drawerPanel.value = null;
 };
 
 const handlePopupMenuKeydown = (event: KeyboardEvent) => {
@@ -162,6 +165,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown);
   document.removeEventListener('keydown', handleDocumentKeydown);
   if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame);
+  if (copiedTimer !== null) window.clearTimeout(copiedTimer);
 });
 
 const sessionLabel = computed(() => activeSession.value?.connectionName || '没有活动终端');
@@ -362,11 +366,11 @@ const messageAvatarClass = (role: string) => {
 };
 
 const messageShellClass = (role: string) => {
-  if (role === 'user') return 'ml-auto border-primary/35 bg-primary/12 text-foreground';
-  if (role === 'assistant') return 'mr-auto border-border/55 bg-background/35 text-foreground';
-  if (role === 'tool') return 'mx-auto max-w-[92%] border-warning/40 bg-warning/10 text-warning';
-  if (role === 'system') return 'mx-auto max-w-[92%] border-border/60 bg-header/40 text-text-secondary';
-  return 'mr-auto border-border/70 bg-header/30 text-foreground';
+  if (role === 'user') return 'ml-auto max-w-[78%] rounded-lg rounded-br-sm border border-primary/35 bg-primary/12 px-3 py-2 text-foreground';
+  if (role === 'assistant') return 'mr-auto w-full max-w-full border-0 bg-transparent px-0 py-0 text-foreground';
+  if (role === 'tool') return 'mx-auto max-w-[92%] rounded border border-warning/40 bg-warning/10 px-3 py-2 text-warning';
+  if (role === 'system') return 'mx-auto max-w-[92%] rounded border border-border/60 bg-header/40 px-3 py-2 text-text-secondary';
+  return 'mr-auto rounded border border-border/70 bg-header/30 px-3 py-2 text-foreground';
 };
 
 const messageLabelClass = (role: string) => {
@@ -430,8 +434,21 @@ const getMessageRenderCache = (message: object & { content?: string | null; tool
   return next;
 };
 
-const copyText = async (text: string) => {
-  await navigator.clipboard?.writeText(text);
+const copiedKey = ref('');
+let copiedTimer: number | null = null;
+const copyText = async (text: string, key = 'default') => {
+  try {
+    await navigator.clipboard?.writeText(text);
+  } catch {
+    errorMessage.value = '复制失败，请手动选择文本复制。';
+    return;
+  }
+  copiedKey.value = key;
+  if (copiedTimer !== null) window.clearTimeout(copiedTimer);
+  copiedTimer = window.setTimeout(() => {
+    copiedKey.value = '';
+    copiedTimer = null;
+  }, 1600);
 };
 
 const fillCommandInput = (command: string) => {
@@ -450,12 +467,23 @@ const fillCommandInput = (command: string) => {
 };
 
 const openDrawer = (panel: Exclude<DrawerPanel, null>) => {
+  showConfig.value = false;
   drawerPanel.value = drawerPanel.value === panel ? null : panel;
 };
 
 const closeDrawer = () => {
   drawerPanel.value = null;
 };
+
+const openSettingsDrawer = () => {
+  drawerPanel.value = null;
+  showConfig.value = true;
+};
+
+const closeSettingsDrawer = () => {
+  showConfig.value = false;
+};
+
 
 const sendMessage = () => {
   shouldAutoFollow.value = true;
@@ -769,7 +797,7 @@ const deleteHistory = async () => {
 </script>
 
 <template>
-  <div class="ai-terminal-assistant flex h-full min-h-0 flex-col bg-background text-foreground">
+  <div class="ai-terminal-assistant relative flex h-full min-h-0 flex-col bg-background text-foreground">
     <input ref="importFileInput" type="file" accept=".json,application/json" class="hidden" @change="importSessionFile" />
     <div class="ai-assistant-header flex items-center justify-between gap-3 border-b border-border/70 bg-header/20 px-3 py-2.5">
       <div class="ai-header-main flex min-w-0 items-center gap-2.5">
@@ -796,7 +824,7 @@ const deleteHistory = async () => {
         </div>
       </div>
       <div class="flex flex-shrink-0 items-center gap-1">
-        <button type="button" class="flex items-center justify-center rounded hover:bg-hover" :class="mobileOverlay ? 'h-10 w-10' : 'h-7 w-7'" title="AI 设置" aria-label="AI 设置" @click="showConfig = !showConfig">
+        <button type="button" class="flex items-center justify-center rounded hover:bg-hover" :class="mobileOverlay ? 'h-10 w-10' : 'h-7 w-7'" title="AI 设置" aria-label="AI 设置" @click="openSettingsDrawer">
           <i class="fas fa-cog text-xs text-text-secondary" aria-hidden="true" />
         </button>
         <div ref="moreMenuRef" class="relative">
@@ -814,11 +842,19 @@ const deleteHistory = async () => {
       </div>
     </div>
 
-    <div
+    <div v-if="showConfig" class="ai-drawer-scrim" @click="closeSettingsDrawer" />
+    <aside
       v-if="showConfig"
-      class="space-y-2 border-b border-border p-3 text-xs"
-      :class="mobileOverlay ? 'max-h-[55dvh] flex-shrink-0 overflow-y-auto overscroll-contain' : ''"
+      class="ai-drawer ai-drawer-settings"
+      aria-label="AI 设置"
     >
+      <div class="ai-drawer-head">
+        <div class="ai-drawer-title">AI 设置</div>
+        <button type="button" class="ai-drawer-close" title="关闭设置" aria-label="关闭设置" @click="closeSettingsDrawer">
+          <i class="fas fa-xmark" aria-hidden="true" />
+        </button>
+      </div>
+      <div class="ai-drawer-body space-y-2 text-xs">
       <label class="block">
         <span class="mb-1 block text-text-secondary">API Base URL</span>
         <input v-model="config.apiBaseUrl" class="w-full rounded border border-border bg-input px-2 py-1" placeholder="https://api.openai.com/v1" />
@@ -932,13 +968,17 @@ const deleteHistory = async () => {
         <div v-if="historyConfigMessage" class="mt-1 text-success">{{ historyConfigMessage }}</div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <button class="rounded bg-primary px-3 py-1.5 text-white" @click="saveConfig">保存配置</button>
         <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="testConfig">测试连接</button>
         <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testStreaming">测试流式</button>
         <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testToolCalling">测试工具</button>
       </div>
       <div v-if="configMessage" class="text-success">{{ configMessage }}</div>
-    </div>
+      </div>
+      <div class="ai-drawer-foot">
+        <button type="button" class="ai-btn ai-btn-ghost" @click="closeSettingsDrawer">取消</button>
+        <button type="button" class="ai-btn ai-btn-primary" @click="saveConfig">保存设置</button>
+      </div>
+    </aside>
 
     <div v-if="pendingPromptProposal" class="border-b border-primary/30 bg-primary/10 p-3 text-xs">
       <div class="font-medium text-foreground">AI 建议更新系统提示词</div>
@@ -954,7 +994,10 @@ const deleteHistory = async () => {
       <div v-if="storageWarning" class="mb-1 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning">{{ storageWarning }}</div>
       <div v-if="historySyncWarning" class="mb-1 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning">{{ historySyncWarning }}</div>
       <button type="button" class="flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left text-text-secondary hover:bg-hover" :aria-expanded="contextExpanded" @click="contextExpanded = !contextExpanded">
-        <span class="truncate">上下文 {{ contextUsagePercent }}% · {{ formatBytes(contextRequestBytes) }} / {{ maxRequestKb }}KB</span>
+        <span class="flex min-w-0 items-center gap-2">
+          <span class="truncate">上下文 {{ contextUsagePercent }}% · {{ formatBytes(contextRequestBytes) }} / {{ maxRequestKb }}KB</span>
+          <span class="ai-context-meter" title="上下文使用率"><span :style="{ width: `${contextUsagePercent}%` }" /></span>
+        </span>
         <span class="flex min-w-0 items-center gap-2">
           <span v-if="timelineItems.length > 0" class="hidden truncate text-[11px] text-text-secondary/80 sm:inline">最近：{{ timelineItems[0].title }}</span>
           <i class="fas text-[10px]" :class="contextExpanded ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
@@ -992,7 +1035,7 @@ const deleteHistory = async () => {
             </summary>
             <div class="mt-0.5 truncate font-mono text-text-secondary">{{ formatToolSummary(run) }}</div>
             <div class="mt-2 border-t border-border/40 pt-2">
-              <div class="mb-1 flex items-center justify-between gap-2 text-text-secondary"><span>调用参数</span><button v-if="getToolCommand(run)" class="rounded border border-border px-1.5 py-0.5 hover:bg-hover" @click="copyText(getToolCommand(run))">复制命令</button></div>
+              <div class="mb-1 flex items-center justify-between gap-2 text-text-secondary"><span>调用参数</span><button v-if="getToolCommand(run)" class="rounded border border-border px-1.5 py-0.5 hover:bg-hover" @click="copyText(getToolCommand(run), `tool-${run.id}`)">{{ copiedKey === `tool-${run.id}` ? '已复制' : '复制命令' }}</button></div>
               <pre class="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolArguments(run) }}</pre>
               <div class="mb-1 mt-2 text-text-secondary">返回内容（已截断）</div>
               <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolResult(run) }}</pre>
@@ -1015,7 +1058,7 @@ const deleteHistory = async () => {
         :class="message.role === 'user' ? 'justify-end' : message.role === 'assistant' ? 'justify-start' : 'justify-center'"
       >
         <div
-          class="ai-message-shell max-w-[88%] rounded border px-3 py-2"
+          class="ai-message-shell"
           :class="messageShellClass(message.role)"
         >
           <div class="mb-1 flex items-center gap-1.5 text-xs font-medium" :class="messageLabelClass(message.role)">
@@ -1040,10 +1083,10 @@ const deleteHistory = async () => {
               class="ml-auto flex h-6 items-center gap-1 rounded border border-border/60 px-1.5 text-[11px] text-text-secondary transition hover:bg-hover hover:text-foreground"
               title="复制 AI 回复"
               aria-label="复制 AI 回复"
-              @click.stop="copyText(message.content || '')"
+              @click.stop="copyText(message.content || '', `msg-${index}`)"
             >
-              <i class="fas fa-copy text-[11px]" aria-hidden="true" />
-              <span>复制</span>
+              <i class="fas text-[11px]" :class="copiedKey === `msg-${index}` ? 'fa-check' : 'fa-copy'" aria-hidden="true" />
+              <span>{{ copiedKey === `msg-${index}` ? '已复制' : '复制' }}</span>
             </button>
           </div>
           <div
@@ -1064,7 +1107,7 @@ const deleteHistory = async () => {
                   {{ formatRiskLabel(detectCommandRisk(command)) }}
                 </span>
                 <div class="flex flex-shrink-0 gap-1">
-                  <button class="rounded border border-border px-2 py-1 text-[11px] hover:bg-hover" @click="copyText(command)">复制</button>
+                  <button class="rounded border border-border px-2 py-1 text-[11px] hover:bg-hover" @click="copyText(command, `cmd-${message.role}-${index}-${command}`)">{{ copiedKey === `cmd-${message.role}-${index}-${command}` ? '已复制' : '复制' }}</button>
                   <button class="rounded border border-border px-2 py-1 text-[11px] hover:bg-hover" @click="fillCommandInput(command)">输入终端</button>
                 </div>
               </div>
@@ -1116,36 +1159,40 @@ const deleteHistory = async () => {
 
       <div
         v-if="isDrawerOpen"
-        class="absolute inset-0 z-10 bg-black/20"
+        class="ai-drawer-scrim"
         @click="closeDrawer"
       />
       <aside
         v-if="isDrawerOpen"
-        class="absolute right-0 top-0 z-20 flex h-full w-[86%] max-w-sm flex-col border-l border-border bg-background shadow-xl"
+        class="ai-drawer ai-drawer-context"
+        aria-label="上下文与记忆"
       >
-        <div class="flex items-center justify-between border-b border-border px-3 py-2">
-          <div class="text-sm font-semibold">
-            上下文与记忆
-          </div>
-          <button class="rounded px-2 py-1 text-xs hover:bg-hover" @click="closeDrawer">关闭</button>
+        <div class="ai-drawer-head">
+          <div class="ai-drawer-title">上下文与记忆</div>
+          <button type="button" class="ai-drawer-close" title="关闭" aria-label="关闭上下文与记忆" @click="closeDrawer">
+            <i class="fas fa-xmark" aria-hidden="true" />
+          </button>
         </div>
 
-        <div v-if="drawerPanel === 'context'" class="flex-1 overflow-auto p-3 text-xs">
+        <div v-if="drawerPanel === 'context'" class="ai-drawer-body text-xs">
           <div class="mb-3 flex flex-wrap gap-2">
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportJson">导出 JSON</button>
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportMarkdown">导出 Markdown</button>
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="openImportDialog">导入 JSON</button>
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="openCurrentHistoryDirectory">打开当前终端目录</button>
           </div>
-          <div v-if="hasMemorySummary" class="rounded border border-border/60 p-2">
-            <div class="mb-2 font-medium text-text-secondary">记忆摘要</div>
+          <div v-if="hasMemorySummary" class="ai-memory-card">
+            <div class="ai-memory-title">记忆摘要</div>
             <pre class="max-h-[55vh] overflow-auto whitespace-pre-wrap break-words font-sans leading-relaxed">{{ memorySummary }}</pre>
           </div>
           <div v-else class="rounded border border-dashed border-border p-3 text-text-secondary">
             当前会话还没有记忆摘要。
           </div>
+          <div v-if="compression" class="ai-memory-card">
+            <div class="ai-memory-title">最近一次压缩</div>
+            <p class="text-text-secondary">{{ formatBytes(compression.beforeBytes) }} → {{ formatBytes(compression.afterBytes) }} · 压缩 {{ compression.compactedCount }} 条、保留最近 {{ compression.retainedCount }} 条 · 摘要来源：{{ compression.summaryMode === 'ai' ? 'AI' : '本地' }}</p>
+          </div>
         </div>
-
       </aside>
     </div>
 
@@ -1244,6 +1291,123 @@ const deleteHistory = async () => {
 <style scoped>
 .ai-terminal-assistant {
   container-type: inline-size;
+}
+
+.ai-context-meter {
+  display: inline-block;
+  width: 68px;
+  height: 3px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-border, #334155) 70%, transparent);
+}
+
+.ai-context-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--color-primary, #e83e67);
+}
+
+.ai-drawer-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.ai-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 31;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(420px, 94%);
+  height: 100%;
+  border-left: 1px solid var(--color-border, #334155);
+  background: var(--color-background, #0b0e12);
+  box-shadow: -16px 0 40px rgba(0, 0, 0, 0.32);
+}
+
+.ai-drawer-context {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.ai-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border, #334155);
+}
+
+.ai-drawer-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ai-drawer-close {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary, #94a3b8);
+  cursor: pointer;
+}
+
+.ai-drawer-close:hover {
+  border-color: var(--color-border, #334155);
+  color: var(--color-foreground, #e8ebef);
+}
+
+.ai-drawer-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.ai-drawer-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-border, #334155);
+}
+
+.ai-btn {
+  padding: 7px 13px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ai-btn-ghost {
+  border: 1px solid var(--color-border, #334155);
+  background: transparent;
+}
+
+.ai-btn-primary {
+  border: 1px solid var(--color-primary, #e83e67);
+  background: var(--color-primary, #e83e67);
+  color: #fff;
+}
+
+.ai-memory-card {
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px solid var(--color-border, #334155);
+  border-radius: 6px;
+}
+
+.ai-memory-title {
+  margin-bottom: 7px;
+  color: var(--color-text-secondary, #94a3b8);
+  font-weight: 500;
 }
 
 .ai-conversation {
