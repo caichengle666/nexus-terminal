@@ -100,7 +100,7 @@ export function createSftpActionsManager(
     const lastDirectoryRequestAt = { current: 0 };
     const lastDirectoryRequestPath = { current: '' };
     const pendingDirectoryPath = { current: '/' };
-    const pendingDirectoryRefresh = { current: false };
+    const pendingDirectoryRequest = { current: null as { path: string; forceRefresh: boolean } | null };
     const directoryRetryCount = { current: 0 };
     let directoryLoadTimeoutId: ReturnType<typeof setTimeout> | null = null;
     const instanceSessionId = sessionId; // 保存会话 ID 用于日志
@@ -166,7 +166,7 @@ export function createSftpActionsManager(
     const cleanup = () => {
         console.log(`[SFTP ${instanceSessionId}] Cleaning up message handlers.`);
         resetDirectoryLoading();
-        pendingDirectoryRefresh.current = false;
+        pendingDirectoryRequest.current = null;
         fileOperationTaskIds.clear();
         unregisterCallbacks.forEach(cb => cb());
         unregisterCallbacks.length = 0; // 清空数组
@@ -314,12 +314,8 @@ export function createSftpActionsManager(
             return;
         }
         if (isLoading.value) {
-            if (forceRefresh) {
-                pendingDirectoryRefresh.current = true;
-                console.warn(`[SFTP ${instanceSessionId}] 当前目录请求仍在进行，刷新将排队等待。`);
-            } else {
-                console.warn(`[SFTP ${instanceSessionId}] 尝试加载目录 ${path} 但已在加载中。`);
-            }
+            pendingDirectoryRequest.current = { path, forceRefresh };
+            console.warn(`[SFTP ${instanceSessionId}] 当前目录请求仍在进行，${forceRefresh ? '刷新' : '目录切换'}将排队等待。`);
             return;
         }
 
@@ -776,9 +772,11 @@ export function createSftpActionsManager(
         // 重置加载状态，因为这是匹配的响应
         resetDirectoryLoading();
         console.log(`[SFTP ${instanceSessionId}] isLoading reset after successful readdir for ${path}.`);
-        if (pendingDirectoryRefresh.current && isConnected.value) {
-            pendingDirectoryRefresh.current = false;
-            loadDirectoryInternal(path, true);
+        const queuedRequest = pendingDirectoryRequest.current;
+        pendingDirectoryRequest.current = null;
+        if (queuedRequest && isConnected.value
+            && (queuedRequest.path !== path || queuedRequest.forceRefresh)) {
+            loadDirectoryInternal(queuedRequest.path, queuedRequest.forceRefresh);
         }
     };
 
@@ -801,6 +799,7 @@ export function createSftpActionsManager(
             scheduleDirectoryRetry(errorPath || pendingDirectoryPath.current || currentPathRef.value || '/', errorPayload);
         } else {
             resetDirectoryLoading();
+            pendingDirectoryRequest.current = null;
             uiNotificationsStore.showError(`${t('fileManager.errors.loadDirectoryFailed')}: ${errorPayload}`);
             console.log(`[SFTP ${instanceSessionId}] isLoading reset after failed readdir for ${errorPath}.`);
         }
