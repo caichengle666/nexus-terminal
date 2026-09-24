@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { sshSuspendService } from './ssh-suspend.service';
 import { SuspendedSessionInfo } from '../types/ssh-suspend.types';
+import { buildAttachmentContentDisposition } from '../utils/content-disposition';
 
 export class SshSuspendController {
 
@@ -161,7 +162,7 @@ export class SshSuspendController {
       const logData = await sshSuspendService.getSessionLogContent(userId, suspendSessionId);
 
       if (logData) {
-        res.setHeader('Content-Disposition', `attachment; filename="${logData.filename}"`);
+        res.setHeader('Content-Disposition', buildAttachmentContentDisposition(logData.filename));
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.send(logData.content);
       } else {

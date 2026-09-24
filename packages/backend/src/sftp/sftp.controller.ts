@@ -4,6 +4,7 @@ import { clientStates, sftpService } from '../websocket/state';
 import * as archiver from 'archiver';
 import { SFTPWrapper } from 'ssh2';
 import { ClientState } from '../websocket/types';
+import { buildAttachmentContentDisposition } from '../utils/content-disposition';
 
 const DOWNLOAD_METADATA_TIMEOUT_MS = 60000;
 const DOWNLOAD_INACTIVITY_TIMEOUT_MS = 120000;
@@ -94,7 +95,7 @@ export const downloadFile = async (req: Request, res: Response): Promise<void> =
         }
 
         // 设置响应头
-        res.setHeader('Content-Disposition', `attachment; filename="${path.basename(remotePath)}"`); // 建议浏览器下载的文件名
+        res.setHeader('Content-Disposition', buildAttachmentContentDisposition(path.basename(remotePath))); // 建议浏览器下载的文件名
         res.setHeader('Content-Type', 'application/octet-stream'); // 通用二进制类型
         if (stats.size) {
             res.setHeader('Content-Length', stats.size.toString());
@@ -234,7 +235,7 @@ export const downloadDirectory = async (req: Request, res: Response): Promise<vo
         const archiveName = `${baseName}.zip`; // 拼接 .zip 后缀
         // --- 结束修正 ---
         res.setHeader('Content-Type', 'application/zip');
-        res.setHeader('Content-Disposition', `attachment; filename="${archiveName}"`); // 使用修正后的名称
+        res.setHeader('Content-Disposition', buildAttachmentContentDisposition(archiveName)); // 使用修正后的名称
 
         // 3. 创建 Archiver 实例
         const archive = archiver.create('zip', {

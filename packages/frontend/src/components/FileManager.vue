@@ -771,8 +771,16 @@ const downloadResponseAsBlob = async (response: Response, onProgress: (progress?
 
 const getDownloadFilename = (response: Response, fallback: string) => {
     const contentDisposition = response.headers.get('content-disposition');
-    const filenameMatch = contentDisposition?.match(/filename\*?=(?:UTF-8''|"|)([^";]+)/i);
-    return (filenameMatch?.[1] || fallback).replace(/"/g, '');
+    const encodedFilenameMatch = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/i);
+    if (encodedFilenameMatch?.[1]) {
+        try {
+            return decodeURIComponent(encodedFilenameMatch[1]);
+        } catch {
+            // Fall back to the ASCII filename when the encoded value is invalid.
+        }
+    }
+    const filenameMatch = contentDisposition?.match(/filename="([^"]+)"|filename=([^;]+)/i);
+    return (filenameMatch?.[1] || filenameMatch?.[2] || fallback).replace(/"/g, '');
 };
 
 const readDownloadError = async (response: Response) => {

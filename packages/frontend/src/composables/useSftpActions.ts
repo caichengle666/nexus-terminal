@@ -100,6 +100,7 @@ export function createSftpActionsManager(
     const lastDirectoryRequestAt = { current: 0 };
     const lastDirectoryRequestPath = { current: '' };
     const pendingDirectoryPath = { current: '/' };
+    const pendingDirectoryRefresh = { current: false };
     const directoryRetryCount = { current: 0 };
     let directoryLoadTimeoutId: ReturnType<typeof setTimeout> | null = null;
     const instanceSessionId = sessionId; // 保存会话 ID 用于日志
@@ -165,6 +166,7 @@ export function createSftpActionsManager(
     const cleanup = () => {
         console.log(`[SFTP ${instanceSessionId}] Cleaning up message handlers.`);
         resetDirectoryLoading();
+        pendingDirectoryRefresh.current = false;
         fileOperationTaskIds.clear();
         unregisterCallbacks.forEach(cb => cb());
         unregisterCallbacks.length = 0; // 清空数组
@@ -313,12 +315,12 @@ export function createSftpActionsManager(
         }
         if (isLoading.value) {
             if (forceRefresh) {
-                console.warn(`[SFTP ${instanceSessionId}] 强制刷新将替换未完成的目录请求。`);
-                resetDirectoryLoading();
+                pendingDirectoryRefresh.current = true;
+                console.warn(`[SFTP ${instanceSessionId}] 当前目录请求仍在进行，刷新将排队等待。`);
             } else {
                 console.warn(`[SFTP ${instanceSessionId}] 尝试加载目录 ${path} 但已在加载中。`);
-                return;
             }
+            return;
         }
 
         console.log(`[SFTP ${instanceSessionId}] ${forceRefresh ? '强制' : ''}加载目录: ${path}`);
@@ -774,6 +776,10 @@ export function createSftpActionsManager(
         // 重置加载状态，因为这是匹配的响应
         resetDirectoryLoading();
         console.log(`[SFTP ${instanceSessionId}] isLoading reset after successful readdir for ${path}.`);
+        if (pendingDirectoryRefresh.current && isConnected.value) {
+            pendingDirectoryRefresh.current = false;
+            loadDirectoryInternal(path, true);
+        }
     };
 
     const onSftpReaddirError = (payload: MessagePayload, message: WebSocketMessage) => {

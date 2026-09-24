@@ -102,6 +102,7 @@ export class SftpService {
     private healthTimers = new Map<string, NodeJS.Timeout>();
     private healthChecksInFlight = new Set<string>();
     private activeSessionActivities = new Map<string, number>();
+    private pendingDirectoryReads = new Map<string, Promise<SftpDirEntry[]>>();
     private recoveryPromises = new Map<string, Promise<void>>();
     private recoveryTokens = new Map<string, symbol>();
     private readonly initializationTimeoutMs: number;
@@ -405,9 +406,19 @@ export class SftpService {
         }
         console.debug(`[SFTP ${sessionId}] Received readdir request for ${path} (ID: ${requestId})`);
         try {
-            const list = await this.runMetadataOperation<SftpDirEntry[]>(sessionId, requestId, `读取目录 ${path}`, (sftp, callback) => {
-                sftp.readdir(path, callback);
-            });
+            const operationKey = `${sessionId}\u0000${path}`;
+            let directoryRead = this.pendingDirectoryReads.get(operationKey);
+            if (!directoryRead) {
+                directoryRead = this.runMetadataOperation<SftpDirEntry[]>(sessionId, requestId, `读取目录 ${path}`, (sftp, callback) => {
+                    sftp.readdir(path, callback);
+                }).finally(() => {
+                    if (this.pendingDirectoryReads.get(operationKey) === directoryRead) {
+                        this.pendingDirectoryReads.delete(operationKey);
+                    }
+                });
+                this.pendingDirectoryReads.set(operationKey, directoryRead);
+            }
+            const list = await directoryRead;
             if (list.length > MAX_DIRECTORY_ENTRIES) {
                 throw new Error(`目录包含 ${list.length} 个条目，超过 ${MAX_DIRECTORY_ENTRIES} 个安全上限`);
             }
