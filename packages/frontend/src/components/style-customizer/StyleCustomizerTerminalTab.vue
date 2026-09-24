@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useAppearanceStore } from '../../stores/appearance.store';
 import { useUiNotificationsStore } from '../../stores/uiNotifications.store';
 import { storeToRefs } from 'pinia';
+import apiClient from '../../utils/apiClient';
 import type { ITheme } from '@xterm/xterm';
 import type { TerminalTheme } from '../../types/terminal-theme.types';
 import { defaultXtermTheme } from '../../features/appearance/config/default-themes';
@@ -58,6 +59,7 @@ const editableTerminalThemeString = ref('');
 const terminalThemeParseError = ref<string | null>(null);
 const previewedTheme = ref<TerminalTheme | null>(null);
 const previewTerminalThemeData = ref<ITheme | null>(null);
+const isGeneratingTerminalTheme = ref(false);
 const terminalThemeForPreview = computed(() => previewTerminalThemeData.value ?? currentTerminalTheme.value);
 const terminalThemePlaceholder = `background: #000000
 foreground: #ffffff
@@ -258,6 +260,79 @@ const handleAddNewTheme = () => {
     editableTerminalThemeString.value = '';
   }
   emit('update:isEditingTheme', true);
+};
+
+const generateAiTerminalTheme = async () => {
+  if (isGeneratingTerminalTheme.value) return;
+  isGeneratingTerminalTheme.value = true;
+
+  try {
+    const { data: aiConfig } = await apiClient.get('/ai/config');
+    if (!aiConfig?.apiBaseUrl || !aiConfig?.model || !aiConfig?.hasApiKey) {
+      throw new Error(t('styleCustomizer.aiThemeSetupRequired', '请先在 AI 助手设置中配置 API 地址、密钥和模型。'));
+    }
+
+    const themeTemplate = JSON.parse(JSON.stringify(defaultXtermTheme)) as ITheme;
+    const response = await apiClient.post('/ai/chat', {
+      temperature: 1,
+      responseFormat: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an xterm.js terminal color theme designer. Return only one valid JSON object with exactly two keys: "name" and "theme". Give the theme a short, creative Chinese name. In "theme", keep exactly the provided ITheme color keys. Create a cohesive, polished terminal palette with strong foreground/background contrast, readable ANSI colors, and visible cursor and selection colors. Use valid CSS color values only.',
+        },
+        {
+          role: 'user',
+          content: `Create a fresh random terminal color theme. Random seed: ${Date.now()}. Return JSON in this shape: {"name":"中文主题名","theme":{...}}. Use exactly these xterm.js ITheme keys and values as the starting template for the theme object:\n${JSON.stringify(themeTemplate)}`,
+        },
+      ],
+    }, { timeout: 130000 });
+
+    const content = response.data?.choices?.[0]?.message?.content;
+    const responseText = typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content.filter(part => part?.type === 'text').map(part => part.text).join('')
+        : '';
+    const jsonText = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    const generatedResult = JSON.parse(jsonText);
+    const generatedTheme = generatedResult?.theme;
+    const expectedKeys = Object.keys(defaultXtermTheme);
+
+    if (!generatedResult || typeof generatedResult.name !== 'string' || !generatedResult.name.trim()
+      || generatedResult.name.trim().length > 40
+      || Object.keys(generatedResult).some(key => !['name', 'theme'].includes(key))
+      || !generatedTheme || typeof generatedTheme !== 'object' || Array.isArray(generatedTheme)
+      || expectedKeys.some(key => typeof generatedTheme[key] !== 'string' || generatedTheme[key].length > 200 || !CSS.supports('color', generatedTheme[key]))
+      || Object.keys(generatedTheme).some(key => !expectedKeys.includes(key))) {
+      throw new Error(t('styleCustomizer.aiThemeInvalidResponse', 'AI 返回的主题格式无效，请重试。'));
+    }
+
+    const generatedThemeData = Object.fromEntries(expectedKeys.map(key => [key, generatedTheme[key]])) as ITheme;
+    const newTheme: TerminalTheme = {
+      _id: undefined,
+      name: generatedResult.name.trim(),
+      themeData: generatedThemeData,
+      isPreset: false,
+    };
+    emit('update:editingTheme', newTheme);
+    editableTerminalThemeString.value = Object.entries(generatedThemeData).map(([key, value]) => `${key}: ${value}`).join('\n');
+    saveThemeError.value = null;
+    terminalThemeParseError.value = null;
+    emit('update:isEditingTheme', true);
+    notificationsStore.addNotification({
+      type: 'success',
+      message: t('styleCustomizer.aiThemeGenerated', 'AI 配色已生成并预览，确认后再保存。'),
+    });
+  } catch (error: any) {
+    console.error('AI 生成终端主题失败:', error);
+    notificationsStore.addNotification({
+      type: 'error',
+      message: error.response?.data?.message || error.message || t('styleCustomizer.aiThemeGenerateFailed', 'AI 配色生成失败。'),
+    });
+  } finally {
+    isGeneratingTerminalTheme.value = false;
+  }
 };
 
 const handleEditTheme = async (theme: TerminalTheme) => {
@@ -664,7 +739,18 @@ onUnmounted(cancelTerminalThemePreview);
     </div>
 
     <div class="mt-4 mb-6 flex gap-2 flex-wrap items-center pb-4 border-b border-dashed border-border">
-        <button @click="handleAddNewTheme" class="px-3 py-1.5 text-sm border border-border rounded bg-header hover:bg-border transition duration-200 ease-in-out whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">{{ t('styleCustomizer.addNewTheme') }}</button>
+        <button
+          type="button"
+          class="inline-flex min-h-9 items-center gap-2 rounded border border-primary/50 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-wait disabled:opacity-60"
+          :disabled="isGeneratingTerminalTheme"
+          :aria-busy="isGeneratingTerminalTheme"
+          @click="generateAiTerminalTheme"
+        >
+          <i :class="isGeneratingTerminalTheme ? 'fas fa-spinner fa-spin' : 'fas fa-wand-magic-sparkles'" aria-hidden="true" />
+          {{ isGeneratingTerminalTheme ? t('styleCustomizer.aiThemeGenerating') : t('styleCustomizer.aiThemeGenerate') }}
+        </button>
+        <span class="text-xs text-text-secondary">{{ t('styleCustomizer.aiThemePreviewHint') }}</span>
+        <button :disabled="isGeneratingTerminalTheme" @click="handleAddNewTheme" class="px-3 py-1.5 text-sm border border-border rounded bg-header hover:bg-border transition duration-200 ease-in-out whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">{{ t('styleCustomizer.addNewTheme') }}</button>
     </div>
      
      <div class="mb-4">

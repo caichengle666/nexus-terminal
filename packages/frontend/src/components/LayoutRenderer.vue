@@ -68,6 +68,7 @@ const {
   isTerminalBackgroundEnabled,
   currentTerminalBackgroundOverlayOpacity,
   terminalCustomHTML,
+  currentTerminalTheme,
 } = storeToRefs(appearanceStore);
 
 const { activeSession } = storeToRefs(sessionStore);
@@ -448,11 +449,14 @@ onMounted(() => {
 
 // +++ Background Image Style +++
 const terminalBackgroundImageStyle = computed((): CSSProperties => {
+  const terminalThemeBackground = currentTerminalTheme.value.background ?? '#000000';
+
   if (isTerminalBackgroundEnabled.value && terminalBackgroundImage.value && props.layoutNode.component === 'terminal') {
     const backendUrl = import.meta.env.VITE_API_BASE_URL || '';
     const imagePath = terminalBackgroundImage.value;
     const fullImageUrl = `${backendUrl}${imagePath}`;
     return {
+      backgroundColor: terminalThemeBackground,
       backgroundImage: `url(${fullImageUrl})`,
       backgroundSize: 'cover',
       backgroundPosition: 'center',
@@ -466,6 +470,7 @@ const terminalBackgroundImageStyle = computed((): CSSProperties => {
     };
   }
   return {
+    backgroundColor: terminalThemeBackground,
     backgroundImage: 'none',
     position: 'absolute',
     top: '0',
@@ -864,7 +869,8 @@ onBeforeUnmount(() => {
 }
 
 .terminal-pane-container.has-global-terminal-background .terminal-outer-wrapper.terminal-transparent .terminal-inner-container .xterm-viewport,
-.terminal-pane-container.has-global-terminal-background .terminal-outer-wrapper.terminal-transparent .terminal-inner-container .xterm-screen {
+.terminal-pane-container.has-global-terminal-background .terminal-outer-wrapper.terminal-transparent .terminal-inner-container .xterm-screen,
+.terminal-pane-container.has-global-terminal-background .terminal-outer-wrapper.terminal-transparent .terminal-inner-container .xterm-scrollable-element {
   background-color: transparent !important;
 }
 
