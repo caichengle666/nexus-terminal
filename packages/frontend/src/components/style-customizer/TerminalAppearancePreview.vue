@@ -39,6 +39,13 @@ const props = withDefaults(defineProps<{
 
 const resolvedTheme = computed<ITheme>(() => ({ ...defaultXtermTheme, ...(props.theme || {}) }));
 
+const hasBackgroundContent = computed(() => Boolean(
+  props.backgroundEnabled && (props.backgroundImage || props.customHtml)
+));
+
+const hasBackgroundImage = computed(() => Boolean(props.backgroundEnabled && props.backgroundImage));
+
+const hasCustomHtml = computed(() => Boolean(props.backgroundEnabled && props.customHtml));
 const resolvedBackgroundImage = computed(() => {
   if (!props.backgroundEnabled || !props.backgroundImage) return 'none';
   const imagePath = props.backgroundImage;
@@ -48,7 +55,7 @@ const resolvedBackgroundImage = computed(() => {
 });
 
 const terminalStyle = computed<CSSProperties>(() => ({
-  backgroundColor: props.backgroundEnabled ? 'transparent' : resolvedTheme.value.background,
+  backgroundColor: hasBackgroundContent.value ? 'transparent' : resolvedTheme.value.background,
   color: resolvedTheme.value.foreground,
   fontFamily: props.fontFamily,
   fontSize: `${Math.min(Math.max(props.fontSize, 10), 20)}px`,
@@ -74,12 +81,12 @@ const terminalStyle = computed<CSSProperties>(() => ({
       :style="{ backgroundColor: resolvedTheme.background, backgroundImage: resolvedBackgroundImage }"
     >
       <div
-        v-if="backgroundEnabled"
+        v-if="hasBackgroundImage"
         class="absolute inset-0 z-[1]"
         :style="{ backgroundColor: `rgba(0, 0, 0, ${overlayOpacity})` }"
       ></div>
       <div
-        v-if="backgroundEnabled && customHtml"
+        v-if="hasCustomHtml"
         class="pointer-events-none absolute inset-0 z-[2] overflow-hidden"
         v-html="customHtml"
       ></div>

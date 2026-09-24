@@ -76,6 +76,10 @@ const { workspaceSidebarPersistentBoolean, getSidebarPaneWidth } = storeToRefs(s
 const { sidebarPanes } = storeToRefs(layoutStore);
 const { orderedTabs: editorTabsFromStore, activeTabId: activeEditorTabIdFromStore } = storeToRefs(fileEditorStore); // <-- Get editor state
 
+const hasTerminalBackgroundContent = computed(() => (
+  isTerminalBackgroundEnabled.value && Boolean(terminalBackgroundImage.value || terminalCustomHTML.value)
+));
+
 // --- Sidebar State ---
 const activeLeftSidebarPane = ref<PaneName | null>(null);
 const activeRightSidebarPane = ref<PaneName | null>(null);
@@ -580,23 +584,24 @@ onBeforeUnmount(() => {
                 <!-- Terminal Pane: Render ALL SSH sessions, show only the active one -->
                <template v-if="layoutNode.component === 'terminal'">
                    <div
-                       class="terminal-pane-container relative flex-grow overflow-hidden"
-                       :class="{ 'has-global-terminal-background': isTerminalBackgroundEnabled, 'bg-background': !isTerminalBackgroundEnabled }"
-                   >
-                       <!-- Shared Background Layers -->
-                       <div
-                           v-if="isTerminalBackgroundEnabled"
-                           class="shared-terminal-background-layers"
-                           style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0;"
-                       >
-                           <!-- Background Image -->
-                           <div
-                               class="terminal-background-image-layer"
-                               :style="terminalBackgroundImageStyle"
-                           ></div>
-                           <!-- Color Overlay -->
-                           <div
-                               class="terminal-background-overlay-layer"
+                        class="terminal-pane-container relative flex-grow overflow-hidden"
+                        :class="{ 'has-global-terminal-background': hasTerminalBackgroundContent, 'bg-background': !hasTerminalBackgroundContent }"
+                    >
+                        <!-- Shared Background Layers -->
+                        <div
+                            v-if="hasTerminalBackgroundContent"
+                            class="shared-terminal-background-layers"
+                            style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0;"
+                        >
+                            <!-- Background Image -->
+                            <div
+                                class="terminal-background-image-layer"
+                                :style="terminalBackgroundImageStyle"
+                            ></div>
+                            <!-- Color Overlay -->
+                            <div
+                                v-if="terminalBackgroundImage"
+                                class="terminal-background-overlay-layer"
                                :style="{
                                    position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
                                    backgroundColor: `rgba(0, 0, 0, ${currentTerminalBackgroundOverlayOpacity})`,
