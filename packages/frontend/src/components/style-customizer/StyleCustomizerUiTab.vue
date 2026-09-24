@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from 'vue';
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAppearanceStore } from '../../stores/appearance.store';
 import { useUiNotificationsStore } from '../../stores/uiNotifications.store';
-import apiClient from '../../utils/apiClient';
 import { storeToRefs } from 'pinia';
 import { defaultUiTheme, uiThemePresets, type UiThemePreset } from '../../features/appearance/config/default-themes';
 import { safeJsonParse } from '../../stores/appearance.store';
@@ -24,14 +23,100 @@ const customUiThemes = ref<CustomUiTheme[]>([]);
 const isCreatingCustomTheme = ref(false);
 const customThemeName = ref('');
 const isGeneratingTheme = ref(false);
+const aiThemeGenerationError = ref<string | null>(null);
+let aiThemeAbortController: AbortController | null = null;
+let aiThemeGenerationRequestId = 0;
 const nonColorThemeKeys = ['--font-family-sans-serif', '--base-padding', '--base-margin'];
+
+const cancelAiThemeGeneration = () => {
+  aiThemeGenerationRequestId += 1;
+  aiThemeAbortController?.abort();
+  aiThemeAbortController = null;
+  isGeneratingTheme.value = false;
+  aiThemeGenerationError.value = null;
+};
+
+const isValidCssColor = (value: string): boolean => {
+  if (typeof CSS === 'undefined' || typeof CSS.supports !== 'function') return true;
+  try {
+    return CSS.supports('color', value);
+  } catch {
+    return true;
+  }
+};
+
+const requestAiThemeJson = async (payload: Record<string, unknown>, signal: AbortSignal): Promise<string> => {
+  const response = await fetch('/api/v1/ai/chat', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    signal,
+    body: JSON.stringify({ ...payload, stream: true }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    let message = body;
+    try {
+      message = JSON.parse(body)?.message || body;
+    } catch {
+      // Keep the provider response when it is not JSON.
+    }
+    throw new Error(message || `AI 请求失败（${response.status}）。`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('text/event-stream') || !response.body) {
+    const data = await response.json();
+    const content = data?.choices?.[0]?.message?.content;
+    return typeof content === 'string' ? content : '';
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let responseText = '';
+
+  const processLine = (line: string) => {
+    if (!line.startsWith('data:')) return;
+    const value = line.slice(5).trim();
+    if (!value || value === '[DONE]') return;
+    try {
+      const chunk = JSON.parse(value);
+      const delta = chunk?.choices?.[0]?.delta?.content;
+      if (typeof delta === 'string') responseText += delta;
+    } catch {
+      // Ignore keepalive or malformed SSE lines.
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (value) {
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      lines.forEach(processLine);
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) processLine(buffer.trim());
+  return responseText;
+};
 
 const generateAiUiTheme = async () => {
   if (isGeneratingTheme.value) return;
+
+  const requestId = ++aiThemeGenerationRequestId;
+  const controller = new AbortController();
+  aiThemeAbortController = controller;
+  aiThemeGenerationError.value = null;
   isGeneratingTheme.value = true;
 
   try {
-    const { data: aiConfig } = await apiClient.get('/ai/config');
+    const configResponse = await fetch('/api/v1/ai/config', { credentials: 'include', signal: controller.signal });
+    if (!configResponse.ok) throw new Error(t('styleCustomizer.aiThemeGenerateFailed', 'AI 配色生成失败。'));
+    const aiConfig = await configResponse.json();
     if (!aiConfig?.apiBaseUrl || !aiConfig?.model || !aiConfig?.hasApiKey) {
       throw new Error(t('styleCustomizer.aiThemeSetupRequired', '请先在 AI 助手设置中配置 API 地址、密钥和模型。'));
     }
@@ -39,7 +124,7 @@ const generateAiUiTheme = async () => {
     const themeTemplate = Object.fromEntries(
       Object.keys(defaultUiTheme).map(key => [key, editableUiTheme.value[key] ?? defaultUiTheme[key]]),
     );
-    const response = await apiClient.post('/ai/chat', {
+    const responseText = await requestAiThemeJson({
       temperature: 1,
       responseFormat: { type: 'json_object' },
       messages: [
@@ -52,14 +137,10 @@ const generateAiUiTheme = async () => {
           content: `Create a fresh random UI color theme. Random seed: ${Date.now()}. Return JSON in this shape: {"name":"中文主题名","theme":{...}}. Use exactly these CSS variable keys and values as the starting template for the theme object:\n${JSON.stringify(themeTemplate)}`,
         },
       ],
-    }, { timeout: 130000 });
+    }, controller.signal);
 
-    const content = response.data?.choices?.[0]?.message?.content;
-    const responseText = typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? content.filter(part => part?.type === 'text').map(part => part.text).join('')
-        : '';
+    if (requestId !== aiThemeGenerationRequestId) return;
+
     const jsonText = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     const generatedResult = JSON.parse(jsonText);
     const generatedTheme = generatedResult?.theme;
@@ -71,7 +152,7 @@ const generateAiUiTheme = async () => {
       || !generatedTheme || typeof generatedTheme !== 'object' || Array.isArray(generatedTheme)
       || expectedKeys.some(key => typeof generatedTheme[key] !== 'string' || generatedTheme[key].length > 200)
       || Object.keys(generatedTheme).some(key => !expectedKeys.includes(key))
-      || expectedKeys.some(key => !nonColorThemeKeys.includes(key) && !CSS.supports('color', generatedTheme[key]))) {
+      || expectedKeys.some(key => !nonColorThemeKeys.includes(key) && !isValidCssColor(generatedTheme[key]))) {
       throw new Error(t('styleCustomizer.aiThemeInvalidResponse', 'AI 返回的主题格式无效，请重试。'));
     }
 
@@ -86,13 +167,18 @@ const generateAiUiTheme = async () => {
       message: t('styleCustomizer.aiThemeGenerated', 'AI 配色已生成并预览，确认后再保存。'),
     });
   } catch (error: any) {
+    if (requestId !== aiThemeGenerationRequestId || error?.name === 'AbortError') return;
     console.error('AI 随机生成 UI 主题失败:', error);
+    const errorMessage = error.message || t('styleCustomizer.aiThemeGenerateFailed', 'AI 配色生成失败。');
+    aiThemeGenerationError.value = errorMessage;
     notificationsStore.addNotification({
       type: 'error',
-      message: error.response?.data?.message || error.message || t('styleCustomizer.aiThemeGenerateFailed', 'AI 配色生成失败。'),
+      message: errorMessage,
     });
   } finally {
+    if (requestId !== aiThemeGenerationRequestId) return;
     isGeneratingTheme.value = false;
+    aiThemeAbortController = null;
   }
 };
 
@@ -144,6 +230,7 @@ watch(() => appearanceSettings.value.customUiTheme, () => {
 
 
 const handleSaveUiTheme = async () => {
+  if (isGeneratingTheme.value) return;
   try {
     await appearanceStore.saveCustomUiTheme(editableUiTheme.value);
     notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.uiThemeSaved') });
@@ -154,19 +241,23 @@ const handleSaveUiTheme = async () => {
 };
 
 const handleResetUiTheme = () => {
+  cancelAiThemeGeneration();
   editableUiTheme.value = JSON.parse(JSON.stringify(defaultUiTheme));
 };
 
 const previewThemePreset = (preset: UiThemePreset) => {
+  cancelAiThemeGeneration();
   editableUiTheme.value = JSON.parse(JSON.stringify(preset.theme));
 };
 
 const openCreateCustomTheme = () => {
+  cancelAiThemeGeneration();
   customThemeName.value = t('styleCustomizer.newThemeDefaultName', '新主题');
   isCreatingCustomTheme.value = true;
 };
 
 const cancelCreateCustomTheme = () => {
+  cancelAiThemeGeneration();
   isCreatingCustomTheme.value = false;
   customThemeName.value = '';
 };
@@ -313,6 +404,10 @@ defineExpose({
   handleResetUiTheme
 });
 
+onUnmounted(() => {
+  cancelAiThemeGeneration();
+});
+
 </script>
 
 <template>
@@ -330,6 +425,15 @@ defineExpose({
         {{ isGeneratingTheme ? t('styleCustomizer.aiThemeGenerating', 'AI 正在创作配色...') : t('styleCustomizer.aiThemeGenerate', 'AI 随机生成配色') }}
       </button>
       <span class="text-xs text-text-secondary">{{ t('styleCustomizer.aiThemePreviewHint', '生成后先预览，满意后再保存。') }}</span>
+    </div>
+    <div v-if="isGeneratingTheme" class="mb-3 flex items-center gap-2 rounded border border-primary/40 bg-primary/10 px-3 py-2 text-sm text-foreground">
+      <i class="fas fa-spinner fa-spin text-primary" aria-hidden="true" />
+      <span>{{ t('styleCustomizer.aiThemeGenerating', 'AI 正在创作配色...') }}</span>
+      <button type="button" @click="cancelAiThemeGeneration" class="ml-auto rounded border border-border px-3 py-1 text-xs font-medium hover:bg-border">{{ t('common.cancel', '取消') }}</button>
+    </div>
+    <div v-else-if="aiThemeGenerationError" class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded border border-error/30 bg-error/10 px-3 py-2 text-sm text-error-text">
+      <span>{{ aiThemeGenerationError }}</span>
+      <button type="button" @click="generateAiUiTheme" class="rounded border border-error/40 px-3 py-1 text-xs font-medium hover:bg-error/20">{{ t('common.retry', '重试') }}</button>
     </div>
     <UiAppearancePreview class="mb-5" :theme="editableUiTheme" />
     <div class="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start md:items-center gap-2 md:gap-3 mb-6">

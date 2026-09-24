@@ -60,6 +60,9 @@ const terminalThemeParseError = ref<string | null>(null);
 const previewedTheme = ref<TerminalTheme | null>(null);
 const previewTerminalThemeData = ref<ITheme | null>(null);
 const isGeneratingTerminalTheme = ref(false);
+const aiThemeGenerationError = ref<string | null>(null);
+let aiThemeAbortController: AbortController | null = null;
+let aiThemeGenerationRequestId = 0;
 const terminalThemeForPreview = computed(() => previewTerminalThemeData.value ?? currentTerminalTheme.value);
 const terminalThemePlaceholder = `background: #000000
 foreground: #ffffff
@@ -237,7 +240,25 @@ const cancelTerminalThemePreview = () => {
   previewedTheme.value = null;
 };
 
+const cancelAiThemeGeneration = () => {
+  aiThemeGenerationRequestId += 1;
+  aiThemeAbortController?.abort();
+  aiThemeAbortController = null;
+  isGeneratingTerminalTheme.value = false;
+  aiThemeGenerationError.value = null;
+};
+
+const isValidCssColor = (value: string): boolean => {
+  if (typeof CSS === 'undefined' || typeof CSS.supports !== 'function') return true;
+  try {
+    return CSS.supports('color', value);
+  } catch {
+    return true;
+  }
+};
+
 const handleAddNewTheme = () => {
+  cancelAiThemeGeneration();
   saveThemeError.value = null;
   terminalThemeParseError.value = null;
   const newTheme: TerminalTheme = {
@@ -264,7 +285,99 @@ const handleAddNewTheme = () => {
 
 const generateAiTerminalTheme = async () => {
   if (isGeneratingTerminalTheme.value) return;
+
+  const requestId = ++aiThemeGenerationRequestId;
+  const controller = new AbortController();
+  aiThemeAbortController = controller;
+  aiThemeGenerationError.value = null;
   isGeneratingTerminalTheme.value = true;
+
+
+  const themeTemplate = JSON.parse(JSON.stringify(defaultXtermTheme)) as ITheme;
+  const requestAiThemeJson = async (signal: AbortSignal): Promise<string> => {
+    const response = await fetch('/api/v1/ai/chat', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      signal,
+      body: JSON.stringify({
+        temperature: 1,
+        responseFormat: { type: 'json_object' },
+        stream: true,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an xterm.js terminal color theme designer. Return only one valid JSON object with exactly two keys: "name" and "theme". Give the theme a short, creative Chinese name. In "theme", keep exactly the provided ITheme color keys. Create a cohesive, polished terminal palette with strong foreground/background contrast, readable ANSI colors, and visible cursor and selection colors. Use valid CSS color values only.',
+          },
+          {
+            role: 'user',
+            content: `Create a fresh random terminal color theme. Random seed: ${Date.now()}. Return JSON in this shape: {"name":"中文主题名","theme":{...}}. Use exactly these xterm.js ITheme keys and values as the starting template for the theme object:\n${JSON.stringify(themeTemplate)}`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      let message = body;
+      try {
+        message = JSON.parse(body)?.message || body;
+      } catch {
+        // Keep the provider response when it is not JSON.
+      }
+      throw new Error(message || `AI 请求失败（${response.status}）。`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('text/event-stream') || !response.body) {
+      const data = await response.json();
+      const content = data?.choices?.[0]?.message?.content;
+      return typeof content === 'string' ? content : '';
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let responseText = '';
+
+    const processLine = (line: string) => {
+      if (!line.startsWith('data:')) return;
+      const value = line.slice(5).trim();
+      if (!value || value === '[DONE]') return;
+      try {
+        const chunk = JSON.parse(value);
+        const delta = chunk?.choices?.[0]?.delta?.content;
+        if (typeof delta === 'string') responseText += delta;
+      } catch {
+        // Ignore keepalive or malformed SSE lines.
+      }
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (value) {
+        buffer += decoder.decode(value, { stream: !done });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || '';
+        lines.forEach(processLine);
+      }
+      if (done) break;
+    }
+    if (buffer.trim()) processLine(buffer.trim());
+    return responseText;
+  };
+
+  const draftTheme: TerminalTheme = {
+    _id: undefined,
+    name: t('styleCustomizer.newThemeDefaultName'),
+    themeData: JSON.parse(JSON.stringify(defaultXtermTheme)),
+    isPreset: false,
+  };
+  emit('update:editingTheme', draftTheme);
+  editableTerminalThemeString.value = Object.entries(draftTheme.themeData).map(([key, value]) => `${key}: ${value}`).join('\n');
+  saveThemeError.value = null;
+  terminalThemeParseError.value = null;
+  emit('update:isEditingTheme', true);
 
   try {
     const { data: aiConfig } = await apiClient.get('/ai/config');
@@ -272,28 +385,10 @@ const generateAiTerminalTheme = async () => {
       throw new Error(t('styleCustomizer.aiThemeSetupRequired', '请先在 AI 助手设置中配置 API 地址、密钥和模型。'));
     }
 
-    const themeTemplate = JSON.parse(JSON.stringify(defaultXtermTheme)) as ITheme;
-    const response = await apiClient.post('/ai/chat', {
-      temperature: 1,
-      responseFormat: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: 'You are an xterm.js terminal color theme designer. Return only one valid JSON object with exactly two keys: "name" and "theme". Give the theme a short, creative Chinese name. In "theme", keep exactly the provided ITheme color keys. Create a cohesive, polished terminal palette with strong foreground/background contrast, readable ANSI colors, and visible cursor and selection colors. Use valid CSS color values only.',
-        },
-        {
-          role: 'user',
-          content: `Create a fresh random terminal color theme. Random seed: ${Date.now()}. Return JSON in this shape: {"name":"中文主题名","theme":{...}}. Use exactly these xterm.js ITheme keys and values as the starting template for the theme object:\n${JSON.stringify(themeTemplate)}`,
-        },
-      ],
-    }, { timeout: 130000 });
+    const responseText = await requestAiThemeJson(controller.signal);
 
-    const content = response.data?.choices?.[0]?.message?.content;
-    const responseText = typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? content.filter(part => part?.type === 'text').map(part => part.text).join('')
-        : '';
+    if (requestId !== aiThemeGenerationRequestId) return;
+
     const jsonText = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     const generatedResult = JSON.parse(jsonText);
     const generatedTheme = generatedResult?.theme;
@@ -303,7 +398,7 @@ const generateAiTerminalTheme = async () => {
       || generatedResult.name.trim().length > 40
       || Object.keys(generatedResult).some(key => !['name', 'theme'].includes(key))
       || !generatedTheme || typeof generatedTheme !== 'object' || Array.isArray(generatedTheme)
-      || expectedKeys.some(key => typeof generatedTheme[key] !== 'string' || generatedTheme[key].length > 200 || !CSS.supports('color', generatedTheme[key]))
+      || expectedKeys.some(key => typeof generatedTheme[key] !== 'string' || generatedTheme[key].length > 200 || !isValidCssColor(generatedTheme[key]))
       || Object.keys(generatedTheme).some(key => !expectedKeys.includes(key))) {
       throw new Error(t('styleCustomizer.aiThemeInvalidResponse', 'AI 返回的主题格式无效，请重试。'));
     }
@@ -325,13 +420,18 @@ const generateAiTerminalTheme = async () => {
       message: t('styleCustomizer.aiThemeGenerated', 'AI 配色已生成并预览，确认后再保存。'),
     });
   } catch (error: any) {
+    if (requestId !== aiThemeGenerationRequestId || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError') return;
     console.error('AI 生成终端主题失败:', error);
+    const errorMessage = error.response?.data?.message || error.message || t('styleCustomizer.aiThemeGenerateFailed', 'AI 配色生成失败。');
+    aiThemeGenerationError.value = errorMessage;
     notificationsStore.addNotification({
       type: 'error',
       message: error.response?.data?.message || error.message || t('styleCustomizer.aiThemeGenerateFailed', 'AI 配色生成失败。'),
     });
   } finally {
+    if (requestId !== aiThemeGenerationRequestId) return;
     isGeneratingTerminalTheme.value = false;
+    aiThemeAbortController = null;
   }
 };
 
@@ -389,6 +489,7 @@ const handleEditTheme = async (theme: TerminalTheme) => {
 };
 
 const handleSaveEditingTheme = async () => {
+  if (isGeneratingTerminalTheme.value) return;
   if (!props.editingTheme || !props.editingTheme.name) {
     saveThemeError.value = t('styleCustomizer.errorThemeNameRequired');
     return;
@@ -432,6 +533,7 @@ const handleSaveEditingTheme = async () => {
 };
 
 const handleCancelEditingTheme = () => {
+  cancelAiThemeGeneration();
   cancelTerminalThemePreview();
   emit('update:isEditingTheme', false);
   emit('update:editingTheme', null);
@@ -586,7 +688,10 @@ watch(() => props.isEditingTheme, (isEditing) => {
     }
 }, { immediate: true });
 
-onUnmounted(cancelTerminalThemePreview);
+onUnmounted(() => {
+  cancelTerminalThemePreview();
+  cancelAiThemeGeneration();
+});
 
 
 </script>
@@ -813,6 +918,14 @@ onUnmounted(cancelTerminalThemePreview);
 
   <section v-if="isEditingTheme && editingTheme">
       <h3 class="mt-0 border-b border-border pb-2 mb-4 text-lg font-semibold text-foreground">{{ editingTheme._id ? t('styleCustomizer.editThemeTitle') : t('styleCustomizer.newThemeTitle') }}</h3>
+      <div v-if="isGeneratingTerminalTheme" class="mb-3 flex items-center gap-2 rounded border border-primary/40 bg-primary/10 px-3 py-2 text-sm text-foreground">
+        <i class="fas fa-spinner fa-spin text-primary" aria-hidden="true" />
+        <span>{{ t('styleCustomizer.aiThemeGenerating', 'AI 正在创作配色...') }}</span>
+      </div>
+      <div v-else-if="aiThemeGenerationError" class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded border border-error/30 bg-error/10 px-3 py-2 text-sm text-error-text">
+        <span>{{ aiThemeGenerationError }}</span>
+        <button type="button" @click="generateAiTerminalTheme" class="rounded border border-error/40 px-3 py-1 text-xs font-medium hover:bg-error/20">{{ t('common.retry', '重试') }}</button>
+      </div>
       <TerminalAppearancePreview class="mb-5" :theme="editingTheme.themeData" />
        <p v-if="saveThemeError" class="text-error-text bg-error/10 border border-error/30 px-3 py-2 rounded text-sm mb-3">{{ saveThemeError }}</p>
       <div class="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start md:items-center gap-2 mb-2">
@@ -869,7 +982,7 @@ onUnmounted(cancelTerminalThemePreview);
        <p v-if="terminalThemeParseError" class="text-error-text bg-error/10 border border-error/30 px-3 py-2 rounded text-sm mt-2">{{ terminalThemeParseError }}</p>
   <div class="mt-4 flex justify-end gap-2 pt-4 border-t border-border">
        <button @click="handleCancelEditingTheme" class="px-4 md:px-5 py-2 rounded font-bold border border-border bg-header text-foreground hover:bg-border disabled:opacity-60 disabled:cursor-not-allowed text-sm md:text-base">{{ t('common.cancel') }}</button> 
-       <button @click="handleSaveEditingTheme" class="px-4 md:px-5 py-2 rounded font-bold border border-button bg-button text-button-text hover:bg-button-hover hover:border-button-hover disabled:opacity-60 disabled:cursor-not-allowed text-sm md:text-base">{{ t('common.save') }}</button> 
+       <button @click="handleSaveEditingTheme" :disabled="isGeneratingTerminalTheme || !!aiThemeGenerationError" class="px-4 md:px-5 py-2 rounded font-bold border border-button bg-button text-button-text hover:bg-button-hover hover:border-button-hover disabled:opacity-60 disabled:cursor-not-allowed text-sm md:text-base">{{ t('common.save') }}</button>
    </div>
   </section>
 </template>
