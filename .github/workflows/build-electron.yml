@@ -69,6 +69,7 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: Nexus-Terminal-Windows-Installer
           path: electron-app/dist/*Setup*.exe
           if-no-files-found: error
@@ -77,6 +78,7 @@ jobs:
       - name: Upload portable unpacked artifact
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: Nexus-Terminal-Windows-Portable-Unpacked
           path: electron-app/dist/*Portable win-unpacked.zip
           if-no-files-found: error
@@ -134,6 +136,7 @@ jobs:
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: Nexus-Terminal-macOS-${{ matrix.arch }}
           path: electron-app/dist/*.dmg
           if-no-files-found: error
