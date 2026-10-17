@@ -1,3 +1,5 @@
+import { installConsoleLogger } from './utils/logger';
+installConsoleLogger();
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs'; // fs is needed for early env loading if data/.env is checked
@@ -303,7 +305,7 @@ const startServer = () => {
     server.listen(port, () => {
         console.log(`后端服务器正在监听 http://localhost:${port}`);
         // Signal to Electron main process that the backend is ready
-        console.log("BACKEND_READY_SIGNAL");
+        process.stdout.write("BACKEND_READY_SIGNAL\n"); // 绕过日志级别，供 Electron 主进程检测
         initializeWebSocket(server, sessionMiddleware as RequestHandler); // Initialize existing WebSocket
 
     });
