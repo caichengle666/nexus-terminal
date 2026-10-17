@@ -28,6 +28,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
+      # 前端容器中的 nginx 是后端前面唯一的一层代理：信任 1 跳，req.ip 即真实客户端 IP。
+      # 若在前面再加一层反向代理，请在 .env 中设置 TRUST_PROXY=代理层数 (如 2)，参阅 README。
+      TRUST_PROXY: "${TRUST_PROXY:-true}"
+      # 后端与远程桌面网关共享的密钥 (install.sh 会自动生成到 .env)
+      REMOTE_GATEWAY_SECRET: ${REMOTE_GATEWAY_SECRET:-}
     volumes:
       - ./data:/app/data
     networks:
@@ -48,6 +53,9 @@ services:
       FRONTEND_URL: http://frontend
       MAIN_BACKEND_URL: http://backend:3001
       NODE_ENV: production
+      # 令牌 API 仅在 Docker 内部网络中可达 (未映射端口)；'*' = 监听所有接口
+      REMOTE_GATEWAY_API_HOST: "*"
+      REMOTE_GATEWAY_SECRET: ${REMOTE_GATEWAY_SECRET:-}
     networks:
       - nexus-terminal-network
     depends_on:

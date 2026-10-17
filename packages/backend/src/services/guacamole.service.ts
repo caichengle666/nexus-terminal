@@ -107,8 +107,11 @@ export const getRemoteDesktopToken = async (
     console.log(`[GuacamoleService:getRemoteDesktopToken] Calling Remote Gateway API: ${tokenUrl} for protocol ${protocol}, connection ${connection.id}`);
 
     try {
+        const gatewaySecret = (process.env.REMOTE_GATEWAY_SECRET || '').trim();
         const response = await axios.post<TokenResponse>(tokenUrl, requestBody, {
-            timeout: 10000 // 10 秒超时
+            timeout: 10000, // 10 秒超时
+            // 与远程桌面网关共享的密钥 (REMOTE_GATEWAY_SECRET)，网关据此拒绝未授权的令牌请求
+            headers: gatewaySecret ? { 'X-Gateway-Secret': gatewaySecret } : undefined,
         });
 
         if (response.status !== 200 || !response.data?.token) {

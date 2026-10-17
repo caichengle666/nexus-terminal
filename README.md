@@ -127,6 +127,17 @@ location / {
 ```
 
 
+#### 🔐 安全相关配置（`.env`）
+
+| 变量 | 说明 |
+| --- | --- |
+| `TRUST_PROXY` | Docker Compose 中默认为 `true`：前端容器内的 nginx 是后端前面唯一的一层代理，后端只信任这一跳写入的 `X-Forwarded-For`，客户端无法伪造 IP（IP 白名单、审计日志、WebSocket 均使用该 IP）。**如果像上面那样在前面再加一层反向代理**，请把它设为代理层数（在 `.env` 中设置，例如 `TRUST_PROXY=2`），否则后端看到的将是外层代理的 IP。 |
+| `SESSION_COOKIE_SECURE` | 通过 HTTPS 访问时请设为 `true`，会话 Cookie 将只通过 HTTPS 发送。 |
+| `ALLOWED_WS_ORIGINS` | 可选，逗号分隔的额外允许的 WebSocket Origin（如 `https://a.example.com,https://b.example.com`）。默认只允许同源（Origin 与 Host 一致）以及本机回环地址；如果反向代理改写了 `Host` 头，导致终端无法连接，请在此加入访问地址。 |
+| `REMOTE_GATEWAY_SECRET` | 后端与远程桌面网关共享的密钥，一键脚本会自动生成。手动部署请自行生成（如 `openssl rand -hex 32`）并写入 `.env`。 |
+| `SETUP_TOKEN` | 可选。首次启动且没有任何用户时，后端会在日志中打印一次性的初始设置令牌（`docker compose logs backend` 查看），创建管理员时需要填写；设置此变量可指定固定令牌。 |
+
+
 
 为 docker 配置IPv6（可选，如果你不使用ipv6连接服务器可以不配置）
 

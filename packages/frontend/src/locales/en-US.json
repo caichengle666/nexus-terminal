@@ -1486,12 +1486,17 @@
     "passwordPlaceholder": "Enter password",
     "confirmPassword": "Confirm Password",
     "confirmPasswordPlaceholder": "Confirm your password",
+    "setupToken": "Setup token",
+    "setupTokenPlaceholder": "Paste the setup token from the backend logs",
+    "setupTokenHint": "A one-time setup token is printed in the backend logs on first start (for Docker, run docker compose logs backend).",
     "submitButton": "Create Account",
     "settingUp": "Creating account...",
     "success": "Account created successfully! Redirecting to login...",
     "error": {
       "passwordsDoNotMatch": "Passwords do not match.",
       "fieldsRequired": "Username and password are required.",
+      "setupTokenRequired": "The setup token is required.",
+      "invalidSetupToken": "Invalid setup token. Copy the latest token from the backend logs.",
       "generic": "An error occurred during setup. Please check the server logs."
     }
   },

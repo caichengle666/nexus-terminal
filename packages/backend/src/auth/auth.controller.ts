@@ -12,6 +12,7 @@ import { settingsService } from '../settings/settings.service';
 import { passkeyService } from '../passkey/passkey.service'; // +++ Passkey Service
 import { passkeyRepository } from '../passkey/passkey.repository'; // +++ Passkey Repository
 import { userRepository } from '../user/user.repository'; // For passkey auth success
+import { getOrCreateSetupToken, invalidateSetupToken, isLoopbackBypassAllowed, verifySetupToken } from './setup-token';
 
 const notificationService = new NotificationService();
 const auditLogService = new AuditLogService();
@@ -833,7 +834,15 @@ export const needsSetup = async (req: Request, res: Response): Promise<void> => 
         const row = await getDb<{ count: number }>(db, 'SELECT COUNT(*) as count FROM users');
         const userCount = row ? row.count : 0;
 
-        res.status(200).json({ needsSetup: userCount === 0 });
+        if (userCount === 0) {
+            // 确保存在一次性设置令牌 (已存在时不会重复打印)
+            getOrCreateSetupToken();
+            const clientIp = req.ip || req.socket?.remoteAddress;
+            res.status(200).json({ needsSetup: true, setupTokenRequired: !isLoopbackBypassAllowed(clientIp) });
+            return;
+        }
+
+        res.status(200).json({ needsSetup: false });
 
     } catch (error) {
         console.error('检查设置状态时发生内部错误:', error);
@@ -845,10 +854,14 @@ export const needsSetup = async (req: Request, res: Response): Promise<void> => 
  * 处理初始管理员账号设置请求 (POST /api/v1/auth/setup)
  */
 export const setupAdmin = async (req: Request, res: Response): Promise<void> => {
-    const { username, password, confirmPassword } = req.body;
+    const { username, password, confirmPassword, setupToken } = req.body || {};
 
     if (!username || !password || !confirmPassword) {
         res.status(400).json({ message: '用户名、密码和确认密码不能为空。' });
+        return;
+    }
+    if (typeof username !== 'string' || typeof password !== 'string') {
+        res.status(400).json({ message: '用户名和密码必须是字符串。' });
         return;
     }
     if (password !== confirmPassword) {
@@ -860,15 +873,22 @@ export const setupAdmin = async (req: Request, res: Response): Promise<void> => 
         return;
     }
 
+    const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
 
     try {
         const db = await getDbInstance();
         const row = await getDb<{ count: number }>(db, 'SELECT COUNT(*) as count FROM users');
-        const userCount = row ? row.count : 0;
-
-        if (userCount > 0) {
+        if (row && row.count > 0) {
             console.warn('尝试在已有用户的情况下执行初始设置。');
             res.status(403).json({ message: '设置已完成，无法重复执行。' });
+            return;
+        }
+
+        // 确保令牌存在 (例如进程启动后用户被清空的情况)
+        getOrCreateSetupToken();
+        if (!isLoopbackBypassAllowed(clientIp) && !verifySetupToken(setupToken)) {
+            console.warn(`初始设置请求的设置令牌无效 (IP: ${clientIp})。`);
+            res.status(403).json({ message: '设置令牌无效。请在后端日志中查看初始设置令牌 (docker compose logs backend)。', code: 'INVALID_SETUP_TOKEN' });
             return;
         }
 
@@ -876,21 +896,29 @@ export const setupAdmin = async (req: Request, res: Response): Promise<void> => 
         const hashedPassword = await bcrypt.hash(password, saltRounds);
         const now = Math.floor(Date.now() / 1000);
 
+        // 计数检查与插入在同一条 SQL 中完成，避免并发请求创建多个"初始管理员"
         const result = await runDb(db,
             `INSERT INTO users (username, hashed_password, created_at, updated_at)
-             VALUES (?, ?, ?, ?)`,
+             SELECT ?, ?, ?, ?
+             WHERE NOT EXISTS (SELECT 1 FROM users)`,
             [username, hashedPassword, now, now]
         );
 
-        if (typeof result.lastID !== 'number' || result.lastID <= 0) {
-             console.error('创建初始管理员后未能获取有效的 lastID。可能原因：用户名已存在或其他数据库错误。');
-             throw new Error('创建初始管理员失败，可能用户名已存在。');
+        if (!result.changes) {
+            console.warn('初始设置并发冲突：用户表已非空，未创建管理员。');
+            res.status(403).json({ message: '设置已完成，无法重复执行。' });
+            return;
         }
+
+        if (typeof result.lastID !== 'number' || result.lastID <= 0) {
+             console.error('创建初始管理员后未能获取有效的 lastID。');
+             throw new Error('创建初始管理员失败。');
+        }
+        invalidateSetupToken();
         const newUser = { id: result.lastID };
 
 
         console.log(`初始管理员账号 '${username}' (ID: ${newUser.id}) 已成功创建。`);
-        const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
         auditLogService.logAction('ADMIN_SETUP_COMPLETE', { userId: newUser.id, username, ip: clientIp });
         notificationService.sendNotification('ADMIN_SETUP_COMPLETE', { userId: newUser.id, username, ip: clientIp }); 
 

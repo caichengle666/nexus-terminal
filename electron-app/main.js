@@ -766,7 +766,9 @@ async function createWindow() {
         env: {
           ...process.env,
           APP_BACKEND_DATA_PATH: backendDataPath,
-          PORT: String(PROD_BACKEND_PORT)
+          PORT: String(PROD_BACKEND_PORT),
+          // 桌面端用户不便查看后端日志：允许来自本机回环地址的初始管理员设置无需设置令牌
+          SETUP_ALLOW_LOOPBACK_WITHOUT_TOKEN: 'true'
         },
       });
       backendProcess = child;

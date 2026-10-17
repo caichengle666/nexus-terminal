@@ -62,6 +62,7 @@ interface AuthState {
         total: number;
     };
     needsSetup: boolean; // 是否需要初始设置
+    setupTokenRequired: boolean; // 初始设置是否需要设置令牌 (令牌打印在后端日志中)
     publicCaptchaConfig: PublicCaptchaConfig | null;
     passkeys: PasskeyInfo[] | null; 
     passkeysLoading: boolean; 
@@ -77,6 +78,7 @@ export const useAuthStore = defineStore('auth', {
         loginRequires2FA: false, // 初始为不需要
         ipBlacklist: { entries: [], total: 0 }, // 初始化黑名单状态
         needsSetup: false, // 初始假设不需要设置
+        setupTokenRequired: true,
         publicCaptchaConfig: null, //  Initialize CAPTCHA config as null
         passkeys: null, // Initialize passkeys as null
         passkeysLoading: false, // Initialize passkeysLoading as false
@@ -310,8 +312,9 @@ export const useAuthStore = defineStore('auth', {
         async checkSetupStatus() {
             // 不需要设置 isLoading，这个检查应该在后台快速完成
             try {
-                const response = await apiClient.get<{ needsSetup: boolean }>('/auth/needs-setup'); // 使用 apiClient
+                const response = await apiClient.get<{ needsSetup: boolean; setupTokenRequired?: boolean }>('/auth/needs-setup'); // 使用 apiClient
                 this.needsSetup = response.data.needsSetup;
+                this.setupTokenRequired = response.data.setupTokenRequired !== false;
                 console.log(`[AuthStore] Needs setup status: ${this.needsSetup}`);
                 return this.needsSetup; // 返回状态给调用者
             } catch (error: any) {

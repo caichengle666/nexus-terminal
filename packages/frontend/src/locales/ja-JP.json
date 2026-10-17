@@ -1404,12 +1404,17 @@
     "passwordPlaceholder": "Enter password",
     "confirmPassword": "Confirm Password",
     "confirmPasswordPlaceholder": "Confirm your password",
+    "setupToken": "セットアップトークン",
+    "setupTokenPlaceholder": "バックエンドログのセットアップトークンを貼り付け",
+    "setupTokenHint": "初回起動時、ワンタイムのセットアップトークンがバックエンドログに出力されます（Docker の場合は docker compose logs backend で確認できます）。",
     "submitButton": "Create Account",
     "settingUp": "Creating account...",
     "success": "Account created successfully! Redirecting to login...",
     "error": {
       "passwordsDoNotMatch": "Passwords do not match.",
       "fieldsRequired": "Username and password are required.",
+      "setupTokenRequired": "セットアップトークンは必須です。",
+      "invalidSetupToken": "セットアップトークンが無効です。バックエンドログから最新のトークンをコピーしてください。",
       "generic": "An error occurred during setup. Please check the server logs."
     }
   },

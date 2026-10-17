@@ -1490,12 +1490,17 @@
     "passwordPlaceholder": "输入密码",
     "confirmPassword": "确认密码",
     "confirmPasswordPlaceholder": "再次输入密码确认",
+    "setupToken": "设置令牌",
+    "setupTokenPlaceholder": "粘贴后端日志中的设置令牌",
+    "setupTokenHint": "首次启动时，一次性设置令牌会打印在后端日志中（Docker 部署可运行 docker compose logs backend 查看）。",
     "submitButton": "创建账号",
     "settingUp": "正在创建账号...",
     "success": "账号创建成功！正在跳转到登录页面...",
     "error": {
       "passwordsDoNotMatch": "两次输入的密码不一致。",
       "fieldsRequired": "用户名和密码不能为空。",
+      "setupTokenRequired": "设置令牌不能为空。",
+      "invalidSetupToken": "设置令牌无效，请从后端日志中复制最新的令牌。",
       "generic": "设置过程中发生错误，请检查服务器日志。"
     }
   },

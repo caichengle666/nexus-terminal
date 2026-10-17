@@ -68,6 +68,8 @@ import { initializeWebSocket } from './websocket';
 import { clientStates } from './websocket/state';
 import { cleanupClientConnection } from './websocket/utils';
 import { ipWhitelistMiddleware } from './auth/ipWhitelist.middleware';
+import { initializeSetupToken } from './auth/setup-token';
+import { getTrustProxyHops, isTrustProxyEnabled } from './utils/client-ip';
 
 
 import './services/event.service'; 
@@ -177,7 +179,7 @@ const app = express();
 const server = http.createServer(app);
 
 // --- 信任代理设置 ---
-app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
+app.set('trust proxy', getTrustProxyHops() || false); // TRUST_PROXY=true => 1 跳；=N => N 跳；未设置 => 不信任
 
 // --- 中间件 ---
 app.use(ipWhitelistMiddleware as RequestHandler);
@@ -260,7 +262,7 @@ const startServer = () => {
         secret: process.env.SESSION_SECRET as string,
         resave: false,
         saveUninitialized: false,
-        proxy: process.env.TRUST_PROXY === 'true', // 仅在显式启用可信代理时读取 X-Forwarded-Proto
+        proxy: isTrustProxyEnabled(), // 仅在显式启用可信代理时读取 X-Forwarded-Proto
         cookie: {
             httpOnly: true,
             sameSite: 'lax',
@@ -315,6 +317,7 @@ const startServer = () => {
 const main = async () => {
     await initializeEnvironment(); // 首先初始化环境和密钥
     await initializeDatabase();   // 然后初始化数据库
+    await initializeSetupToken(); // 若尚无用户，生成并打印一次性初始设置令牌
     startServer();                // 最后启动服务器
 };
 
