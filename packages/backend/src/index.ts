@@ -37,6 +37,8 @@ import http from 'http';
 import crypto from 'crypto';
 
 import session from 'express-session';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import sessionFileStore from 'session-file-store';
 import { getDbInstance } from './database/connection';
 import authRouter from './auth/auth.routes';
@@ -164,19 +166,6 @@ const initializeEnvironment = async () => {
         }
     }
 
-    // 6. 最终检查 (包括 Guacamole 相关)
-    if (process.env.NODE_ENV === 'production') {
-        if (!process.env.ENCRYPTION_KEY) {
-            console.error('错误：生产环境中 ENCRYPTION_KEY 最终未能设置！');
-            process.exit(1);
-        }
-        if (!process.env.SESSION_SECRET) {
-            console.error('错误：生产环境中 SESSION_SECRET 最终未能设置！');
-            process.exit(1);
-        }
-        // Guacd host/port are less critical to halt on, defaults might work
-    }
-
 };
 // --- 结束环境变量和密钥初始化 ---
 
@@ -190,6 +179,24 @@ app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
 
 // --- 中间件 ---
 app.use(ipWhitelistMiddleware as RequestHandler);
+// 安全响应头（后端只提供 JSON API，前端由 nginx / Electron 提供）
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'same-origin' } }));
+// 基础限流：全局宽松，认证接口更严格（与 IP 黑名单互补）
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: Number(process.env.API_RATE_LIMIT_PER_MINUTE) || 600,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+});
+const authLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE) || 30,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { message: '请求过于频繁，请稍后再试。' },
+});
+app.use('/api/', apiLimiter);
+app.use(['/api/v1/auth/login', '/api/v1/auth/login/2fa', '/api/v1/auth/setup', '/api/v1/auth/passkey/authenticate'], authLimiter);
 // The AI request limit is validated from the frontend-sent maxRequestKb value.
 // Keep a larger parser ceiling so valid user-selected limits up to 1MB reach the route.
 app.use(express.json({ limit: '2mb' }));

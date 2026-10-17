@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
+import { encrypt, decrypt } from '../utils/crypto';
 import { getDbInstance, runDb, getDb, allDb } from '../database/connection';
 import speakeasy from 'speakeasy';
 import qrcode from 'qrcode';
@@ -15,6 +16,12 @@ import { userRepository } from '../user/user.repository'; // For passkey auth su
 const notificationService = new NotificationService();
 const auditLogService = new AuditLogService();
 const REMEMBER_ME_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+
+// --- 2FA 密钥落库加密（兼容历史明文值）---
+const TWO_FACTOR_ENC_PREFIX = 'enc:';
+const sealTwoFactorSecret = (secret: string): string => TWO_FACTOR_ENC_PREFIX + encrypt(secret);
+const openTwoFactorSecret = (stored: string): string =>
+    stored.startsWith(TWO_FACTOR_ENC_PREFIX) ? decrypt(stored.slice(TWO_FACTOR_ENC_PREFIX.length)) : stored;
 
 // --- TOTP 防重放 (内存, 每用户记录最近使用的时间步) ---
 const lastUsedTotpStep = new Map<number, number>();
@@ -525,7 +532,7 @@ export const verifyLogin2FA = async (req: Request, res: Response): Promise<void>
         }
 
         const delta = speakeasy.totp.verifyDelta({
-            secret: user.two_factor_secret,
+            secret: openTwoFactorSecret(user.two_factor_secret),
             encoding: 'base32',
             token: String(token),
             window: 1
@@ -736,7 +743,7 @@ export const verifyAndActivate2FA = async (req: Request, res: Response): Promise
             const now = Math.floor(Date.now() / 1000);
             const result = await runDb(db,
                 'UPDATE users SET two_factor_secret = ?, updated_at = ? WHERE id = ?',
-                [tempSecret, now, userId]
+                [sealTwoFactorSecret(tempSecret), now, userId]
             );
 
             if (result.changes === 0) {
