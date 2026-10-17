@@ -1,4 +1,14 @@
+// This preload runs in a sandboxed renderer (sandbox: true): only `electron`
+// (contextBridge/ipcRenderer), `events`, `timers` and `url` may be required, and
+// Node globals such as Buffer must not be relied on.
 const { contextBridge, ipcRenderer } = require('electron');
+
+const encodeBase64Utf8 = (value) => {
+  const bytes = new TextEncoder().encode(String(value));
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index]);
+  return btoa(binary);
+};
 
 // 将选择的 API 暴露给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -109,7 +119,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 用于文件下载的新方法
   requestDownload: (url, filename) => {
     if (url) {
-      const encodedFilename = filename ? Buffer.from(filename).toString('base64') : null;
+      const encodedFilename = filename ? encodeBase64Utf8(filename) : null;
       console.log(`[Preload] Sending 'download-file-request' for URL: ${url}, Original Filename: ${filename}, Encoded Filename: ${encodedFilename}`);
       ipcRenderer.send('download-file-request', { url, encodedFilename });
     } else {
