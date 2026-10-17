@@ -65,6 +65,23 @@
             />
           </div>
 
+          <div v-if="authStore.setupTokenRequired">
+            <label for="setupToken" class="block text-sm font-medium text-text-secondary mb-1">{{ $t('setup.setupToken') }}</label>
+            <input
+              id="setupToken"
+              v-model="setupToken"
+              name="setupToken"
+              type="text"
+              required
+              autocomplete="off"
+              spellcheck="false"
+              :disabled="isLoading"
+              :placeholder="$t('setup.setupTokenPlaceholder')"
+              class="w-full px-4 py-3 border border-border/50 rounded-lg bg-input text-foreground text-base font-mono shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition duration-150 ease-in-out disabled:bg-gray-100 disabled:cursor-not-allowed"
+            />
+            <p class="mt-1 text-xs text-text-secondary">{{ $t('setup.setupTokenHint') }}</p>
+          </div>
+
           <div v-if="error" class="text-error bg-error/10 border border-error/20 px-4 py-2 rounded text-center text-sm"> <!-- Adjusted padding -->
             {{ error }}
           </div>
@@ -97,6 +114,7 @@ const authStore = useAuthStore(); // *** 获取 Auth Store 实例 ***
 const username = ref('');
 const password = ref('');
 const confirmPassword = ref('');
+const setupToken = ref('');
 const isLoading = ref(false);
 const error = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
@@ -115,6 +133,11 @@ const handleSetup = async () => {
       return;
   }
 
+  if (authStore.setupTokenRequired && !setupToken.value.trim()) {
+      error.value = t('setup.error.setupTokenRequired');
+      return;
+  }
+
   isLoading.value = true;
 
   try {
@@ -122,7 +145,8 @@ const handleSetup = async () => {
     await apiClient.post('/auth/setup', { // 使用 apiClient 并移除 base URL
       username: username.value,
       password: password.value,
-      confirmPassword: confirmPassword.value
+      confirmPassword: confirmPassword.value,
+      setupToken: setupToken.value.trim()
     });
     successMessage.value = t('setup.success');
     // *** 手动更新 needsSetup 状态 ***
@@ -137,7 +161,9 @@ const handleSetup = async () => {
     router.push('/login');
   } catch (err: any) {
     console.error('Setup failed:', err);
-    if (err.response?.data?.message) {
+    if (err.response?.data?.code === 'INVALID_SETUP_TOKEN') {
+      error.value = t('setup.error.invalidSetupToken');
+    } else if (err.response?.data?.message) {
       // 尝试从后端响应中获取更具体的错误信息
       error.value = err.response.data.message;
     } else if (err.message) {
