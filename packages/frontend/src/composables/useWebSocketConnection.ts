@@ -230,6 +230,22 @@ export function createWebSocketConnectionManager(
                             statusMessage.value = getStatusText('disconnected', { reason: message.payload || '未知原因' });
                             isSftpReady.value = false; // SSH 断开，SFTP 也应不可用
                         }
+                    } else if (message.type === 'ssh:hostkey:mismatch') {
+                        // 主机密钥不匹配：后端已拒绝连接。停止自动重连，避免反复连接可疑主机，
+                        // 由会话层弹出确认对话框，用户确认信任新密钥后再手动重连。
+                        intentionalDisconnect = true;
+                        if (reconnectTimeoutId) {
+                            clearTimeout(reconnectTimeoutId);
+                            reconnectTimeoutId = null;
+                        }
+                        reconnectInProgress = false;
+                        connectionStatus.value = 'error';
+                        try {
+                            statusMessage.value = t('hostKey.mismatchStatus');
+                        } catch {
+                            statusMessage.value = getStatusText('error', { message: 'Host key mismatch' });
+                        }
+                        isSftpReady.value = false;
                     } else if (message.type === 'ssh:error' || message.type === 'error') {
                         if (connectionStatus.value !== 'disconnected' && connectionStatus.value !== 'error') {
                             connectionStatus.value = 'error';

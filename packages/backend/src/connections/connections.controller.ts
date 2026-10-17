@@ -4,6 +4,7 @@ import * as SshService from '../services/ssh.service';
 import * as GuacamoleService from '../services/guacamole.service'; 
 import * as ImportExportService from '../services/import-export.service';
 import * as ConnectionRepository from './connection.repository';
+import { isValidFingerprint, normalizeFingerprint } from '../services/host-key';
 
 
 
@@ -134,10 +135,78 @@ export const testConnection = async (req: Request, res: Response): Promise<void>
 
     } catch (error: any) {
         console.error(`Controller: 测试连接 ${req.params.id} 时发生错误:`, error);
+        if (SshService.isHostKeyMismatchError(error)) {
+            res.status(409).json({ success: false, code: 'HOST_KEY_MISMATCH', message: error.message, hostKey: error.info });
+            return;
+        }
         res.status(500).json({ success: false, message: error.message || '测试连接时发生内部服务器错误。' });
     }
 };
 
+
+/**
+ * 获取连接保存的 SSH 主机密钥指纹 (GET /api/v1/connections/:id/host-key)
+ */
+export const getHostKey = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const connectionId = parseInt(req.params.id, 10);
+        if (isNaN(connectionId)) {
+            res.status(400).json({ message: '无效的连接 ID。' });
+            return;
+        }
+        const { exists, fingerprint } = await ConnectionRepository.getHostKeyFingerprint(connectionId);
+        if (!exists) {
+            res.status(404).json({ message: '连接未找到。' });
+            return;
+        }
+        res.status(200).json({ connectionId, fingerprint });
+    } catch (error: any) {
+        console.error(`Controller: 获取连接 ${req.params.id} 的主机密钥指纹时发生错误:`, error);
+        res.status(500).json({ message: error.message || '获取主机密钥指纹时发生内部服务器错误。' });
+    }
+};
+
+/**
+ * 重置 / 接受新的 SSH 主机密钥指纹 (POST /api/v1/connections/:id/host-key/reset)
+ * Body (可选): { fingerprint: "SHA256:..." }
+ * - 不带 fingerprint：清除已保存的指纹，下次连接时重新信任 (TOFU)
+ * - 带 fingerprint：直接保存该指纹 (用户已核对过的新指纹)，之后仅信任此指纹
+ */
+export const resetHostKey = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const connectionId = parseInt(req.params.id, 10);
+        if (isNaN(connectionId)) {
+            res.status(400).json({ message: '无效的连接 ID。' });
+            return;
+        }
+        const rawFingerprint = req.body?.fingerprint;
+        let fingerprintToStore: string | null = null;
+        if (rawFingerprint !== undefined && rawFingerprint !== null && rawFingerprint !== '') {
+            if (typeof rawFingerprint !== 'string' || !isValidFingerprint(rawFingerprint)) {
+                res.status(400).json({ message: '无效的主机密钥指纹，应为 OpenSSH 格式 (SHA256:...)。' });
+                return;
+            }
+            fingerprintToStore = normalizeFingerprint(rawFingerprint);
+        }
+
+        const { exists, fingerprint: previous } = await ConnectionRepository.getHostKeyFingerprint(connectionId);
+        if (!exists) {
+            res.status(404).json({ message: '连接未找到。' });
+            return;
+        }
+        await ConnectionRepository.setHostKeyFingerprint(connectionId, fingerprintToStore);
+        console.warn(`Controller: 连接 ${connectionId} 的主机密钥指纹已${fingerprintToStore ? `更新为 ${fingerprintToStore}` : '清除'} (原: ${previous ?? '无'})。`);
+        res.status(200).json({
+            message: fingerprintToStore ? '主机密钥指纹已更新。' : '主机密钥指纹已重置，下次连接时将重新信任。',
+            connectionId,
+            fingerprint: fingerprintToStore,
+            previousFingerprint: previous,
+        });
+    } catch (error: any) {
+        console.error(`Controller: 重置连接 ${req.params.id} 的主机密钥指纹时发生错误:`, error);
+        res.status(500).json({ message: error.message || '重置主机密钥指纹时发生内部服务器错误。' });
+    }
+};
 
 /**
  * 测试未保存的连接信息 (POST /api/v1/connections/test-unsaved)

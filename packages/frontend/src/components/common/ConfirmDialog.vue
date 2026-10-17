@@ -77,7 +77,7 @@ onBeforeUnmount(() => {
           {{ props.title }}
         </h3>
         <div class="flex-grow mb-6 text-sm">
-          <p class="text-text-secondary text-center whitespace-pre-wrap">
+          <p class="text-text-secondary text-center whitespace-pre-wrap break-words">
             {{ props.message }}
           </p>
         </div>

@@ -279,6 +279,11 @@ export const updateConnection = async (id: number, input: UpdateConnectionInput)
     if (input.type !== undefined && targetType !== currentFullConnection.type) dataToUpdate.type = targetType;
     if (input.host !== undefined) dataToUpdate.host = input.host;
     if (input.port !== undefined) dataToUpdate.port = input.port;
+    // 目标主机或端口变化时，旧的主机密钥指纹不再适用，清除以便下次连接重新信任 (TOFU)
+    if ((input.host !== undefined && String(input.host).trim() !== String(currentFullConnection.host).trim()) ||
+        (input.port !== undefined && Number(input.port) !== Number(currentFullConnection.port))) {
+        dataToUpdate.host_key_fingerprint = null;
+    }
     if (input.username !== undefined) dataToUpdate.username = input.username;
     if (input.notes !== undefined) dataToUpdate.notes = input.notes; // Add notes update
     // proxy_id 的处理已移至 jump_chain 逻辑块中

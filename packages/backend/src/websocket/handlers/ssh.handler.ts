@@ -60,7 +60,27 @@ export async function handleSshConnect(
         connInfo = await SshService.getConnectionDetails(dbConnectionId);
 
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ssh:status', payload: `正在连接到 ${connInfo.host}...` }));
-        const sshClient = await SshService.establishSshConnection(connInfo);
+        const sshClient = await SshService.establishSshConnection(connInfo, undefined, {
+            onHostKeyEvent: (event) => {
+                if (ws.readyState !== WebSocket.OPEN) return;
+                if (event.type === 'new') {
+                    // 首次连接 (TOFU)：通知前端已信任并保存主机密钥指纹
+                    ws.send(JSON.stringify({
+                        type: 'ssh:hostkey:new',
+                        payload: {
+                            connectionId: event.connectionId,
+                            targetConnectionId: connInfo?.id,
+                            connectionName: event.connectionName,
+                            host: event.host,
+                            port: event.port,
+                            fingerprint: event.fingerprint,
+                            isJumpHost: event.isJumpHost,
+                        }
+                    }));
+                }
+                // mismatch 事件在下方 catch 中统一处理 (连接已被拒绝)
+            }
+        });
 
         const newSessionId = requestedSessionId || uuidv4();
         ws.sessionId = newSessionId; // Assign new sessionId to the WebSocket
@@ -244,6 +264,28 @@ export async function handleSshConnect(
             ip: clientIp,
             reason: connectError.message
         });
+        if (SshService.isHostKeyMismatchError(connectError)) {
+            const info = connectError.info;
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'ssh:hostkey:mismatch',
+                    payload: {
+                        connectionId: info.connectionId, // 主机密钥不匹配的连接 (可能是跳板机)
+                        targetConnectionId: connInfo?.id ?? dbConnectionId,
+                        connectionName: info.connectionName,
+                        host: info.host,
+                        port: info.port,
+                        expectedFingerprint: info.expectedFingerprint,
+                        receivedFingerprint: info.receivedFingerprint,
+                        isJumpHost: !!info.isJumpHost,
+                    }
+                }));
+                ws.send(JSON.stringify({ type: 'ssh:error', payload: `连接失败: ${connectError.message}` }));
+            }
+            // 1008 (policy violation)：主机密钥不匹配不应自动重连
+            ws.close(1008, 'SSH host key mismatch');
+            return;
+        }
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ssh:error', payload: `连接失败: ${connectError.message}` }));
         ws.close(1011, `SSH Connection Failed: ${connectError.message}`);
     }

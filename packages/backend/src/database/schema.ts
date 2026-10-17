@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS connections (
 notes TEXT NULL,
 jump_chain TEXT NULL,
 proxy_type TEXT NULL, 
+host_key_fingerprint TEXT NULL,
 created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     last_connected_at INTEGER NULL,

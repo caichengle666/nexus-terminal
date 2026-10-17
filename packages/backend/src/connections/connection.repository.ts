@@ -19,6 +19,7 @@ interface ConnectionBase {
     last_connected_at: number | null;
     ssh_key_id?: number | null;
 notes?: string | null;
+    host_key_fingerprint?: string | null; // SSH 主机密钥 SHA256 指纹 (TOFU)
 //    jump_chain: number[] | null; // <-- REMOVE from ConnectionBase
 }
 
@@ -308,6 +309,37 @@ export const updateLastConnected = async (id: number, timestamp: number): Promis
         console.error(`Repository: 更新连接 ${id} 的 last_connected_at 时出错:`, err.message);
         throw new Error('更新上次连接时间失败');
     }
+};
+
+/**
+ * 读取连接保存的 SSH 主机密钥指纹。
+ * @returns exists=false 表示连接不存在；fingerprint=null 表示尚未保存指纹
+ */
+export const getHostKeyFingerprint = async (id: number): Promise<{ exists: boolean; fingerprint: string | null }> => {
+    const db = await getDbInstance();
+    const row = await getDbRow<{ host_key_fingerprint: string | null }>(db, `SELECT host_key_fingerprint FROM connections WHERE id = ?`, [id]);
+    if (!row) return { exists: false, fingerprint: null };
+    return { exists: true, fingerprint: row.host_key_fingerprint ?? null };
+};
+
+/**
+ * 仅当尚未保存指纹时写入 (原子操作，避免并发首次连接互相覆盖)。
+ * @returns 是否写入成功
+ */
+export const setHostKeyFingerprintIfEmpty = async (id: number, fingerprint: string): Promise<boolean> => {
+    const db = await getDbInstance();
+    const result = await runDb(db, `UPDATE connections SET host_key_fingerprint = ? WHERE id = ? AND (host_key_fingerprint IS NULL OR host_key_fingerprint = '')`, [fingerprint, id]);
+    return result.changes > 0;
+};
+
+/**
+ * 设置 (或清除，传入 null) 连接的主机密钥指纹。
+ * @returns 连接是否存在并被更新
+ */
+export const setHostKeyFingerprint = async (id: number, fingerprint: string | null): Promise<boolean> => {
+    const db = await getDbInstance();
+    const result = await runDb(db, `UPDATE connections SET host_key_fingerprint = ? WHERE id = ?`, [fingerprint, id]);
+    return result.changes > 0;
 };
 
 /**
