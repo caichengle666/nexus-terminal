@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node test/run-ai-tools-test.mjs"
   },
   "dependencies": {
     "@babel/runtime": "^8.0.0",
