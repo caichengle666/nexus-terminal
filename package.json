@@ -10,7 +10,9 @@
     "doc": "doc"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "verify": "npm run typecheck && npm run build --workspace=@nexus-terminal/backend && npm test"
   },
   "repository": {
     "type": "git",
@@ -18,7 +20,7 @@
   },
   "keywords": [],
   "author": "caichengle666",
-  "license": "ISC",
+  "license": "GPL-3.0-only",
   "bugs": {
     "url": "https://github.com/caichengle666/nexus-terminal/issues"
   },

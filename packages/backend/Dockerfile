@@ -1,4 +1,4 @@
-FROM node:20 AS builder
+FROM node:22 AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ COPY packages/frontend/package.json ./packages/frontend/
 COPY packages/remote-gateway/package.json ./packages/remote-gateway/
 
 # Install dependencies (using install instead of ci for potential armv7/alpine compatibility issues)
-RUN npm install
+RUN npm ci
 
 COPY packages/backend/src ./packages/backend/src
 COPY packages/backend/tsconfig.json ./packages/backend/
@@ -21,7 +21,7 @@ COPY packages/backend/html-presets ./packages/backend/html-presets
 RUN npm run build --workspace=@nexus-terminal/backend
 
 
-FROM node:20-alpine
+FROM node:22-alpine
 
 
 # Install build dependencies including setuptools for node-gyp
@@ -40,10 +40,13 @@ COPY package-lock.json ./package-lock.json
 RUN npm install --omit=dev --prefer-offline
 
 
-RUN apk del .build-deps
+RUN apk del .build-deps && apk add --no-cache su-exec
 
 
 EXPOSE 3001
 
 
+COPY packages/backend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]

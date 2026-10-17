@@ -12,7 +12,7 @@
     "type": "git",
     "url": "git+https://github.com/caichengle666/nexus-terminal.git"
   },
-  "license": "ISC",
+  "license": "GPL-3.0-only",
   "optionalDependencies": {
     "dmg-license": "^1.0.10"
   },

@@ -12,7 +12,7 @@ COPY packages/frontend/package.json ./packages/frontend/
 COPY packages/remote-gateway/package.json ./packages/remote-gateway/
 
 # Install dependencies (using install instead of ci for potential armv7 compatibility issues)
-RUN npm install
+RUN npm ci
 
 
 COPY packages/frontend/src ./packages/frontend/src

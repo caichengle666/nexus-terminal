@@ -1,5 +1,5 @@
 # Use a lightweight Node.js image
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 # Set the working directory
 WORKDIR /app
@@ -22,7 +22,7 @@ RUN npm run build
 RUN npm prune --production
 
 # --- Production Stage ---
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
@@ -37,4 +37,5 @@ EXPOSE 9090
 EXPOSE 8080
 
 # Command to run the application
+USER node
 CMD ["node", "dist/server.js"]
