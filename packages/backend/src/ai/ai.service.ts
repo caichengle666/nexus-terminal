@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { settingsRepository } from '../settings/settings.repository';
 import { decrypt, encrypt } from '../utils/crypto';
+import { decideStoredKeyOnSave, resolveAiCredentials, validateApiBaseUrl } from './ai-config.validation';
 
 export interface AiChatRequest {
   apiBaseUrl: unknown;
@@ -24,13 +25,8 @@ export interface AiConfigRequest {
 
 const AI_CONFIG_KEY = 'aiTerminalConfig';
 
-const normalizeApiBaseUrl = (value: unknown): string => {
-  const apiBaseUrl = String(value || '').trim().replace(/\/+$/, '');
-  if (!apiBaseUrl) {
-    throw new Error('AI API Base URL is required.');
-  }
-  return apiBaseUrl;
-};
+// Validates protocol (http/https only) and rejects embedded credentials.
+const normalizeApiBaseUrl = (value: unknown): string => validateApiBaseUrl(value);
 
 const readStoredConfig = async () => {
   const raw = await settingsRepository.getSetting(AI_CONFIG_KEY);
@@ -89,8 +85,13 @@ export const getConfig = async () => {
 
 export const saveConfig = async (payload: AiConfigRequest) => {
   const current = await readStoredConfig();
-  const nextApiKey = typeof payload.apiKey === 'string' && payload.apiKey.trim()
-    ? encrypt(payload.apiKey.trim())
+  // The stored key stays bound to its base URL: changing the URL requires a new key.
+  const keyDecision = decideStoredKeyOnSave(payload, {
+    apiBaseUrl: current.apiBaseUrl,
+    hasApiKey: !!current.encryptedApiKey,
+  });
+  const nextApiKey = keyDecision === 'replace'
+    ? encrypt(String(payload.apiKey).trim())
     : current.encryptedApiKey;
 
   const next = {
@@ -109,11 +110,16 @@ export const saveConfig = async (payload: AiConfigRequest) => {
   };
 };
 
-const resolveConfig = async (payload: AiChatRequest) => {
+const resolveConfig = async (payload: AiChatRequest | AiConfigRequest) => {
   const stored = await readStoredConfig();
+  // Never send the stored key to a base URL other than the stored one.
+  const credentials = resolveAiCredentials(payload, {
+    apiBaseUrl: stored.apiBaseUrl,
+    apiKey: decryptStoredApiKey(stored.encryptedApiKey),
+  });
   return {
-    apiBaseUrl: payload.apiBaseUrl || stored.apiBaseUrl,
-    apiKey: payload.apiKey || decryptStoredApiKey(stored.encryptedApiKey),
+    apiBaseUrl: credentials.apiBaseUrl,
+    apiKey: credentials.apiKey,
     model: payload.model || stored.model,
   };
 };
@@ -195,9 +201,7 @@ export const forwardChatCompletionStream = async (payload: AiChatRequest) => {
 };
 
 export const testConfig = async (payload: AiConfigRequest) => {
-  const stored = await readStoredConfig();
-  const apiBaseUrl = payload.apiBaseUrl || stored.apiBaseUrl;
-  const apiKey = payload.apiKey || decryptStoredApiKey(stored.encryptedApiKey);
+  const { apiBaseUrl, apiKey } = await resolveConfig(payload);
   if (!apiKey) {
     const error = new Error('AI API key is required.');
     (error as any).status = 400;
@@ -217,9 +221,7 @@ export const testConfig = async (payload: AiConfigRequest) => {
 };
 
 export const listModels = async (payload: AiConfigRequest) => {
-  const stored = await readStoredConfig();
-  const apiBaseUrl = payload.apiBaseUrl || stored.apiBaseUrl;
-  const apiKey = payload.apiKey || decryptStoredApiKey(stored.encryptedApiKey);
+  const { apiBaseUrl, apiKey } = await resolveConfig(payload);
   const endpoint = `${normalizeApiBaseUrl(apiBaseUrl)}/models`;
 
   if (!apiKey) {
@@ -250,10 +252,7 @@ export const listModels = async (payload: AiConfigRequest) => {
 };
 
 export const testStreamingConfig = async (payload: AiConfigRequest) => {
-  const stored = await readStoredConfig();
-  const apiBaseUrl = payload.apiBaseUrl || stored.apiBaseUrl;
-  const apiKey = payload.apiKey || decryptStoredApiKey(stored.encryptedApiKey);
-  const model = payload.model || stored.model;
+  const { apiBaseUrl, apiKey, model } = await resolveConfig(payload);
   if (!apiKey || !model) {
     const error = new Error('AI API key and model are required.');
     (error as any).status = 400;
@@ -286,10 +285,7 @@ export const testStreamingConfig = async (payload: AiConfigRequest) => {
 };
 
 export const testToolCallingConfig = async (payload: AiConfigRequest) => {
-  const stored = await readStoredConfig();
-  const apiBaseUrl = payload.apiBaseUrl || stored.apiBaseUrl;
-  const apiKey = payload.apiKey || decryptStoredApiKey(stored.encryptedApiKey);
-  const model = payload.model || stored.model;
+  const { apiBaseUrl, apiKey, model } = await resolveConfig(payload);
   if (!apiKey || !model) {
     const error = new Error('AI API key and model are required.');
     (error as any).status = 400;

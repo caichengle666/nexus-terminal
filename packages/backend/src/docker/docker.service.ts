@@ -1,5 +1,6 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { assertValidContainerId } from './docker-validate';
 
 const execAsync = promisify(exec);
 
@@ -162,11 +163,8 @@ export class DockerService {
       throw new Error('Docker is not available.');
     }
 
-    // 参数校验和清理，防止命令注入
-    const cleanContainerId = containerId.replace(/[^a-zA-Z0-9_-]/g, '');
-     if (!cleanContainerId) {
-         throw new Error('Invalid container ID format.');
-     }
+    // 严格校验容器 ID，防止命令注入（无效 ID 直接拒绝，不做字符剥离）
+    const cleanContainerId = assertValidContainerId(containerId);
 
     let dockerCliCommand: string;
     switch (command) {

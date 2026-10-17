@@ -2,6 +2,7 @@ import { AuthenticatedWebSocket, ClientState, DockerContainer, DockerStats } fro
 import { parsePortsString } from '../utils';
 import { clientStates, settingsService } from '../state';
 import WebSocket from 'ws';
+import { isValidContainerId, INVALID_CONTAINER_ID_MESSAGE } from '../../docker/docker-validate';
 
 const DEFAULT_DOCKER_STATUS_INTERVAL_SECONDS = 2;
 
@@ -193,7 +194,12 @@ export async function handleDockerCommand(ws: AuthenticatedWebSocket, sessionId:
         return;
     }
     const { containerId, command } = payload || {};
-    if (!containerId || typeof containerId !== 'string' || !command || !['start', 'stop', 'restart', 'remove'].includes(command)) {
+    if (!isValidContainerId(containerId)) {
+        console.error(`WebSocket: 收到来自 ${ws.username} (会话: ${sessionId}) 的 docker:command 请求，containerId 格式无效。`);
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'docker:command:error', payload: { command, message: INVALID_CONTAINER_ID_MESSAGE } }));
+        return;
+    }
+    if (!command || !['start', 'stop', 'restart', 'remove'].includes(command)) {
         console.error(`WebSocket: 收到来自 ${ws.username} (会话: ${sessionId}) 的无效 docker:command 请求。Payload:`, payload);
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'docker:command:error', payload: { command: command, message: 'Invalid containerId or command.' } }));
         return;
@@ -201,8 +207,8 @@ export async function handleDockerCommand(ws: AuthenticatedWebSocket, sessionId:
 
     console.log(`WebSocket: Processing command '${command}' for container '${containerId}' on session ${sessionId}...`);
     try {
-        const cleanContainerId = containerId.replace(/[^a-zA-Z0-9_-]/g, '');
-        if (!cleanContainerId) throw new Error('Invalid container ID format after sanitization.');
+        // containerId was strictly validated above; never interpolate unvalidated input.
+        const cleanContainerId = containerId;
 
         let dockerCliCommand: string;
         switch (command) {
@@ -262,6 +268,11 @@ export async function handleDockerGetStats(ws: AuthenticatedWebSocket, sessionId
     }
 
     const containerId = payload.containerId;
+    if (!isValidContainerId(containerId)) {
+        console.warn(`WebSocket: Invalid containerId for docker:get_stats in session ${sessionId}.`);
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'docker:stats:error', payload: { message: INVALID_CONTAINER_ID_MESSAGE } }));
+        return;
+    }
     console.log(`WebSocket: Handling docker:get_stats for container ${containerId} in session ${sessionId}`);
     const command = `docker stats ${containerId} --no-stream --format '{{json .}}'`;
 
