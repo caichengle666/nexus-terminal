@@ -269,8 +269,13 @@ ensure_secrets() {
     printf 'SESSION_SECRET=%s\n' "$(random_hex 64)" >> "$env_file"
     generated=1
   fi
+  if ! grep -Eq '^REMOTE_GATEWAY_SECRET=.+' "$env_file"; then
+    # 仅检查根目录 .env：该值需由 docker compose 插值传给 backend 与 remote-gateway 两个服务
+    printf '\nREMOTE_GATEWAY_SECRET=%s\n' "$(random_hex 32)" >> "$env_file"
+    generated=1
+  fi
   if [[ "$generated" -eq 1 ]]; then
-    print_info "已生成 ENCRYPTION_KEY / SESSION_SECRET 并写入 ${INSTALL_DIR}/.env (权限 0600)。"
+    print_info "已生成缺失的 ENCRYPTION_KEY / SESSION_SECRET / REMOTE_GATEWAY_SECRET 并写入 ${INSTALL_DIR}/.env (权限 0600)。"
     print_info "!!! 请备份 ${INSTALL_DIR}/.env：丢失 ENCRYPTION_KEY 将导致已保存的所有连接凭据无法解密 !!!"
   fi
 }
