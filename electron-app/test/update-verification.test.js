@@ -361,3 +361,90 @@ test('keeps partial update files available after a network failure', async () =>
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Ed25519 manifest signatures
+// ---------------------------------------------------------------------------
+
+const crypto = require('node:crypto');
+const { deriveManifestUrls, verifyManifestSignature, isUpdatePublicKeyConfigured } = require('../update-verification');
+
+const createSigningPair = () => {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  return {
+    privateKey,
+    publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+  };
+};
+const signManifest = (text, privateKey) => crypto.sign(null, Buffer.from(text, 'utf8'), privateKey).toString('base64');
+const signedManifest = `${installerHash}  Nexus Terminal Setup 0.9.22.43.exe\n${portableHash}  Nexus Terminal Portable win-unpacked.zip\n`;
+
+test('accepts a valid Ed25519 manifest signature', () => {
+  const { privateKey, publicKeyPem } = createSigningPair();
+  const signature = signManifest(signedManifest, privateKey);
+  assert.equal(verifyManifestSignature(signedManifest, signature, publicKeyPem), true);
+  assert.equal(verifyManifestSignature(signedManifest, `${signature}\n`, publicKeyPem), true);
+});
+
+test('rejects a tampered manifest', () => {
+  const { privateKey, publicKeyPem } = createSigningPair();
+  const signature = signManifest(signedManifest, privateKey);
+  const tampered = signedManifest.replace(installerHash, '0'.repeat(64));
+  assert.equal(verifyManifestSignature(tampered, signature, publicKeyPem), false);
+  assert.equal(verifyManifestSignature(`${signedManifest} `, signature, publicKeyPem), false);
+});
+
+test('rejects a tampered or foreign signature', () => {
+  const { privateKey, publicKeyPem } = createSigningPair();
+  const other = createSigningPair();
+  const signature = Buffer.from(signManifest(signedManifest, privateKey), 'base64');
+  signature[0] ^= 0xff;
+  assert.equal(verifyManifestSignature(signedManifest, signature.toString('base64'), publicKeyPem), false);
+  assert.equal(verifyManifestSignature(signedManifest, signManifest(signedManifest, other.privateKey), publicKeyPem), false);
+});
+
+test('rejects missing, malformed, or wrong-type keys and signatures', () => {
+  const { privateKey, publicKeyPem } = createSigningPair();
+  const signature = signManifest(signedManifest, privateKey);
+  assert.equal(verifyManifestSignature(signedManifest, '', publicKeyPem), false);
+  assert.equal(verifyManifestSignature(signedManifest, null, publicKeyPem), false);
+  assert.equal(verifyManifestSignature(signedManifest, 'not base64!!', publicKeyPem), false);
+  assert.equal(verifyManifestSignature(signedManifest, Buffer.alloc(32).toString('base64'), publicKeyPem), false);
+  assert.equal(verifyManifestSignature(signedManifest, signature, ''), false);
+  assert.equal(verifyManifestSignature(signedManifest, signature, 'garbage'), false);
+  assert.equal(verifyManifestSignature(undefined, signature, publicKeyPem), false);
+  const rsa = crypto.generateKeyPairSync('rsa', { modulusLength: 1024 }).publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  assert.equal(verifyManifestSignature(signedManifest, signature, rsa), false);
+  assert.equal(isUpdatePublicKeyConfigured(''), false);
+  assert.equal(isUpdatePublicKeyConfigured('   '), false);
+  assert.equal(isUpdatePublicKeyConfigured(publicKeyPem), true);
+});
+
+test('sign-update-manifest script output verifies with the derived public key', () => {
+  const { execFileSync } = require('node:child_process');
+  const { privateKey, publicKeyPem } = createSigningPair();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-sign-'));
+  const manifestPath = path.join(directory, 'SHA256SUMS.txt');
+  fs.writeFileSync(manifestPath, signedManifest);
+  try {
+    execFileSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'sign-update-manifest.js'), manifestPath], {
+      env: { PATH: process.env.PATH, UPDATE_SIGNING_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() },
+      stdio: 'pipe',
+    });
+    const signature = fs.readFileSync(`${manifestPath}.sig`, 'utf8');
+    assert.equal(verifyManifestSignature(fs.readFileSync(manifestPath, 'utf8'), signature, publicKeyPem), true);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('derives the manifest and detached signature URLs', () => {
+  assert.deepEqual(deriveManifestUrls('https://github.com/o/r/releases/download/v1/SHA256SUMS.txt'), {
+    manifestUrl: 'https://github.com/o/r/releases/download/v1/SHA256SUMS.txt',
+    signatureUrl: 'https://github.com/o/r/releases/download/v1/SHA256SUMS.txt.sig',
+  });
+  assert.deepEqual(deriveManifestUrls('https://github.com/o/r/releases/download/v1/SHA256SUMS.txt.sig'), {
+    manifestUrl: 'https://github.com/o/r/releases/download/v1/SHA256SUMS.txt',
+    signatureUrl: 'https://github.com/o/r/releases/download/v1/SHA256SUMS.txt.sig',
+  });
+});

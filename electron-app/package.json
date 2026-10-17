@@ -51,6 +51,8 @@
       "update-network.js",
       "update-download-service.js",
       "update-verification.js",
+      "update-public-key.js",
+      "security-utils.js",
       "package.json"
     ],
     "extraResources": [

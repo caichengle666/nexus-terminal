@@ -41,7 +41,22 @@ const os = require('os');
 const iconv = require('iconv-lite');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { consumePortableUpdateResult, installPortableUpdate } = require('./updater-service');
-const { extractExpectedChecksum, verifyUpdateSignature } = require('./update-verification');
+const {
+  deriveManifestUrls,
+  extractExpectedChecksum,
+  isUpdatePublicKeyConfigured,
+  loadEd25519PublicKey,
+  verifyManifestSignature,
+  verifyUpdateSignature,
+} = require('./update-verification');
+const { UPDATE_PUBLIC_KEY_PEM } = require('./update-public-key');
+const {
+  buildRdpFileContent,
+  isSafeExternalUrl,
+  isTrustedOrigin,
+  sanitizeRdpConnection,
+  validateOpenPathRequest,
+} = require('./security-utils');
 const updateNetwork = require('./update-network');
 const updateDownloadService = require('./update-download-service');
 
@@ -93,6 +108,7 @@ let updateDownloadState = null;
 let completedUpdatePath = null;
 let completedUpdateKind = null;
 let completedUpdateSha256 = null;
+let completedUpdateManifestSignatureVerified = false;
 let updateInstallInProgress = false;
 let updateProxyAgent = null;
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
@@ -152,6 +168,127 @@ const getSafeUpdateFilename = parsedUrl => {
   }
   return safeFilename;
 };
+
+// ---------------------------------------------------------------------------
+// Renderer trust boundary
+// ---------------------------------------------------------------------------
+
+// The only origin allowed to drive privileged IPC: the bundled frontend served
+// on localhost (express in production, Vite in --dev).
+const TRUSTED_FRONTEND_ORIGIN = `http://localhost:${PROD_FRONTEND_PORT}`;
+const getTrustedFrontendOrigins = () => [TRUSTED_FRONTEND_ORIGIN];
+// Content-Security-Policy added to everything the local express server serves.
+// Intentionally conservative (no script/style/connect restrictions) so that
+// inline styles, user backgrounds, websockets and captcha providers keep working.
+const FRONTEND_CSP = "object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+let mainWindowStartupUrl = null;
+
+const getSenderFrameUrl = event => {
+  try {
+    return event?.senderFrame?.url || null;
+  } catch {
+    return null;
+  }
+};
+
+const isTrustedSender = event => {
+  if (!event || !event.senderFrame) return false;
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (!event.sender || event.sender.id !== mainWindow.webContents.id) return false;
+  return isTrustedOrigin(getSenderFrameUrl(event), getTrustedFrontendOrigins());
+};
+
+const assertTrustedSender = event => {
+  if (isTrustedSender(event)) return;
+  console.warn(`[Security] Rejected IPC from untrusted sender: ${getSenderFrameUrl(event) || 'unknown frame'}`);
+  throw new Error('不受信任的 IPC 调用来源。');
+};
+
+const isFloatingBellSender = event => Boolean(
+  event?.senderFrame
+  && floatingNotificationBellWindow
+  && !floatingNotificationBellWindow.isDestroyed()
+  && event.sender?.id === floatingNotificationBellWindow.webContents.id
+  && String(getSenderFrameUrl(event) || '').startsWith('data:text/html'),
+);
+
+// ipcMain wrappers that enforce the trusted-sender check before the handler.
+const handleTrusted = (channel, handler) => {
+  ipcMain.handle(channel, (event, ...args) => {
+    assertTrustedSender(event);
+    return handler(event, ...args);
+  });
+};
+
+const onTrusted = (channel, listener) => {
+  ipcMain.on(channel, (event, ...args) => {
+    if (!isTrustedSender(event)) {
+      console.warn(`[Security] Ignored '${channel}' from untrusted sender: ${getSenderFrameUrl(event) || 'unknown frame'}`);
+      return;
+    }
+    listener(event, ...args);
+  });
+};
+
+const onFromFloatingBell = (channel, listener) => {
+  ipcMain.on(channel, (event, ...args) => {
+    if (!isFloatingBellSender(event)) {
+      console.warn(`[Security] Ignored '${channel}' from non floating-bell sender.`);
+      return;
+    }
+    listener(event, ...args);
+  });
+};
+
+const openExternalSafely = (targetUrl, reason = 'link') => {
+  if (!isSafeExternalUrl(targetUrl)) {
+    console.warn(`[Security] Refused to open ${reason} externally: ${String(targetUrl).slice(0, 200)}`);
+    return false;
+  }
+  shell.openExternal(targetUrl).catch(error => console.warn(`[Security] openExternal failed: ${error.message}`));
+  return true;
+};
+
+// Restricts top-level navigation/redirects of a webContents to `isAllowedUrl`.
+// Blocked http(s) navigations are handed to the system browser instead.
+const lockDownNavigation = (contents, isAllowedUrl, { onBlocked } = {}) => {
+  contents.on('will-navigate', (event, legacyUrl) => {
+    const navigationUrl = event?.url || legacyUrl;
+    if (isAllowedUrl(navigationUrl)) return;
+    event.preventDefault();
+    if (onBlocked?.(navigationUrl)) return;
+    console.warn(`[Security] Blocked navigation to ${String(navigationUrl).slice(0, 200)}`);
+    openExternalSafely(navigationUrl, 'navigation');
+  });
+  contents.on('will-redirect', (event, legacyUrl) => {
+    const redirectUrl = event?.url || legacyUrl;
+    if (isAllowedUrl(redirectUrl)) return;
+    event.preventDefault();
+    console.warn(`[Security] Blocked redirect to ${String(redirectUrl).slice(0, 200)}`);
+  });
+};
+
+// Applies to every webContents the app ever creates (windows, devtools, …).
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-attach-webview', event => {
+    event.preventDefault();
+    console.warn('[Security] Blocked <webview> attachment.');
+  });
+  contents.setWindowOpenHandler(({ url: targetUrl }) => {
+    openExternalSafely(targetUrl, 'window.open');
+    return { action: 'deny' };
+  });
+});
+
+if (isUpdatePublicKeyConfigured(UPDATE_PUBLIC_KEY_PEM)) {
+  try {
+    loadEd25519PublicKey(UPDATE_PUBLIC_KEY_PEM);
+  } catch (error) {
+    console.error(`[Updater] UPDATE_PUBLIC_KEY_PEM is invalid, all updates will be refused: ${error.message}`);
+  }
+} else {
+  console.warn('[Updater] UPDATE_PUBLIC_KEY_PEM is not configured: update manifests are NOT signature-verified (SHA-256 only).');
+}
 
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -240,7 +377,8 @@ function createFloatingNotificationBell() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
+      webviewTag: false,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
@@ -264,11 +402,15 @@ function createFloatingNotificationBell() {
     bell.addEventListener('pointerup',function(event){if(!dragState||dragState.pointerId!==event.pointerId)return;var wasMoved=moved;dragState=null;if(!wasMoved){event.preventDefault();api&&api.floatingNotificationBellClick();}});
     bell.addEventListener('pointercancel',function(){dragState=null;});
   </script></body></html>`;
-  floatingNotificationBellWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    if (navigationUrl === 'nexus-terminal://notifications') {
-      event.preventDefault();
-      openTaskNotificationCenter();
-    }
+  // The bell only ever shows its own data: URL; every navigation is refused.
+  lockDownNavigation(floatingNotificationBellWindow.webContents, () => false, {
+    onBlocked: navigationUrl => {
+      if (navigationUrl === 'nexus-terminal://notifications') {
+        openTaskNotificationCenter();
+        return true;
+      }
+      return false;
+    },
   });
   floatingNotificationBellWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   floatingNotificationBellWindow.webContents.once('did-finish-load', () => {
@@ -395,8 +537,15 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true, // 启用上下文隔离
+      sandbox: true, // preload 只使用 contextBridge/ipcRenderer
+      webviewTag: false,
     },
   });
+  // Only the startup screen and the trusted local frontend may be shown here.
+  lockDownNavigation(mainWindow.webContents, navigationUrl => (
+    (mainWindowStartupUrl && navigationUrl === mainWindowStartupUrl)
+    || isTrustedOrigin(navigationUrl, getTrustedFrontendOrigins())
+  ));
   mainWindow.setAlwaysOnTop(isAlwaysOnTop);
   mainWindow.webContents.on('context-menu', (_event, params) => {
     const hasSelection = Boolean(params.selectionText);
@@ -428,7 +577,8 @@ async function createWindow() {
     .mark{width:56px;height:56px;border:3px solid #667085;border-top-color:#f4f6fa;border-radius:50%;animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
   </style></head><body><div class="mark"></div><div>Nexus Terminal</div><div>正在启动客户端...</div></body></html>`;
-  mainWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(startupHtml)}`).catch((error) => {
+  mainWindowStartupUrl = `data:text/html;charset=UTF-8,${encodeURIComponent(startupHtml)}`;
+  mainWindow.loadURL(mainWindowStartupUrl).catch((error) => {
     console.warn(`[Startup] Failed to load startup screen: ${error.message}`);
   });
   mainWindow.show();
@@ -724,6 +874,10 @@ async function createWindow() {
 
     // 启动 express 前端服务器
     expressApp = express();
+    expressApp.use((req, res, next) => {
+      res.setHeader('Content-Security-Policy', FRONTEND_CSP);
+      next();
+    });
     const backendTarget = `http://127.0.0.1:${PROD_BACKEND_PORT}`;
     const backendProxy = createProxyMiddleware({
       pathFilter: ['/api', '/uploads', '/ws'],
@@ -1007,28 +1161,28 @@ app.on('activate', function () {
 
 
 // 预留 IPC 通信示例
-ipcMain.on('toMain', (event, args) => {
+onTrusted('toMain', (event, args) => {
   console.log('Message from renderer:', args);
   // mainWindow.webContents.send('fromMain', { message: 'Hello from main process!' });
 });
 
 // IPC handlers for window controls
-ipcMain.on('minimize-window', () => {
+onTrusted('minimize-window', () => {
   if (mainWindow) {
     hideMainWindowToTray();
   }
 });
 
-ipcMain.handle('get-app-version', () => require('./package.json').releaseVersion || app.getVersion());
-ipcMain.handle('get-platform', () => process.platform);
-ipcMain.handle('get-architecture', () => process.arch);
-ipcMain.handle('get-installation-kind', () => {
+handleTrusted('get-app-version', () => require('./package.json').releaseVersion || app.getVersion());
+handleTrusted('get-platform', () => process.platform);
+handleTrusted('get-architecture', () => process.arch);
+handleTrusted('get-installation-kind', () => {
   if (process.platform !== 'win32') return 'system';
   const markerPath = path.join(path.dirname(app.getPath('exe')), '.Portable');
   return fs.existsSync(markerPath) ? 'portable' : 'system';
 });
 
-ipcMain.handle('download-update', async (event, payload = {}) => {
+handleTrusted('download-update', async (event, payload = {}) => {
   if (updateDownloadState) return { ok: false, message: '已有更新正在下载。' };
   if (!payload.url || typeof payload.url !== 'string') return { ok: false, message: '更新下载地址无效。' };
   if (!payload.checksumUrl || typeof payload.checksumUrl !== 'string') {
@@ -1041,6 +1195,14 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   } catch (error) {
     return { ok: false, message: error.message };
   }
+  let manifestUrls;
+  try {
+    manifestUrls = deriveManifestUrls(payload.checksumUrl);
+    validateUpdateUrl(manifestUrls.manifestUrl);
+  } catch {
+    return { ok: false, message: '更新校验文件地址无效。' };
+  }
+  const requireManifestSignature = isUpdatePublicKeyConfigured(UPDATE_PUBLIC_KEY_PEM);
 
   let safeFilename;
   try {
@@ -1068,6 +1230,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   completedUpdatePath = null;
   completedUpdateKind = null;
   completedUpdateSha256 = null;
+  completedUpdateManifestSignatureVerified = false;
   if (process.platform === 'win32' && /\.zip$/i.test(safeFilename)) completedUpdateKind = 'portable';
   try {
     updateProxyAgent = await buildUpdateProxyAgent(payload.proxy);
@@ -1103,11 +1266,34 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     let updatePath = targetPath;
     let fallbackUsed = false;
     sendProgress('fetching-checksum', { message: '正在从官方源获取校验文件…' });
-    const checksumText = await updateDownloadService.fetchTextAsset(payload.checksumUrl, downloadContext, {
+    const checksumText = await updateDownloadService.fetchTextAsset(manifestUrls.manifestUrl, downloadContext, {
       allowMirrors: false,
       mirrorUrls: [],
     });
     if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
+    // Authenticity: the SHA-256 manifest must carry a valid Ed25519 signature
+    // from the maintainer key once one is configured (update-public-key.js).
+    let manifestSignatureVerified = false;
+    if (requireManifestSignature) {
+      sendProgress('fetching-checksum', { message: '正在验证校验文件签名…' });
+      let signatureText;
+      try {
+        signatureText = await updateDownloadService.fetchTextAsset(manifestUrls.signatureUrl, downloadContext, {
+          allowMirrors: false,
+          mirrorUrls: [],
+        });
+      } catch (error) {
+        if (updateDownloadState.cancelled) throw error;
+        throw new Error(`此版本缺少校验文件签名，已拒绝自动更新：${error.message}`);
+      }
+      if (updateDownloadState.cancelled) throw new Error('更新下载已取消。');
+      if (!verifyManifestSignature(checksumText, signatureText, UPDATE_PUBLIC_KEY_PEM)) {
+        throw new Error('更新校验文件签名无效，已拒绝自动更新。');
+      }
+      manifestSignatureVerified = true;
+    } else {
+      console.warn('[Updater] No update public key configured; checksum manifest authenticity is NOT verified.');
+    }
     const getExpectedChecksum = filePath => checksumText
       ? extractExpectedChecksum(checksumText, path.basename(filePath))
       : null;
@@ -1167,12 +1353,13 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
     }
     completedUpdatePath = updatePath;
     completedUpdateSha256 = result.sha256.toLowerCase();
+    completedUpdateManifestSignatureVerified = manifestSignatureVerified;
     if (fallbackUsed && process.platform === 'win32') {
       const folderError = await shell.openPath(path.dirname(updatePath));
       if (folderError) console.warn(`[Updater] 无法打开便携版下载目录：${folderError}`);
     }
-    sendProgress('ready', { sha256: result.sha256, checksumVerified, signature: signature.status, fallback: fallbackUsed });
-    return { ok: true, path: updatePath, sha256: result.sha256, checksumVerified, signature: signature.status, fallback: fallbackUsed };
+    sendProgress('ready', { sha256: result.sha256, checksumVerified, manifestSignatureVerified, signature: signature.status, fallback: fallbackUsed });
+    return { ok: true, path: updatePath, sha256: result.sha256, checksumVerified, manifestSignatureVerified, signature: signature.status, fallback: fallbackUsed };
   } catch (error) {
     if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
     const shouldDiscardPartial = updateDownloadState.cancelled && !updateDownloadState.networkError;
@@ -1191,7 +1378,7 @@ ipcMain.handle('download-update', async (event, payload = {}) => {
   }
 });
 
-ipcMain.handle('cancel-update', async () => {
+handleTrusted('cancel-update', async () => {
   if (!updateDownloadState) return { ok: false, message: '没有正在进行的更新下载。' };
   const state = updateDownloadState;
   updateDownloadState.cancelled = true;
@@ -1205,12 +1392,15 @@ ipcMain.handle('cancel-update', async () => {
   return { ok: true };
 });
 
-ipcMain.handle('install-update', async () => {
+handleTrusted('install-update', async () => {
   if (updateInstallInProgress) {
     return { ok: false, message: '更新正在准备安装。' };
   }
   if (!completedUpdatePath || !fs.existsSync(completedUpdatePath)) {
     return { ok: false, message: '没有可安装的更新文件。' };
+  }
+  if (isUpdatePublicKeyConfigured(UPDATE_PUBLIC_KEY_PEM) && !completedUpdateManifestSignatureVerified) {
+    return { ok: false, message: '更新文件未通过签名校验，已拒绝安装。' };
   }
   updateInstallInProgress = true;
   try {
@@ -1278,30 +1468,34 @@ ipcMain.handle('install-update', async () => {
   }
 });
 
-ipcMain.handle('get-floating-notification-bell-settings', () => ({ enabled: floatingNotificationBellEnabled }));
-ipcMain.handle('set-floating-notification-bell-enabled', (_event, enabled) => ({
+handleTrusted('get-floating-notification-bell-settings', () => ({ enabled: floatingNotificationBellEnabled }));
+handleTrusted('set-floating-notification-bell-enabled', (_event, enabled) => ({
   ok: true,
   enabled: setFloatingNotificationBellEnabled(enabled),
 }));
-ipcMain.on('update-floating-notification-bell', (_event, payload = {}) => {
+onTrusted('update-floating-notification-bell', (_event, payload = {}) => {
   updateFloatingNotificationBell(payload);
 });
-ipcMain.on('floating-notification-bell-drag', (event, payload = {}) => {
+onFromFloatingBell('floating-notification-bell-drag', (event, payload = {}) => {
   if (!floatingNotificationBellWindow || event.sender !== floatingNotificationBellWindow.webContents) return;
   if (!Number.isFinite(payload.x) || !Number.isFinite(payload.y)) return;
   floatingNotificationBellWindow.setPosition(Math.round(payload.x), Math.round(payload.y));
 });
-ipcMain.on('floating-notification-bell-click', event => {
+onFromFloatingBell('floating-notification-bell-click', event => {
   if (floatingNotificationBellWindow && event.sender === floatingNotificationBellWindow.webContents) openTaskNotificationCenter();
 });
-ipcMain.on('update-floating-notification-bell-theme', (_event, theme) => {
+onTrusted('update-floating-notification-bell-theme', (_event, theme) => {
   updateFloatingNotificationBellTheme(theme);
 });
 
-ipcMain.handle('open-external', async (_event, url) => {
-  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return { ok: false, message: '无效的外部链接。' };
-  const error = await shell.openExternal(url);
-  return error ? { ok: false, message: error } : { ok: true };
+handleTrusted('open-external', async (_event, url) => {
+  if (!isSafeExternalUrl(url)) return { ok: false, message: '无效的外部链接。' };
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
 });
 
 const getOwnedLocalTerminal = (event, terminalId) => {
@@ -1312,7 +1506,7 @@ const getOwnedLocalTerminal = (event, terminalId) => {
   return session.terminal;
 };
 
-ipcMain.handle('local-terminal-create', (event, options = {}) => {
+handleTrusted('local-terminal-create', (event, options = {}) => {
   let pty;
   try {
     pty = require('node-pty');
@@ -1350,20 +1544,20 @@ ipcMain.handle('local-terminal-create', (event, options = {}) => {
   return { terminalId };
 });
 
-ipcMain.handle('local-terminal-write', (event, { terminalId, data }) => {
+handleTrusted('local-terminal-write', (event, { terminalId, data }) => {
   if (typeof data !== 'string' || data.length > 64 * 1024) {
     throw new Error('本地终端输入无效。');
   }
   getOwnedLocalTerminal(event, terminalId).write(data);
 });
 
-ipcMain.handle('local-terminal-resize', (event, { terminalId, cols, rows }) => {
+handleTrusted('local-terminal-resize', (event, { terminalId, cols, rows }) => {
   const safeCols = Math.max(20, Math.min(Number(cols) || 80, 500));
   const safeRows = Math.max(5, Math.min(Number(rows) || 24, 200));
   getOwnedLocalTerminal(event, terminalId).resize(safeCols, safeRows);
 });
 
-ipcMain.handle('local-terminal-close', (event, terminalId) => {
+handleTrusted('local-terminal-close', (event, terminalId) => {
   const terminal = getOwnedLocalTerminal(event, terminalId);
   localTerminalSessions.delete(terminalId);
   terminal.kill();
@@ -1456,8 +1650,8 @@ const getLocalProcesses = async () => {
   });
 };
 
-ipcMain.handle('get-local-system-status', () => getLocalSystemStatus());
-ipcMain.handle('get-local-processes', () => getLocalProcesses());
+handleTrusted('get-local-system-status', () => getLocalSystemStatus());
+handleTrusted('get-local-processes', () => getLocalProcesses());
 
 const commandExists = (command) => new Promise((resolve) => {
   const checker = process.platform === 'win32'
@@ -1495,7 +1689,7 @@ const getExternalRdpClients = async () => {
   return [];
 };
 
-ipcMain.handle('get-rdp-client-status', async () => {
+handleTrusted('get-rdp-client-status', async () => {
   const clients = await getExternalRdpClients();
   return {
     platform: process.platform,
@@ -1504,12 +1698,12 @@ ipcMain.handle('get-rdp-client-status', async () => {
   };
 });
 
-ipcMain.handle('open-external-rdp-connection', async (_event, { host, port, username }) => {
-  if (!host) {
-    return { ok: false, message: '缺少 RDP 主机地址。' };
+handleTrusted('open-external-rdp-connection', async (_event, connectionDetails = {}) => {
+  const rdpTarget = sanitizeRdpConnection(connectionDetails);
+  if (!rdpTarget.ok) {
+    return { ok: false, message: rdpTarget.error };
   }
-
-  const server = port ? `${host}:${port}` : host;
+  const { host, username, server } = rdpTarget;
 
   if (process.platform === 'darwin') {
     const clients = await getExternalRdpClients();
@@ -1519,13 +1713,7 @@ ipcMain.handle('open-external-rdp-connection', async (_event, { host, port, user
 
     const safeName = String(host).replace(/[^a-z0-9.-]/gi, '_');
     const rdpFilePath = path.join(app.getPath('temp'), `nexus-terminal-${safeName}.rdp`);
-    const rdpContent = [
-      `full address:s:${server}`,
-      username ? `username:s:${username}` : '',
-      'prompt for credentials:i:1',
-      'authentication level:i:2',
-      'screen mode id:i:2',
-    ].filter(Boolean).join('\n');
+    const rdpContent = buildRdpFileContent({ server, username });
     fs.writeFileSync(rdpFilePath, rdpContent, 'utf8');
     const openResult = await shell.openPath(rdpFilePath);
     return openResult
@@ -1559,26 +1747,30 @@ ipcMain.handle('open-external-rdp-connection', async (_event, { host, port, user
   return { ok: false, message: '当前系统不支持外部 RDP 自动调用。' };
 });
 
-ipcMain.handle('select-directory', async () => {
+handleTrusted('select-directory', async () => {
   const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
   return result.canceled ? { canceled: true } : { canceled: false, path: result.filePaths[0] };
 });
 
-ipcMain.handle('open-path', async (_event, targetPath) => {
-  if (typeof targetPath !== 'string' || !targetPath.trim()) {
-    return { ok: false, error: '路径无效。' };
+handleTrusted('open-path', async (_event, targetPath) => {
+  // Only existing local folders may be revealed; executables/launchers are
+  // refused so shell.openPath cannot be used to start programs.
+  const validation = validateOpenPathRequest(targetPath);
+  if (!validation.ok) {
+    console.warn(`[Security] open-path refused: ${validation.error}`);
+    return { ok: false, error: validation.error };
   }
-  const error = await shell.openPath(targetPath);
+  const error = await shell.openPath(validation.path);
   return error ? { ok: false, error } : { ok: true };
 });
 
-ipcMain.on('close-window', () => {
+onTrusted('close-window', () => {
   if (mainWindow) {
     mainWindow.close();
   }
 });
 
-ipcMain.on('toggle-maximize-window', () => {
+onTrusted('toggle-maximize-window', () => {
   if (mainWindow) {
     if (mainWindow.isMaximized()) {
       mainWindow.unmaximize();
@@ -1588,7 +1780,7 @@ ipcMain.on('toggle-maximize-window', () => {
   }
 });
 
-ipcMain.on('toggle-always-on-top', () => {
+onTrusted('toggle-always-on-top', () => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   isAlwaysOnTop = !mainWindow.isAlwaysOnTop();
   mainWindow.setAlwaysOnTop(isAlwaysOnTop);
@@ -1596,34 +1788,43 @@ ipcMain.on('toggle-always-on-top', () => {
 });
 
 // IPC handler for opening RDP connection
-ipcMain.on('open-rdp-connection', async (event, { host, port, username, password }) => {
+onTrusted('open-rdp-connection', async (event, connectionDetails = {}) => {
+  const password = typeof connectionDetails?.password === 'string' ? connectionDetails.password : '';
   if (process.platform !== 'win32') {
     console.warn(`[Main Process] RDP: Native mstsc is only available on Windows. Current platform: ${process.platform}`);
     dialog.showErrorBox('RDP 不可用', '系统远程桌面 mstsc 只支持 Windows。macOS/Linux 请使用 Web/Docker 远程桌面网关模式，或安装第三方 RDP 客户端手动连接。');
     return;
   }
 
-  if (!host) {
-    console.error('[Main Process] RDP: Received request without host.');
-    // event.reply('open-rdp-connection-error', 'Host is required');
+  const rdpTarget = sanitizeRdpConnection(connectionDetails);
+  if (!rdpTarget.ok) {
+    console.error(`[Main Process] RDP: Rejected connection details: ${rdpTarget.error}`);
+    dialog.showErrorBox('RDP 参数无效', rdpTarget.error);
+    return;
+  }
+  const { host, username } = rdpTarget;
+  if (/[\u0000-\u001f\u007f]/.test(password)) {
+    console.error('[Main Process] RDP: Rejected password containing control characters.');
+    dialog.showErrorBox('RDP 参数无效', 'RDP 密码包含非法控制字符。');
     return;
   }
 
-  const serverAddressForMstsc = port ? `${host}:${port}` : host; // 用于 mstsc.exe /v:
+  const serverAddressForMstsc = rdpTarget.server; // 用于 mstsc.exe /v:
   const cmdkeyTarget = `TERMSRV/${host}`; // cmdkey 的目标通常不包含端口
 
   const executeCommand = (command, args, operationDesc) => {
     return new Promise((resolve, reject) => {
-      console.log(`[Main Process] RDP: Executing ${operationDesc}: cmd.exe /C ${command} ${args.join(' ')}`);
-      // 使用 cmd.exe /C 来执行，这更接近 BAT 脚本的行为，并有助于处理路径和环境变量
-      const process = spawn('cmd.exe', ['/C', command, ...args], { stdio: 'pipe' });
+      const loggedArgs = args.map(arg => (/^\/pass:/i.test(arg) ? '/pass:***' : arg));
+      console.log(`[Main Process] RDP: Executing ${operationDesc}: ${command} ${loggedArgs.join(' ')}`);
+      // 直接启动程序而不经过 cmd.exe，避免主机名/用户名/密码中的 & | ^ 等字符被 cmd 解释执行。
+      const child = spawn(command, args, { stdio: 'pipe', windowsHide: true });
 
       let stdout = '';
       let stderr = '';
-      process.stdout.on('data', (data) => stdout += data.toString());
-      process.stderr.on('data', (data) => stderr += data.toString());
+      child.stdout.on('data', (data) => stdout += data.toString());
+      child.stderr.on('data', (data) => stderr += data.toString());
 
-      process.on('close', (code) => {
+      child.on('close', (code) => {
         if (code === 0) {
           console.log(`[Main Process] RDP: ${operationDesc} successful.`);
           resolve(stdout);
@@ -1632,7 +1833,7 @@ ipcMain.on('open-rdp-connection', async (event, { host, port, username, password
           reject(new Error(`${operationDesc} failed. Code: ${code}. Stderr: ${stderr.trim()}. Stdout: ${stdout.trim()}`));
         }
       });
-      process.on('error', (err) => {
+      child.on('error', (err) => {
         console.error(`[Main Process] RDP: Failed to start ${operationDesc}:`, err);
         reject(err);
       });
@@ -1698,7 +1899,7 @@ ipcMain.on('open-rdp-connection', async (event, { host, port, username, password
 });
 
 // IPC handler for initiating a download from renderer
-ipcMain.on('download-file-request', (event, { url: relativeUrl, encodedFilename }) => {
+onTrusted('download-file-request', (event, { url: relativeUrl, encodedFilename }) => {
   const decodedFilename = encodedFilename ? Buffer.from(encodedFilename, 'base64').toString('utf-8') : null;
   console.log(`[Main Process] Received download request. Relative URL: ${relativeUrl}, Decoded Filename: ${decodedFilename || 'unknown (was not provided or failed to decode)'}`);
 
@@ -1720,6 +1921,9 @@ ipcMain.on('download-file-request', (event, { url: relativeUrl, encodedFilename 
     }
     // 使用 actualBackendUrlForFileDownloads 来构造绝对 URL
     absoluteUrl = new URL(relativeUrl, actualBackendUrlForFileDownloads).href;
+    if (!isTrustedOrigin(absoluteUrl, [new URL(actualBackendUrlForFileDownloads).origin, ...getTrustedFrontendOrigins()])) {
+      throw new Error('Download URL must point to the local Nexus Terminal backend.');
+    }
     console.log(`[Main Process] Constructed absolute download URL using actualBackendUrlForFileDownloads: ${absoluteUrl}`);
   } catch (e) {
     console.error(`[Main Process] Error constructing absolute URL from relative: "${relativeUrl}" and base: "${actualBackendUrlForFileDownloads}". Error: ${e.message}`);
