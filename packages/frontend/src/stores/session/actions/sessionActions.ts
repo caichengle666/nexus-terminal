@@ -14,6 +14,9 @@ import { createSshTerminalManager, type SshTerminalDependencies } from '../../..
 import { createStatusMonitorManager, type StatusMonitorDependencies } from '../../../composables/useStatusMonitor';
 import { createDockerManager, type DockerManagerDependencies } from '../../../composables/useDockerManager';
 import { registerSshSuspendHandlers } from './sshSuspendActions'; 
+import { useDialogStore } from '../../dialog.store';
+import { useUiNotificationsStore } from '../../uiNotifications.store';
+import apiClient from '../../../utils/apiClient';
 
 
 // --- 辅助函数 (特定于此模块的 actions) ---
@@ -130,11 +133,103 @@ export const openNewSession = (
   // 确保只对 SSH 类型的连接注册 (虽然 wsManager 本身不包含类型信息，但 openNewSession 通常只为 SSH 调用)
   // 如果 connInfo 存在且类型为 SSH，则注册
   if (connInfo && connInfo.type === 'SSH') {
+    newSession.disposables?.push(...registerHostKeyHandlers(newSessionId, wsManager, t));
     registerSshSuspendHandlers(wsManager);
     console.log(`[SessionActions] 已为 SSH 会话 ${newSessionId} 注册 SSH 挂起处理器。`);
   } else if (connInfo) {
     console.log(`[SessionActions] 会话 ${newSessionId} 类型为 ${connInfo.type}，不注册 SSH 挂起处理器。`);
   }
+};
+
+// --- SSH 主机密钥校验 (TOFU) ---
+interface HostKeyMismatchPayload {
+  connectionId: number;
+  targetConnectionId?: number | string;
+  connectionName?: string;
+  host?: string;
+  port?: number;
+  expectedFingerprint: string;
+  receivedFingerprint: string;
+  isJumpHost?: boolean;
+}
+
+interface HostKeyNewPayload {
+  connectionId: number;
+  connectionName?: string;
+  host?: string;
+  port?: number;
+  fingerprint: string;
+  isJumpHost?: boolean;
+}
+
+const describeHostKeyTarget = (
+  payload: { connectionName?: string; host?: string; port?: number; isJumpHost?: boolean; connectionId: number },
+  t: ReturnType<typeof useI18n>['t']
+): string => {
+  const name = payload.connectionName || `#${payload.connectionId}`;
+  const address = payload.host ? ` (${payload.host}${payload.port ? `:${payload.port}` : ''})` : '';
+  const base = `${name}${address}`;
+  return payload.isJumpHost ? t('hostKey.jumpHostLabel', { name: base }) : base;
+};
+
+const registerHostKeyHandlers = (
+  sessionId: string,
+  wsManager: WsManagerInstance,
+  t: ReturnType<typeof useI18n>['t']
+): (() => void)[] => {
+  let dialogOpen = false;
+
+  const unregisterMismatch = wsManager.onMessage('ssh:hostkey:mismatch', async (rawPayload: any) => {
+    const payload = rawPayload as HostKeyMismatchPayload | undefined;
+    if (!payload || !payload.connectionId || !payload.receivedFingerprint || dialogOpen) return;
+    dialogOpen = true;
+    try {
+      const dialogStore = useDialogStore();
+      const confirmed = await dialogStore.showDialog({
+        title: t('hostKey.mismatchTitle'),
+        message: t('hostKey.mismatchMessage', {
+          target: describeHostKeyTarget(payload, t),
+          expected: payload.expectedFingerprint,
+          received: payload.receivedFingerprint,
+        }),
+        confirmText: t('hostKey.trustNewKey'),
+        cancelText: t('common.cancel'),
+      });
+      if (!confirmed) return;
+
+      try {
+        // 保存用户确认过的具体指纹 (而不是清空)，避免在确认后被另一把密钥抢先 TOFU
+        await apiClient.post(`/connections/${payload.connectionId}/host-key/reset`, {
+          fingerprint: payload.receivedFingerprint,
+        });
+      } catch (error: any) {
+        const errorMessage = error?.response?.data?.message || error?.message || String(error);
+        useUiNotificationsStore().addNotification({ type: 'error', message: t('hostKey.trustFailed', { error: errorMessage }) });
+        return;
+      }
+
+      useUiNotificationsStore().addNotification({ type: 'success', message: t('hostKey.trustSuccess') });
+      if (sessions.value.has(sessionId)) {
+        await reconnectSession(sessionId);
+      }
+    } finally {
+      dialogOpen = false;
+    }
+  });
+
+  const unregisterNew = wsManager.onMessage('ssh:hostkey:new', (rawPayload: any) => {
+    const payload = rawPayload as HostKeyNewPayload | undefined;
+    if (!payload || !payload.fingerprint) return;
+    useUiNotificationsStore().addNotification({
+      type: 'info',
+      message: t('hostKey.newKeyTrusted', {
+        target: describeHostKeyTarget(payload, t),
+        fingerprint: payload.fingerprint,
+      }),
+    });
+  });
+
+  return [unregisterMismatch, unregisterNew];
 };
 
 export const activateSession = (sessionId: string) => {

@@ -323,6 +323,17 @@ const definedMigrations: Migration[] = [
             ALTER TABLE terminal_themes ADD COLUMN overview_ruler_border TEXT NULL;
             ALTER TABLE terminal_themes ADD COLUMN extended_ansi TEXT NULL;
         `
+    },
+    {
+        id: 12,
+        name: 'Add host_key_fingerprint column to connections table for SSH host key verification',
+        check: async (db: Database): Promise<boolean> => {
+            const columnAlreadyExists = await columnExists(db, 'connections', 'host_key_fingerprint');
+            return !columnAlreadyExists;
+        },
+        sql: `
+            ALTER TABLE connections ADD COLUMN host_key_fingerprint TEXT NULL;
+        `
     }
 ];
 

@@ -6,6 +6,9 @@ import * as ConnectionRepository from '../connections/connection.repository';
 import *   as ProxyRepository from '../proxies/proxy.repository';
 import { decrypt } from '../utils/crypto';
 import * as SshKeyService from '../ssh_keys/ssh_key.service';
+import { computeFingerprint, decideHostKey, HostKeyMismatchError, isHostKeyMismatchError } from './host-key';
+
+export { HostKeyMismatchError, isHostKeyMismatchError } from './host-key';
 
 const CONNECT_TIMEOUT = 20000; // 连接超时时间 (毫秒)
 const TEST_TIMEOUT = 15000; // 测试连接超时时间 (毫秒)
@@ -26,6 +29,7 @@ interface JumpHostRawConfig {
 
 export interface JumpHostDetail {
   id: string; // Unique ID for this hop instance (e.g., generated or from config)
+  connectionId?: number; // 跳板机对应的数据库连接 ID (用于主机密钥校验)
   name?: string; // Optional name for logging
   host: string;
   port: number;
@@ -155,6 +159,7 @@ export const getConnectionDetails = async (connectionId: number): Promise<Decryp
 
                         const decryptedHop: JumpHostDetail = {
                             id: `hop-${connectionId}-via-${hopConnectionId}-idx-${i}`, // A unique ID for this specific hop in this chain
+                            connectionId: hopConnectionId,
                             name: hopTargetDetails.name || `Jump Host ${i + 1} (Conn ID ${hopConnectionId})`,
                             host: hopTargetDetails.host,
                             port: hopTargetDetails.port,
@@ -186,15 +191,158 @@ export const getConnectionDetails = async (connectionId: number): Promise<Decryp
     }
 };
 
+// --- SSH 主机密钥校验 (TOFU) ---
+
+export type HostKeyEvent =
+    | { type: 'new'; connectionId: number; connectionName?: string; host?: string; port?: number; fingerprint: string; isJumpHost: boolean }
+    | { type: 'mismatch'; connectionId: number; connectionName?: string; host?: string; port?: number; expectedFingerprint: string; receivedFingerprint: string; isJumpHost: boolean };
+
+export interface EstablishSshConnectionOptions {
+    /** 主机密钥事件回调 (首次信任 / 不匹配)，用于通知前端 */
+    onHostKeyEvent?: (event: HostKeyEvent) => void;
+}
+
+interface HostKeyTarget {
+    connectionId: number | null | undefined; // null/undefined/<=0 表示未保存的临时连接 (无法持久化)
+    connectionName?: string;
+    host?: string;
+    port?: number;
+    isJumpHost: boolean;
+}
+
+interface HostKeyGuard {
+    hostVerifier: (key: Buffer, verify: (valid: boolean) => void) => void;
+    /** 若因主机密钥不匹配被拒绝，返回对应错误 */
+    getMismatchError: () => HostKeyMismatchError | null;
+}
+
+const _emitHostKeyEvent = (options: EstablishSshConnectionOptions | undefined, event: HostKeyEvent) => {
+    if (!options?.onHostKeyEvent) return;
+    try {
+        options.onHostKeyEvent(event);
+    } catch (e) {
+        console.error('SshService: onHostKeyEvent callback threw:', e);
+    }
+};
+
+/**
+ * 创建 ssh2 hostVerifier。规则:
+ * - 未保存指纹: 信任并保存 (首次使用)，并通知调用方
+ * - 指纹一致: 放行
+ * - 指纹不一致: 拒绝连接 (在认证之前，凭证不会发送给可疑主机)
+ * - 读取数据库失败: 拒绝 (fail closed)
+ */
+const _createHostKeyGuard = (target: HostKeyTarget, options?: EstablishSshConnectionOptions): HostKeyGuard => {
+    let mismatchError: HostKeyMismatchError | null = null;
+    const label = `${target.connectionName ?? 'unknown'} (ID: ${target.connectionId ?? 'N/A'}${target.isJumpHost ? ', jump host' : ''})`;
+
+    const hostVerifier = (key: Buffer, verify: (valid: boolean) => void) => {
+        let receivedFingerprint: string;
+        try {
+            receivedFingerprint = computeFingerprint(key);
+        } catch (e) {
+            console.error(`SshService: HostKey ${label} - 无法计算主机密钥指纹:`, e);
+            verify(false);
+            return;
+        }
+
+        const connectionId = target.connectionId;
+        if (typeof connectionId !== 'number' || connectionId <= 0) {
+            // 未保存的连接 (例如测试未保存的配置)：无处持久化，只记录指纹
+            console.log(`SshService: HostKey ${label} - 未保存的连接，主机密钥指纹: ${receivedFingerprint}`);
+            verify(true);
+            return;
+        }
+
+        const reject = (expectedFingerprint: string) => {
+            mismatchError = new HostKeyMismatchError({
+                connectionId,
+                connectionName: target.connectionName,
+                host: target.host,
+                port: target.port,
+                expectedFingerprint,
+                receivedFingerprint,
+                isJumpHost: target.isJumpHost,
+            });
+            console.error(`SshService: HostKey ${label} - 主机密钥不匹配！已保存: ${expectedFingerprint}，收到: ${receivedFingerprint}。拒绝连接。`);
+            _emitHostKeyEvent(options, {
+                type: 'mismatch',
+                connectionId,
+                connectionName: target.connectionName,
+                host: target.host,
+                port: target.port,
+                expectedFingerprint,
+                receivedFingerprint,
+                isJumpHost: target.isJumpHost,
+            });
+            verify(false);
+        };
+
+        (async () => {
+            const { exists, fingerprint: stored } = await ConnectionRepository.getHostKeyFingerprint(connectionId);
+            if (!exists) {
+                // 连接记录已不存在 (理论上不应发生)：无法持久化，按首次使用处理但不保存
+                console.warn(`SshService: HostKey ${label} - 连接记录不存在，无法保存主机密钥指纹。`);
+                verify(true);
+                return;
+            }
+            const decision = decideHostKey(stored, receivedFingerprint);
+            if (decision === 'match') {
+                verify(true);
+                return;
+            }
+            if (decision === 'mismatch') {
+                reject(stored as string);
+                return;
+            }
+            // trust-new: 原子写入；若并发写入已发生，则与最新值比较
+            const saved = await ConnectionRepository.setHostKeyFingerprintIfEmpty(connectionId, receivedFingerprint);
+            if (!saved) {
+                const latest = await ConnectionRepository.getHostKeyFingerprint(connectionId);
+                const latestDecision = decideHostKey(latest.fingerprint, receivedFingerprint);
+                if (latestDecision === 'mismatch') {
+                    reject(latest.fingerprint as string);
+                    return;
+                }
+                verify(true);
+                return;
+            }
+            console.log(`SshService: HostKey ${label} - 首次连接，已信任并保存主机密钥指纹: ${receivedFingerprint}`);
+            _emitHostKeyEvent(options, {
+                type: 'new',
+                connectionId,
+                connectionName: target.connectionName,
+                host: target.host,
+                port: target.port,
+                fingerprint: receivedFingerprint,
+                isJumpHost: target.isJumpHost,
+            });
+            verify(true);
+        })().catch(err => {
+            console.error(`SshService: HostKey ${label} - 校验主机密钥时出错，拒绝连接:`, err);
+            verify(false);
+        });
+    };
+
+    return {
+        hostVerifier,
+        getMismatchError: () => mismatchError,
+    };
+};
+
 // --- Helper function to set up SSH client listeners and initiate connection ---
 const _setupSshClientListenersAndConnect = (
     client: Client,
     config: ConnectConfig,
     isFinalClient: boolean,
     connectionIdForUpdate: number | null,
-    connNameForLog: string
+    connNameForLog: string,
+    hostKeyGuard?: HostKeyGuard
 ): Promise<Client> => {
     return new Promise((resolve, reject) => {
+        if (hostKeyGuard) {
+            config = { ...config, hostVerifier: hostKeyGuard.hostVerifier };
+        }
         const logPrefix = `SshService: Client for ${connNameForLog} (ID: ${connectionIdForUpdate ?? 'N/A'}, ${isFinalClient ? 'Final' : 'Intermediate'}) -`;
 
         const eventHandlers = {
@@ -219,7 +367,8 @@ const _setupSshClientListenersAndConnect = (
                 client.removeListener('close', eventHandlers.close);
                 console.error(`${logPrefix} SSH connection error:`, err);
                 try { client.end(); } catch (e) { console.error(`${logPrefix} Error ending client in errorHandler:`, e); }
-                reject(err);
+                const mismatchError = hostKeyGuard?.getMismatchError();
+                reject(mismatchError ?? err);
             },
             close: () => {
                 client.removeListener('ready', eventHandlers.ready);
@@ -239,9 +388,18 @@ const _setupSshClientListenersAndConnect = (
 };
 
 // --- Helper function for direct SSH connection ---
+const _finalHostKeyTarget = (connDetails: DecryptedConnectionDetails): HostKeyTarget => ({
+    connectionId: connDetails.id,
+    connectionName: connDetails.name,
+    host: connDetails.host,
+    port: connDetails.port,
+    isJumpHost: false,
+});
+
 const _establishDirectSshConnection = (
     connDetails: DecryptedConnectionDetails,
-    timeout: number
+    timeout: number,
+    options?: EstablishSshConnectionOptions
 ): Promise<Client> => {
     const sshClient = new Client();
     const connectConfig: ConnectConfig = {
@@ -261,7 +419,8 @@ const _establishDirectSshConnection = (
         connectConfig,
         true, // isFinalClient
         connDetails.id,
-        connDetails.name
+        connDetails.name,
+        _createHostKeyGuard(_finalHostKeyTarget(connDetails), options)
     );
 };
 
@@ -352,7 +511,8 @@ const _connectViaHttpProxy = (
 
 const _establishProxyConnection = async (
     connDetails: DecryptedConnectionDetails,
-    timeout: number
+    timeout: number,
+    options?: EstablishSshConnectionOptions
 ): Promise<Client> => {
     const proxy = connDetails.proxy!;
 
@@ -390,7 +550,8 @@ const _establishProxyConnection = async (
             connectConfigWithSocket,
             true, // isFinalClient
             connDetails.id,
-            connDetails.name
+            connDetails.name,
+            _createHostKeyGuard(_finalHostKeyTarget(connDetails), options)
         );
 
     } catch (proxyError: any) {
@@ -435,7 +596,8 @@ async function _establishConnectionViaJumpChainRecursive(
     jumpChainDetails: JumpHostDetail[],
     finalTargetDetails: DecryptedConnectionDetails,
     activeClients: Client[], // Stores successfully connected intermediate clients for cleanup
-    timeoutPerHop: number
+    timeoutPerHop: number,
+    options?: EstablishSshConnectionOptions
 ): Promise<Client> {
     return new Promise<Client>(async (resolveOuter, rejectOuter) => {
         const cleanupAndReject = (error: Error, clientOnError?: Client) => {
@@ -483,7 +645,8 @@ async function _establishConnectionViaJumpChainRecursive(
                 finalConnectConfig,
                 true, // isFinalClient
                 finalTargetDetails.id,
-                finalTargetDetails.name
+                finalTargetDetails.name,
+                _createHostKeyGuard(_finalHostKeyTarget(finalTargetDetails), options)
             )
             .then(client => {
                 const closeJumpClients = () => {
@@ -496,7 +659,12 @@ async function _establishConnectionViaJumpChainRecursive(
                 resolveOuter(client); // Successfully connected to final target
             })
             .catch(err => {
-                cleanupAndReject(new Error(`Final target connection error for ${finalTargetDetails.name} (via jump chain): ${err.message}`), finalClient);
+                cleanupAndReject(
+                    isHostKeyMismatchError(err)
+                        ? err
+                        : new Error(`Final target connection error for ${finalTargetDetails.name} (via jump chain): ${err.message}`),
+                    finalClient
+                );
             });
             return; // Exit promise executor
         }
@@ -508,6 +676,14 @@ async function _establishConnectionViaJumpChainRecursive(
 
         const currentHopClient = new Client();
         const connectConfigForThisHop = _prepareConnectConfigForHop(currentJumpHostDetails, previousStream, timeoutPerHop);
+        const currentHopHostKeyGuard = _createHostKeyGuard({
+            connectionId: currentJumpHostDetails.connectionId,
+            connectionName: currentJumpHostDetails.name,
+            host: currentJumpHostDetails.host,
+            port: currentJumpHostDetails.port,
+            isJumpHost: true,
+        }, options);
+        connectConfigForThisHop.hostVerifier = currentHopHostKeyGuard.hostVerifier;
         console.log(`${currentHopLogPrefix}Prepared connect config for this hop: Host=${connectConfigForThisHop.host}, Port=${connectConfigForThisHop.port}, SockPresent=${!!connectConfigForThisHop.sock}`);
         
         // Define specific handlers for this intermediate hop
@@ -534,7 +710,7 @@ async function _establishConnectionViaJumpChainRecursive(
                         }
                         console.log(`${currentHopLogPrefix}forwardOut to ${nextTargetHost}:${nextTargetPort} successful. Proceeding to next hop or target with new stream.`);
                         _establishConnectionViaJumpChainRecursive(
-                            hopIndex + 1, nextStream, jumpChainDetails, finalTargetDetails, activeClients, timeoutPerHop
+                            hopIndex + 1, nextStream, jumpChainDetails, finalTargetDetails, activeClients, timeoutPerHop, options
                         )
                         .then(resolveOuter) // Propagate success
                         .catch(rejectOuter); // Propagate failure (cleanup handled by deeper calls or cleanupAndReject)
@@ -545,7 +721,8 @@ async function _establishConnectionViaJumpChainRecursive(
                 console.error(`${currentHopLogPrefix}Connection ERROR:`, err);
                 currentHopClient.removeListener('ready', currentHopHandlers.ready); // 'ready' is once
                 currentHopClient.removeListener('close', currentHopHandlers.close);
-                cleanupAndReject(new Error(`${currentHopLogPrefix}connection error: ${err.message}`), currentHopClient);
+                const hopMismatchError = currentHopHostKeyGuard.getMismatchError();
+                cleanupAndReject(hopMismatchError ?? new Error(`${currentHopLogPrefix}connection error: ${err.message}`), currentHopClient);
             },
             close: () => {
                 currentHopClient.removeListener('ready', currentHopHandlers.ready); // 'ready' is once
@@ -579,7 +756,8 @@ async function _establishConnectionViaJumpChainRecursive(
  */
 export const establishSshConnection = (
     connDetails: DecryptedConnectionDetails,
-    timeout: number = CONNECT_TIMEOUT
+    timeout: number = CONNECT_TIMEOUT,
+    options?: EstablishSshConnectionOptions
 ): Promise<Client> => {
 
     if (connDetails.connection_proxy_setting === 'jump') {
@@ -593,23 +771,24 @@ export const establishSshConnection = (
                 connDetails.jump_chain,
                 connDetails, // finalTargetDetails
                 [], // activeClients (for cleanup of intermediate hops)
-                timeout // timeoutPerHop (can be refined if needed per hop)
+                timeout, // timeoutPerHop (can be refined if needed per hop)
+                options
             );
         } else {
             console.warn(`SshService: Connection ${connDetails.name} set to 'jump' but jump_chain is MISSING or EMPTY. Attempting direct connection as fallback.`);
-            return _establishDirectSshConnection(connDetails, timeout);
+            return _establishDirectSshConnection(connDetails, timeout, options);
         }
     } else if (connDetails.connection_proxy_setting === 'proxy') {
         if (connDetails.proxy) {
-            return _establishProxyConnection(connDetails, timeout);
+            return _establishProxyConnection(connDetails, timeout, options);
         } else {
             console.warn(`SshService: Connection ${connDetails.name} set to 'proxy' but proxy details are MISSING. Attempting direct connection as fallback.`);
-            return _establishDirectSshConnection(connDetails, timeout);
+            return _establishDirectSshConnection(connDetails, timeout, options);
         }
     } else {
         if (connDetails.connection_proxy_setting && connDetails.connection_proxy_setting !== null && connDetails.connection_proxy_setting !== undefined) {
         }
-        return _establishDirectSshConnection(connDetails, timeout);
+        return _establishDirectSshConnection(connDetails, timeout, options);
     }
 };
 

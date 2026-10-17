@@ -1806,5 +1806,15 @@
     "delete": "删除此条历史",
     "copiedSuccess": "路径已复制到剪贴板",
     "copiedError": "复制路径失败"
+  },
+  "hostKey": {
+    "mismatchTitle": "警告：远程主机密钥已变化！",
+    "mismatchMessage": "{target} 的 SSH 主机密钥与之前保存的不一致。\n这可能是有人正在进行中间人攻击，也可能是服务器重装或更换了主机密钥。\n为了安全，连接已被拒绝。\n\n已保存的指纹：\n{expected}\n\n当前收到的指纹：\n{received}\n\n请通过其他可信渠道核对新指纹后，再选择信任。",
+    "jumpHostLabel": "跳板机 {name}",
+    "trustNewKey": "信任新密钥并重新连接",
+    "mismatchStatus": "主机密钥不匹配，连接已被拒绝。",
+    "trustSuccess": "已信任新的主机密钥，正在重新连接...",
+    "trustFailed": "更新主机密钥失败：{error}",
+    "newKeyTrusted": "首次连接 {target}，已信任并保存主机密钥指纹：{fingerprint}"
   }
 }

@@ -15,6 +15,8 @@ import {
     getVncSessionToken, 
     getRemoteDesktopGatewayStatus,
     cloneConnection, 
+    getHostKey,
+    resetHostKey,
     
     addTagToConnections 
 } from './connections.controller';
@@ -81,6 +83,12 @@ router.delete('/:id', deleteConnection);
 
 // POST /api/v1/connections/:id/test - 测试连接
 router.post('/:id/test', testConnection);
+
+// GET /api/v1/connections/:id/host-key - 获取已保存的 SSH 主机密钥指纹
+router.get('/:id/host-key', getHostKey);
+
+// POST /api/v1/connections/:id/host-key/reset - 重置或接受新的 SSH 主机密钥指纹
+router.post('/:id/host-key/reset', resetHostKey);
 
 // POST /api/v1/connections/test-unsaved - 测试未保存的连接信息
 router.post('/test-unsaved', testUnsavedConnection);

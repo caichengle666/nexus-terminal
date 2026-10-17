@@ -1720,5 +1720,15 @@
     "delete": "Delete this history entry",
     "copiedSuccess": "Path copied to clipboard",
     "copiedError": "Failed to copy path"
+  },
+  "hostKey": {
+    "mismatchTitle": "警告：リモートホストの鍵が変更されました！",
+    "mismatchMessage": "{target} の SSH ホスト鍵が以前に保存されたものと一致しません。\n中間者攻撃を受けている可能性があります。または、サーバーの再インストールやホスト鍵の変更が行われた可能性があります。\n安全のため、接続は拒否されました。\n\n保存済みのフィンガープリント：\n{expected}\n\n受信したフィンガープリント：\n{received}\n\n信頼できる別の経路で新しいフィンガープリントを確認してから信頼してください。",
+    "jumpHostLabel": "踏み台ホスト {name}",
+    "trustNewKey": "新しい鍵を信頼して再接続",
+    "mismatchStatus": "ホスト鍵が一致しないため、接続は拒否されました。",
+    "trustSuccess": "新しいホスト鍵を信頼しました。再接続しています...",
+    "trustFailed": "ホスト鍵の更新に失敗しました：{error}",
+    "newKeyTrusted": "{target} への初回接続です。ホスト鍵のフィンガープリントを信頼して保存しました：{fingerprint}"
   }
 }

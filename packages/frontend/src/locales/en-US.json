@@ -1802,5 +1802,15 @@
     "delete": "Delete this history entry",
     "copiedSuccess": "Path copied to clipboard",
     "copiedError": "Failed to copy path"
+  },
+  "hostKey": {
+    "mismatchTitle": "WARNING: Remote host key has changed!",
+    "mismatchMessage": "The SSH host key of {target} does not match the one saved earlier.\nSomeone could be intercepting the connection (man-in-the-middle attack), or the server may have been reinstalled or had its host key replaced.\nThe connection was refused for your safety.\n\nSaved fingerprint:\n{expected}\n\nReceived fingerprint:\n{received}\n\nOnly trust the new key after verifying it through another trusted channel.",
+    "jumpHostLabel": "jump host {name}",
+    "trustNewKey": "Trust new key and reconnect",
+    "mismatchStatus": "Host key mismatch. The connection was refused.",
+    "trustSuccess": "New host key trusted. Reconnecting...",
+    "trustFailed": "Failed to update the host key: {error}",
+    "newKeyTrusted": "First connection to {target}. Host key fingerprint trusted and saved: {fingerprint}"
   }
 }
