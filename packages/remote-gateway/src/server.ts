@@ -14,6 +14,61 @@ const GUACD_PORT = parseInt(process.env.GUACD_PORT || '4822', 10);
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const MAIN_BACKEND_URL = process.env.MAIN_BACKEND_URL || 'http://localhost:3000';
 
+// --- 网关共享密钥 ---
+// 后端调用 POST /api/remote-desktop/token 时必须携带请求头 X-Gateway-Secret = REMOTE_GATEWAY_SECRET。
+// 未设置该变量时，API 仅监听 127.0.0.1 (适用于本地/开发模式)，除非显式设置 REMOTE_GATEWAY_API_HOST。
+const REMOTE_GATEWAY_SECRET = (process.env.REMOTE_GATEWAY_SECRET || '').trim();
+// REMOTE_GATEWAY_API_HOST: 监听地址；'*' 表示所有接口 (IPv4 + IPv6)。
+// 默认：设置了共享密钥时监听所有接口，否则仅监听 127.0.0.1。
+const rawApiHost = (process.env.REMOTE_GATEWAY_API_HOST || '').trim();
+const REMOTE_GATEWAY_API_HOST: string | undefined = rawApiHost
+    ? (rawApiHost === '*' ? undefined : rawApiHost)
+    : (REMOTE_GATEWAY_SECRET ? undefined : '127.0.0.1');
+const API_HOST_LABEL = REMOTE_GATEWAY_API_HOST ?? '*';
+const isLoopbackHost = (host: string | undefined) => host === '127.0.0.1' || host === 'localhost' || host === '::1';
+
+if (!REMOTE_GATEWAY_SECRET) {
+    if (isLoopbackHost(REMOTE_GATEWAY_API_HOST)) {
+        console.warn(`[Remote Gateway] 警告：未设置 REMOTE_GATEWAY_SECRET，令牌 API 仅监听 ${API_HOST_LABEL}。如需供其他主机/容器访问，请在后端与网关两侧配置相同的 REMOTE_GATEWAY_SECRET。`);
+    } else {
+        console.warn(`[Remote Gateway] !!! 安全警告：未设置 REMOTE_GATEWAY_SECRET，但令牌 API 监听在 ${API_HOST_LABEL}。任何能访问该端口的客户端都可以申请远程桌面令牌。请尽快在 .env 中设置 REMOTE_GATEWAY_SECRET (重新运行 install.sh 会自动生成)。 !!!`);
+    }
+}
+
+const timingSafeEqualStrings = (a: string, b: string): boolean => {
+    const aBuf = crypto.createHash('sha256').update(a, 'utf8').digest();
+    const bBuf = crypto.createHash('sha256').update(b, 'utf8').digest();
+    return crypto.timingSafeEqual(aBuf, bBuf) && a.length === b.length;
+};
+
+const requireGatewaySecret = (req: Request, res: Response, next: () => void): void => {
+    if (!REMOTE_GATEWAY_SECRET) {
+        next();
+        return;
+    }
+    const header = req.headers['x-gateway-secret'];
+    const provided = Array.isArray(header) ? header[0] : header;
+    if (typeof provided !== 'string' || !timingSafeEqualStrings(provided, REMOTE_GATEWAY_SECRET)) {
+        console.warn(`[Remote Gateway] 拒绝未授权的令牌请求 (来源: ${req.socket.remoteAddress})。`);
+        res.status(401).json({ error: '未授权' });
+        return;
+    }
+    next();
+};
+
+// --- 令牌有效期 (TTL) ---
+// 已签发令牌的 ID 与过期时间保存在内存中；WebSocket 握手时校验 (verifyClient)，过期或未知令牌将被拒绝。
+const TOKEN_TTL_MS = Math.max(5, parseInt(process.env.REMOTE_GATEWAY_TOKEN_TTL_SECONDS || '60', 10) || 60) * 1000;
+const issuedTokens = new Map<string, number>(); // jti -> expiresAt (ms)
+
+const sweepExpiredTokens = () => {
+    const now = Date.now();
+    for (const [jti, expiresAt] of issuedTokens) {
+        if (expiresAt <= now) issuedTokens.delete(jti);
+    }
+};
+setInterval(sweepExpiredTokens, 30 * 1000).unref();
+
 // --- 启动时生成内存加密密钥 ---
 console.log("[Remote Gateway] 正在为此会话生成新的内存加密密钥...");
 const ENCRYPTION_KEY_STRING = crypto.randomBytes(32).toString('hex');
@@ -59,9 +114,46 @@ const guacdOptions = {
     port: GUACD_PORT,
 };
 
+const decryptTokenPayload = (token: string): any => {
+    const tokenData = JSON.parse(Buffer.from(token, 'base64').toString());
+    const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY_BUFFER, Buffer.from(tokenData.iv, 'base64'));
+    let decrypted = decipher.update(Buffer.from(tokenData.value, 'base64'), undefined, 'utf8');
+    decrypted += decipher.final('utf8');
+    return JSON.parse(decrypted);
+};
+
+// 在 WebSocket 握手阶段校验令牌有效期，拒绝过期/未签发的令牌 (在 guacamole-lite 连接 guacd 之前)
+const verifyClient = (
+    info: { req: http.IncomingMessage },
+    callback: (result: boolean, code?: number, message?: string) => void
+): void => {
+    try {
+        const requestUrl = new URL(info.req.url || '/', 'http://gateway.local');
+        const token = requestUrl.searchParams.get('token');
+        if (!token) {
+            callback(false, 401, 'Missing token');
+            return;
+        }
+        const payload = decryptTokenPayload(token);
+        const jti = typeof payload?.jti === 'string' ? payload.jti : '';
+        const expiresAt = issuedTokens.get(jti);
+        if (!jti || expiresAt === undefined || expiresAt <= Date.now() || typeof payload.exp !== 'number' || payload.exp <= Date.now()) {
+            if (jti) issuedTokens.delete(jti);
+            console.warn('[Remote Gateway] 拒绝 WebSocket 连接：令牌已过期或无效。');
+            callback(false, 401, 'Token expired or invalid');
+            return;
+        }
+        callback(true);
+    } catch (error) {
+        console.warn('[Remote Gateway] 拒绝 WebSocket 连接：令牌解析失败。');
+        callback(false, 401, 'Invalid token');
+    }
+};
+
 const websocketOptions = {
     port: REMOTE_GATEWAY_WS_PORT,
     host: '0.0.0.0', // 监听所有接口
+    verifyClient,
 };
 
 const clientOptions = {
@@ -121,7 +213,7 @@ const encryptToken = (data: string, keyBuffer: Buffer): string => {
     }
 };
 
-app.post('/api/remote-desktop/token', (req: Request, res: Response): void => {
+app.post('/api/remote-desktop/token', requireGatewaySecret, (req: Request, res: Response): void => {
     const { protocol, connectionConfig } = req.body;
 
     if (!protocol || !connectionConfig) {
@@ -171,7 +263,12 @@ app.post('/api/remote-desktop/token', (req: Request, res: Response): void => {
         // 例如: settings['enable-audio'] = connectionConfig.enableAudio || 'false';
     }
 
+    const jti = crypto.randomBytes(16).toString('hex');
+    const expiresAt = Date.now() + TOKEN_TTL_MS;
+
     const connectionParams = {
+        jti,
+        exp: expiresAt,
         connection: {
             type: protocol, // 'rdp' or 'vnc'
             settings: settings
@@ -181,7 +278,8 @@ app.post('/api/remote-desktop/token', (req: Request, res: Response): void => {
     try {
         const tokenData = JSON.stringify(connectionParams);
         const encryptedToken = encryptToken(tokenData, ENCRYPTION_KEY_BUFFER);
-        res.json({ token: encryptedToken });
+        issuedTokens.set(jti, expiresAt);
+        res.json({ token: encryptedToken, expiresAt });
     } catch (error) {
         console.error("[Remote Gateway] /api/remote-desktop/token 接口出错:", error);
         res.status(500).json({ error: '生成令牌失败' });
@@ -199,10 +297,15 @@ app.get('/api/health', async (_req: Request, res: Response): Promise<void> => {
     });
 });
 
-apiServer.listen(REMOTE_GATEWAY_API_PORT, () => {
-    console.log(`[Remote Gateway] API 服务器正在监听端口 ${REMOTE_GATEWAY_API_PORT}`);
+const onApiListening = () => {
+    console.log(`[Remote Gateway] API 服务器正在监听 ${API_HOST_LABEL}:${REMOTE_GATEWAY_API_PORT} (共享密钥校验: ${REMOTE_GATEWAY_SECRET ? '已启用' : '未启用'})`);
     console.log(`[Remote Gateway] Guacamole WebSocket 服务器应在端口 ${REMOTE_GATEWAY_WS_PORT} 上运行 (由 GuacamoleLite 管理)`);
-});
+};
+if (REMOTE_GATEWAY_API_HOST) {
+    apiServer.listen(Number(REMOTE_GATEWAY_API_PORT), REMOTE_GATEWAY_API_HOST, onApiListening);
+} else {
+    apiServer.listen(Number(REMOTE_GATEWAY_API_PORT), onApiListening);
+}
 
 const gracefulShutdown = (signal: string) => {
     console.log(`[Remote Gateway] 收到 ${signal} 信号。正在优雅地关闭...`);
