@@ -2,48 +2,64 @@ import http from 'http';
 import url from 'url';
 import { Request, RequestHandler } from 'express';
 import { WebSocketServer } from 'ws';
+import { Duplex } from 'stream';
 import { AuthenticatedWebSocket } from './types';
+import { getClientIp } from '../utils/client-ip';
+import { isIpAllowed } from '../auth/ipWhitelist.middleware';
+import { checkWsOrigin } from './origin-check';
+
+const rejectUpgrade = (socket: Duplex, status: number, message: string): void => {
+    try {
+        socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    } catch {
+        /* ignore */
+    }
+    socket.destroy();
+};
 
 export function initializeUpgradeHandler(
     server: http.Server,
     wss: WebSocketServer,
     sessionParser: RequestHandler
 ): void {
-    server.on('upgrade', (request: Request, socket, head) => {
+    server.on('upgrade', async (request: Request, socket: Duplex, head: Buffer) => {
 
         const parsedUrl = url.parse(request.url || '', true); // Parse URL and query string
         const pathname = parsedUrl.pathname;
 
-        // --- 修改：尝试从头部获取 IP，并处理 X-Forwarded-For 列表 ---
-        let ipAddress: string | undefined;
-        const xForwardedFor = request.headers['x-forwarded-for'];
-        const xRealIp = request.headers['x-real-ip'];
+        // 客户端 IP：与 Express 的 trust proxy 规则一致 (TRUST_PROXY=true 时信任 1 跳代理，否则只用 socket 地址)，
+        // 不再无条件信任 X-Forwarded-For / X-Real-IP，避免伪造 IP 绕过白名单或污染审计日志。
+        const ipAddress = getClientIp(request) || 'unknown';
 
-        if (xForwardedFor) {
-            // 如果 X-Forwarded-For 存在，取列表中的第一个 IP
-            const ips = Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor.split(',')[0];
-            ipAddress = ips?.trim();
-        } else if (xRealIp) {
-            // 否则，尝试 X-Real-IP
-            ipAddress = Array.isArray(xRealIp) ? xRealIp[0] : xRealIp.trim();
-        } else {
-            // 最后回退到 socket.remoteAddress 或 request.ip
-            ipAddress = request.socket.remoteAddress || request.ip;
+        console.log(`WebSocket: 升级请求来自 IP: ${ipAddress}, Path: ${pathname}`);
+
+        // --- Origin 校验 (防止跨站 WebSocket 劫持) ---
+        if (!checkWsOrigin(request)) {
+            console.warn(`WebSocket: 已拒绝来自不允许的 Origin 的升级请求 (IP: ${ipAddress}, Path: ${pathname}, Origin: ${request.headers.origin}, Host: ${request.headers.host})。如需允许，请设置 ALLOWED_WS_ORIGINS。`);
+            rejectUpgrade(socket, 403, 'Forbidden');
+            return;
         }
 
-        // 确保 ipAddress 不是 undefined 或空字符串，否则设为 'unknown'
-        ipAddress = ipAddress || 'unknown';
-        
-
-        console.log(`WebSocket: 升级请求来自 IP: ${ipAddress}, Path: ${pathname}`); // 使用新获取的 ipAddress
+        let ipAllowed: boolean;
+        try {
+            ipAllowed = await isIpAllowed(ipAddress === 'unknown' ? undefined : ipAddress);
+        } catch (error) {
+            console.error('WebSocket: IP 白名单校验出错，已拒绝升级请求:', error);
+            rejectUpgrade(socket, 500, 'Internal Server Error');
+            return;
+        }
+        if (!ipAllowed) {
+            console.warn(`WebSocket: 已拒绝来自 IP ${ipAddress} 的升级请求 (不在白名单内)。`);
+            rejectUpgrade(socket, 403, 'Forbidden');
+            return;
+        }
 
         // @ts-ignore Express-session 类型问题
         sessionParser(request, {} as any, () => {
             // --- 认证检查 ---
             if (!request.session || !request.session.userId || (request.session as any).requiresTwoFactor) {
                 console.log(`WebSocket 认证失败 (Path: ${pathname})：未找到会话或用户未登录。`);
-                socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-                socket.destroy();
+                rejectUpgrade(socket, 401, 'Unauthorized');
                 return;
             }
             console.log(`WebSocket 认证成功 (Path: ${pathname})：用户 ${request.session.username} (ID: ${request.session.userId})`);
