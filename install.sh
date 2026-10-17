@@ -241,6 +241,40 @@ set_env_tag() {
   ' "$source" > "$destination"
 }
 
+random_hex() {
+  local bytes="$1"
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex "$bytes"
+  else
+    head -c "$bytes" /dev/urandom | od -An -tx1 | tr -d ' \n'
+  fi
+}
+
+env_has_key() {
+  local file="$1" key="$2"
+  run_as_root test -f "$file" && run_as_root grep -Eq "^${key}=[0-9a-fA-F]+" "$file"
+}
+
+# 生产模式下后端要求 ENCRYPTION_KEY / SESSION_SECRET 必须由环境变量提供。
+# 仅在 .env 与 data/.env 都没有对应密钥时生成，避免覆盖已有密钥导致历史凭据无法解密。
+ensure_secrets() {
+  local env_file="$1"
+  local data_env="$INSTALL_DIR/data/.env"
+  local generated=0
+  if ! grep -Eq '^ENCRYPTION_KEY=[0-9a-fA-F]{64}$' "$env_file" && ! env_has_key "$data_env" ENCRYPTION_KEY; then
+    printf '\nENCRYPTION_KEY=%s\n' "$(random_hex 32)" >> "$env_file"
+    generated=1
+  fi
+  if ! grep -Eq '^SESSION_SECRET=.+' "$env_file" && ! env_has_key "$data_env" SESSION_SECRET; then
+    printf 'SESSION_SECRET=%s\n' "$(random_hex 64)" >> "$env_file"
+    generated=1
+  fi
+  if [[ "$generated" -eq 1 ]]; then
+    print_info "已生成 ENCRYPTION_KEY / SESSION_SECRET 并写入 ${INSTALL_DIR}/.env (权限 0600)。"
+    print_info "!!! 请备份 ${INSTALL_DIR}/.env：丢失 ENCRYPTION_KEY 将导致已保存的所有连接凭据无法解密 !!!"
+  fi
+}
+
 prepare_temp_files() {
   TEMP_DIR="$(mktemp -d -t nexus-terminal-install.XXXXXX)"
   local raw_base="https://raw.githubusercontent.com/${REPOSITORY}/${REF}"
@@ -280,6 +314,8 @@ prepare_temp_files() {
     set_env_tag "$env_candidate" "$updated_env" "$REQUESTED_TAG"
     mv "$updated_env" "$env_candidate"
   fi
+
+  ensure_secrets "$env_candidate"
 
   printf '%s\n' "$image_tag" > "$TEMP_DIR/image-tag"
   printf '%s\n' "$compose_candidate" > "$TEMP_DIR/compose-path"

@@ -16,6 +16,16 @@ const notificationService = new NotificationService();
 const auditLogService = new AuditLogService();
 const REMEMBER_ME_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
+// --- TOTP 防重放 (内存, 每用户记录最近使用的时间步) ---
+const lastUsedTotpStep = new Map<number, number>();
+const isTotpStepReused = (userId: number, step: number): boolean => {
+    const last = lastUsedTotpStep.get(userId);
+    return last !== undefined && step <= last;
+};
+const markTotpStepUsed = (userId: number, step: number): void => {
+    lastUsedTotpStep.set(userId, step);
+};
+
 const regenerateSession = (req: Request): Promise<void> => new Promise((resolve, reject) => {
     req.session.regenerate((error) => error ? reject(error) : resolve());
 });
@@ -33,6 +43,7 @@ declare module 'express-session' {
         username?: string;
         tempTwoFactorSecret?: string;
         requiresTwoFactor?: boolean;
+        pendingTwoFactorUserId?: number; // 密码已通过、等待 2FA 的用户；此时不得写入 userId
         currentChallenge?: string; // +++ For Passkey challenge storage
         passkeyUserHandle?: string; // +++ For Passkey user handle (user ID as string)
         rememberMe?: boolean;
@@ -416,7 +427,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         // 检查是否启用了 2FA
         if (user.two_factor_secret) {
             console.log(`用户 ${username} 已启用 2FA，需要进行二次验证。`);
-            req.session.userId = user.id; 
+            // 安全：2FA 通过前不写入 userId，避免 isAuthenticated / WebSocket 把半登录会话当成已登录
+            req.session.pendingTwoFactorUserId = user.id;
             req.session.requiresTwoFactor = true;
             req.session.rememberMe = rememberMe; 
             res.status(200).json({ message: '需要进行两步验证。', requiresTwoFactor: true });
@@ -488,7 +500,7 @@ export const getAuthStatus = async (req: Request, res: Response): Promise<void> 
  */
 export const verifyLogin2FA = async (req: Request, res: Response): Promise<void> => {
     const { token } = req.body;
-    const userId = req.session.userId; 
+    const userId = req.session.pendingTwoFactorUserId;
 
     if (!userId || !req.session.requiresTwoFactor) {
         res.status(400).json({ message: '无效的请求或会话状态。' });
@@ -512,14 +524,21 @@ export const verifyLogin2FA = async (req: Request, res: Response): Promise<void>
             return;
         }
 
-        const verified = speakeasy.totp.verify({
+        const delta = speakeasy.totp.verifyDelta({
             secret: user.two_factor_secret,
             encoding: 'base32',
-            token: token,
-            window: 1 
+            token: String(token),
+            window: 1
         });
+        // 防重放：同一用户的同一个 TOTP 时间步只能使用一次
+        const usedStep = delta ? Math.floor(Date.now() / 1000 / 30) + delta.delta : null;
+        const verified = usedStep !== null && !isTotpStepReused(user.id, usedStep);
 
         if (verified) {
+            markTotpStepUsed(user.id, usedStep as number);
+            const rememberMe = req.session.rememberMe;
+            await regenerateSession(req);
+            req.session.userId = user.id;
             console.log(`用户 ${user.username} 2FA 验证成功。`);
             const clientIp = req.ip || req.socket?.remoteAddress || 'unknown'; 
             ipBlacklistService.resetAttempts(clientIp);
@@ -528,12 +547,11 @@ export const verifyLogin2FA = async (req: Request, res: Response): Promise<void>
             req.session.username = user.username;
             req.session.requiresTwoFactor = false; 
 
-            if (req.session.rememberMe) {
+            if (rememberMe) {
                 req.session.cookie.maxAge = REMEMBER_ME_MAX_AGE_MS;
             } else {
-                req.session.cookie.maxAge = undefined; 
+                req.session.cookie.maxAge = undefined;
             }
-            delete req.session.rememberMe;
 
             res.status(200).json({
                 message: '登录成功。',
