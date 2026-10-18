@@ -22,9 +22,11 @@ export interface TaskNotification {
   updatedAt: number;
   read: boolean;
   retry?: () => void | Promise<void>;
+  /** 运行中任务的取消操作（不持久化） */
+  cancel?: () => void;
 }
 
-type StoredTaskNotification = Omit<TaskNotification, 'retry'>;
+type StoredTaskNotification = Omit<TaskNotification, 'retry' | 'cancel'>;
 
 const TASK_NOTIFICATIONS_STORAGE_KEY = 'nexus.taskNotifications';
 const DISMISSED_TASK_NOTIFICATIONS_STORAGE_KEY = 'nexus.dismissedTaskNotifications';
@@ -148,7 +150,7 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
 
   const persistTaskNotifications = () => {
     if (typeof localStorage === 'undefined') return;
-    const serializableTasks = taskNotifications.value.map(({ retry: _retry, ...task }) => task);
+    const serializableTasks = taskNotifications.value.map(({ retry: _retry, cancel: _cancel, ...task }) => task);
     localStorage.setItem(TASK_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(serializableTasks));
     syncFloatingNotificationBell();
   };
@@ -310,7 +312,7 @@ export const useUiNotificationsStore = defineStore('uiNotifications', () => {
   };
 
   const clearTaskNotifications = () => {
-    taskNotifications.value.forEach(({ retry: _retry, ...task }) => {
+    taskNotifications.value.forEach(({ retry: _retry, cancel: _cancel, ...task }) => {
       dismissedTaskNotifications[task.id] = task;
     });
     taskNotifications.value = [];

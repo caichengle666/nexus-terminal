@@ -1822,5 +1822,33 @@
     "trustSuccess": "已信任新的主机密钥，正在重新连接...",
     "trustFailed": "更新主机密钥失败：{error}",
     "newKeyTrusted": "首次连接 {target}，已信任并保存主机密钥指纹：{fingerprint}"
+  },
+  "uxFiles": {
+    "editor": {
+      "confirmCloseModified": "“{name}”包含未保存的修改，确定要关闭吗？",
+      "confirmCloseModifiedBatch": "有 {count} 个标签页包含未保存的修改，确定要全部关闭吗？",
+      "confirmChangeEncodingModified": "“{name}”包含未保存的修改。切换编码会按新编码重新读取文件内容，未保存的修改将丢失。确定继续吗？"
+    },
+    "upload": {
+      "conflictTitle": "文件已存在",
+      "overwriteOne": "当前目录中已存在“{name}”，要覆盖它吗？",
+      "overwriteMany": "当前目录中已存在 {count} 个同名项目（{names}），要全部覆盖吗？",
+      "overwrite": "覆盖",
+      "skip": "跳过",
+      "overwriteAll": "全部覆盖",
+      "skipAll": "全部跳过"
+    },
+    "paste": {
+      "intoItself": "不能把文件夹粘贴到它自身或其子文件夹中。",
+      "sameDirectoryCopy": "目标目录就是源所在目录，同名项目已跳过。请粘贴到其他目录，或先重命名。",
+      "sameDirectoryMove": "目标目录就是源所在目录，无需移动。"
+    },
+    "download": {
+      "handedToBrowser": "{name} 已交给浏览器下载，进度请在浏览器下载列表中查看",
+      "completed": "{name} 下载完成",
+      "cancelled": "{name} 下载已取消",
+      "failed": "{name} 下载失败",
+      "cancel": "取消"
+    }
   }
 }

@@ -12,7 +12,11 @@ export interface UseFileManagerDragAndDropOptions {
 
   // 函数依赖
   joinPath: (base: string, target: string) => string; // 路径拼接函数
-  onFileUpload: (file: File, relativePath?: string) => void; // 修改：触发文件上传的回调，增加相对路径
+  onFileUpload: (file: File, relativePath?: string, targetDir?: string) => void; // 触发文件上传的回调：相对路径 + 拖放时锁定的目标目录
+  /** 询问顶层重名项覆盖/跳过，返回要跳过的名称 */
+  onResolveUploadConflicts?: (names: string[], targetDir: string) => Promise<Set<string>>;
+  /** 按完整路径创建目录（已存在时静默），用于上传文件夹中的空目录 */
+  onEnsureDirectory?: (fullPath: string) => void;
   onItemMove: (sourceItem: FileListItem, newFullPath: string) => void; // 触发文件/文件夹移动的回调
 }
 
@@ -23,6 +27,8 @@ export function useFileManagerDragAndDrop(options: UseFileManagerDragAndDropOpti
     fileListContainerRef,
     joinPath,
     onFileUpload,
+    onResolveUploadConflicts,
+    onEnsureDirectory,
     onItemMove,
     selectedItems, // 获取传入的 selectedItems
     fileList,      // 获取传入的 fileList
@@ -164,32 +170,83 @@ export function useFileManagerDragAndDrop(options: UseFileManagerDragAndDropOpti
   };
 
   // --- 递归遍历文件树的辅助函数 ---
-  const traverseFileTree = (item: FileSystemEntry, path = '') => {
-    path = path || '';
-    if (item.isFile) {
-      // 文件处理
-      (item as FileSystemFileEntry).file((file) => {
-        // 调用上传函数，传递文件和相对路径
-        console.log(`[DragDrop] Uploading file: ${path}${file.name}`);
-        onFileUpload(file, path); // 传递相对路径
-      }, (err) => {
-        console.error(`[DragDrop] Error getting file from entry: ${path}${item.name}`, err);
-      });
-    } else if (item.isDirectory) {
-      // 目录处理
-      const dirReader = (item as FileSystemDirectoryEntry).createReader();
-      dirReader.readEntries((entries) => {
-        console.log(`[DragDrop] Traversing directory: ${path}${item.name}, found ${entries.length} entries.`);
-        // 递归遍历目录中的每个条目
-        entries.forEach((entry) => {
-          traverseFileTree(entry, path + item.name + '/'); // 更新相对路径
-        });
-      }, (err) => {
-         console.error(`[DragDrop] Error reading directory entries: ${path}${item.name}`, err);
-      });
+  // readEntries 每次最多返回一批（Chrome 为 100 个），必须循环调用直到返回空数组
+  const readAllDirectoryEntries = (dirEntry: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> => {
+    const reader = dirEntry.createReader();
+    const allEntries: FileSystemEntry[] = [];
+    return new Promise((resolve, reject) => {
+      const readBatch = () => {
+        reader.readEntries((batch) => {
+          if (batch.length === 0) {
+            resolve(allEntries);
+            return;
+          }
+          allEntries.push(...batch);
+          readBatch();
+        }, reject);
+      };
+      readBatch();
+    });
+  };
+
+  const getFileFromEntry = (entry: FileSystemFileEntry): Promise<File> =>
+    new Promise((resolve, reject) => entry.file(resolve, reject));
+
+  interface CollectedUploads {
+    files: Array<{ file: File; relativePath: string }>;
+    directories: string[]; // 相对目标目录的路径，父目录在前
+  }
+
+  const collectEntry = async (entry: FileSystemEntry, path: string, result: CollectedUploads) => {
+    if (entry.isFile) {
+      try {
+        const file = await getFileFromEntry(entry as FileSystemFileEntry);
+        result.files.push({ file, relativePath: path });
+      } catch (err) {
+        console.error(`[DragDrop] Error getting file from entry: ${path}${entry.name}`, err);
+      }
+    } else if (entry.isDirectory) {
+      const dirRelativePath = `${path}${entry.name}`;
+      result.directories.push(dirRelativePath);
+      let children: FileSystemEntry[] = [];
+      try {
+        children = await readAllDirectoryEntries(entry as FileSystemDirectoryEntry);
+      } catch (err) {
+        console.error(`[DragDrop] Error reading directory entries: ${dirRelativePath}`, err);
+      }
+      console.log(`[DragDrop] Traversing directory: ${dirRelativePath}, found ${children.length} entries.`);
+      for (const child of children) {
+        await collectEntry(child, `${dirRelativePath}/`, result);
+      }
     }
   };
-  
+
+  const uploadDroppedEntries = async (entries: FileSystemEntry[], looseFiles: File[], targetDir: string) => {
+    const topLevelNames = [...entries.map(entry => entry.name), ...looseFiles.map(file => file.name)];
+    const skipped = onResolveUploadConflicts
+      ? await onResolveUploadConflicts(topLevelNames, targetDir)
+      : new Set<string>();
+
+    const collected: CollectedUploads = { files: [], directories: [] };
+    for (const entry of entries) {
+      if (skipped.has(entry.name)) continue;
+      await collectEntry(entry, '', collected);
+    }
+    looseFiles.forEach(file => {
+      if (!skipped.has(file.name)) collected.files.push({ file, relativePath: '' });
+    });
+
+    // 先按层级创建目录（包括空目录），再开始上传文件
+    if (onEnsureDirectory) {
+      collected.directories
+        .sort((a, b) => a.split('/').length - b.split('/').length)
+        .forEach(dir => onEnsureDirectory(joinPath(targetDir, dir)));
+    }
+    collected.files.forEach(({ file, relativePath }) => {
+      console.log(`[DragDrop] Uploading file: ${relativePath}${file.name} -> ${targetDir}`);
+      onFileUpload(file, relativePath, targetDir);
+    });
+  };
 
   // 处理蒙版上的 Drop 事件
   const handleOverlayDrop = (event: DragEvent) => {
@@ -203,18 +260,27 @@ export function useFileManagerDragAndDrop(options: UseFileManagerDragAndDropOpti
         return;
     }
 
-    console.log(`[DragDrop] Processing ${items.length} items from overlay drop.`);
+    // 在 drop 时锁定目标目录；DataTransfer 条目也必须在事件处理期间同步取出
+    const targetDir = currentPath.value;
+    const entries: FileSystemEntry[] = [];
+    const looseFiles: File[] = [];
+    console.log(`[DragDrop] Processing ${items.length} items from overlay drop into ${targetDir}.`);
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
         if (item.kind === 'file') {
             const entry = item.webkitGetAsEntry();
             if (entry) {
-                traverseFileTree(entry); // 处理文件/文件夹
+                entries.push(entry);
             } else {
-                 console.warn(`[DragDrop] Could not get entry for item ${i} from overlay.`);
+                const file = item.getAsFile();
+                if (file) looseFiles.push(file);
+                else console.warn(`[DragDrop] Could not get entry for item ${i} from overlay.`);
             }
         }
     }
+    void uploadDroppedEntries(entries, looseFiles, targetDir).catch(err => {
+        console.error('[DragDrop] Failed to process dropped items:', err);
+    });
   };
 
   // 原有的 handleDrop (容器的 drop) 现在基本不需要了，
@@ -326,7 +392,12 @@ export function useFileManagerDragAndDrop(options: UseFileManagerDragAndDropOpti
                  // 检查目标路径是否与源路径相同 (对于每个项目)
                  const currentItemSourcePath = joinPath(currentPath.value, itemToMove.filename);
                  const currentItemNewPath = joinPath(targetDirectoryFullPath, itemToMove.filename);
-                 if (currentItemSourcePath !== currentItemNewPath) {
+                 // 不能把目标文件夹本身或其上级目录移动到目标文件夹中
+                 const isTargetOrAncestor = currentItemSourcePath === targetDirectoryFullPath
+                     || targetDirectoryFullPath.startsWith(`${currentItemSourcePath.replace(/\/+$/, '')}/`);
+                 if (isTargetOrAncestor) {
+                     console.warn(`[DragDrop] Skipping move for ${itemToMove.filename}: it is the drop target or one of its ancestors.`);
+                 } else if (currentItemSourcePath !== currentItemNewPath) {
                      itemsToMove.push(itemToMove);
                  } else {
                      console.warn(`[DragDrop] Skipping move for ${itemToMove.filename}: Source and destination paths are the same.`);

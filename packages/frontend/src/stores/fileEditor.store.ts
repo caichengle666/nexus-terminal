@@ -5,6 +5,7 @@ import { useSessionStore } from './session.store';
 import type { SaveStatus, SftpReadFileSuccessPayload } from '../types/sftp.types'; 
 import * as iconv from '@vscode/iconv-lite-umd'; 
 import { Buffer } from 'buffer/'; 
+import { encodeContentToBase64 } from './session/utils';
 
 // --- 类型定义 ---
 // 文件信息，用于打开文件操作
@@ -350,7 +351,10 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
             tab.saveStatus = 'success';
             tab.saveError = null;
             tab.originalContent = contentToSave; // 更新原始内容
-            tab.isModified = false; // 重置修改状态
+            // 同步原始数据，使保存后切换编码基于刚保存的内容而不是旧文件内容
+            tab.rawContentBase64 = encodeContentToBase64(contentToSave, encodingToUse);
+            // 保存期间用户可能继续编辑，只有内容与已保存内容一致时才清除修改标记
+            tab.isModified = tab.content !== contentToSave;
 
             setTimeout(() => {
                 if (tab.saveStatus === 'success') {
@@ -373,15 +377,14 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
         }
     };
 
-    // 关闭指定标签页
-    const closeTab = (tabId: string) => {
+    // 关闭指定标签页；skipConfirm 用于批量关闭时已统一确认过的情况。返回是否真正关闭。
+    const closeTab = (tabId: string, options: { skipConfirm?: boolean } = {}): boolean => {
         const tabToClose = tabs.value.get(tabId);
-        if (!tabToClose) return;
+        if (!tabToClose) return false;
 
-        // 简单处理：如果修改过，提醒用户（实际应用可能需要更复杂的确认对话框）
-        if (tabToClose.isModified) {
-            // 这里可以集成 UI 通知库来提示
-            console.warn(`[文件编辑器 Store] 标签页 ${tabId} (${tabToClose.filename}) 已修改但未保存。正在关闭...`);
+        if (tabToClose.isModified && !options.skipConfirm && typeof window !== 'undefined') {
+            const confirmed = window.confirm(t('uxFiles.editor.confirmCloseModified', { name: tabToClose.filename }));
+            if (!confirmed) return false;
         }
 
         console.log(`[文件编辑器 Store] 关闭标签页: ${tabId}`);
@@ -402,15 +405,28 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
          else if (tabs.value.size === 0) {
               // setEditorVisibility('closed'); // 移除：容器可见性由外部控制
          }
+         return true;
      };
 
+    // 批量关闭：存在未保存修改时只确认一次
+    const closeTabsWithConfirm = (tabIds: string[]): boolean => {
+        const modifiedCount = tabIds.filter(id => tabs.value.get(id)?.isModified).length;
+        if (modifiedCount > 0 && typeof window !== 'undefined') {
+            const confirmed = modifiedCount === 1
+                ? window.confirm(t('uxFiles.editor.confirmCloseModified', {
+                    name: tabIds.map(id => tabs.value.get(id)).find(tab => tab?.isModified)?.filename ?? '',
+                }))
+                : window.confirm(t('uxFiles.editor.confirmCloseModifiedBatch', { count: modifiedCount }));
+            if (!confirmed) return false;
+        }
+        tabIds.forEach(id => closeTab(id, { skipConfirm: true }));
+        return true;
+    };
+
     // 关闭所有标签页
-    const closeAllTabs = () => {
-        // 简单处理：直接关闭所有，不检查修改状态（实际应用需要确认）
+    const closeAllTabs = (): boolean => {
          console.log('[文件编辑器 Store] 关闭所有标签页...');
-         tabs.value.clear();
-         activeTabId.value = null;
-         // setEditorVisibility('closed'); // 移除：容器可见性由外部控制
+         return closeTabsWithConfirm(Array.from(tabs.value.keys()));
      };
 
    // +++ 关闭其他标签页 +++
@@ -423,10 +439,7 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
        console.log(`[文件编辑器 Store] closeOtherTabs: 开始关闭除 ${targetTabId} 之外的所有标签页...`);
        const tabsToClose = Array.from(tabs.value.keys()).filter(id => id !== targetTabId);
        console.log(`[文件编辑器 Store] closeOtherTabs: 将要关闭的标签页 IDs:`, tabsToClose); // + Log IDs to close
-       tabsToClose.forEach(id => {
-           console.log(`[文件编辑器 Store] closeOtherTabs: 正在调用 closeTab 关闭 ${id}`); // + Log loop iteration
-           closeTab(id);
-       });
+       closeTabsWithConfirm(tabsToClose);
    };
 
    // +++ 关闭右侧标签页 +++
@@ -441,10 +454,7 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
        console.log(`[文件编辑器 Store] closeTabsToTheRight: 开始关闭 ${targetTabId} (索引 ${targetIndex}) 右侧的所有标签页...`);
        const tabsToClose = tabsArray.slice(targetIndex + 1).map(tab => tab.id);
         console.log(`[文件编辑器 Store] closeTabsToTheRight: 将要关闭的标签页 IDs:`, tabsToClose); // + Log IDs to close
-       tabsToClose.forEach(id => {
-           console.log(`[文件编辑器 Store] closeTabsToTheRight: 正在调用 closeTab 关闭 ${id}`); // + Log loop iteration
-           closeTab(id);
-       });
+       closeTabsWithConfirm(tabsToClose);
    };
 
    // +++ 关闭左侧标签页 +++
@@ -459,10 +469,7 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
        console.log(`[文件编辑器 Store] closeTabsToTheLeft: 开始关闭 ${targetTabId} (索引 ${targetIndex}) 左侧的所有标签页...`);
        const tabsToClose = tabsArray.slice(0, targetIndex).map(tab => tab.id);
        console.log(`[文件编辑器 Store] closeTabsToTheLeft: 将要关闭的标签页 IDs:`, tabsToClose); // + Log IDs to close
-       tabsToClose.forEach(id => {
-           console.log(`[文件编辑器 Store] closeTabsToTheLeft: 正在调用 closeTab 关闭 ${id}`); // + Log loop iteration
-           closeTab(id);
-       });
+       closeTabsWithConfirm(tabsToClose);
    };
 
 
@@ -514,6 +521,12 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
             return;
         }
 
+        // 重新解码会用文件原始数据替换编辑器内容，未保存的修改会丢失
+        if (tab.isModified && typeof window !== 'undefined') {
+            const confirmed = window.confirm(t('uxFiles.editor.confirmChangeEncodingModified', { name: tab.filename }));
+            if (!confirmed) return;
+        }
+
         console.log(`[文件编辑器 Store] 使用新编码 "${newEncoding}" 在前端重新解码文件: ${tab.filePath} (Tab ID: ${tabId})`);
 
         // 设置加载状态（可选，解码通常很快，但可以防止 UI 闪烁）
@@ -528,10 +541,11 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
             const updatedTab: FileTab = {
                 ...tab,
                 content: newContent,
+                originalContent: newContent, // 以新编码解码的文件内容作为基准
                 selectedEncoding: newEncoding, // 更新选择的编码
                 isLoading: false, // 解码完成
                 loadingError: null,
-                // isModified 状态保持不变
+                isModified: false,
             };
             tabs.value.set(tabId, updatedTab);
             console.log(`[文件编辑器 Store] 文件 ${tab.filePath} 使用新编码 "${newEncoding}" 解码完成。`);
@@ -601,6 +615,27 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
     }, { deep: false }); // 只监听 Map 本身的增删
 
 
+    // 是否存在任何未保存的编辑器标签页（共享模式 store + 各会话独立标签页）
+    const hasUnsavedTabs = (): boolean => {
+        for (const tab of tabs.value.values()) {
+            if (tab.isModified) return true;
+        }
+        for (const session of sessionStore.sessions.values()) {
+            if (session.editorTabs?.value?.some(tab => tab.isModified)) return true;
+        }
+        return false;
+    };
+
+    // 刷新/关闭页面前提示未保存的修改。
+    // Electron 中 beforeunload 被取消时不会弹出提示而是静默阻止关闭窗口（主进程未处理 will-prevent-unload），因此仅在浏览器中注册。
+    if (typeof window !== 'undefined' && !(window as any).electronAPI) {
+        window.addEventListener('beforeunload', (event: BeforeUnloadEvent) => {
+            if (!hasUnsavedTabs()) return;
+            event.preventDefault();
+            event.returnValue = '';
+        });
+    }
+
     return {
         // 状态
         tabs: readonly(tabs), // 只读 Map
@@ -622,6 +657,7 @@ export const useFileEditorStore = defineStore('fileEditor', () => {
         closeTabsToTheRight, // +++ 暴露新 action +++
         closeTabsToTheLeft, // +++ 暴露新 action +++
         closeAllTabs,
+        hasUnsavedTabs,
         setActiveTab,
         updateFileContent, // 暴露新的更新方法
         changeEncoding, // +++ 暴露更改编码的方法 +++

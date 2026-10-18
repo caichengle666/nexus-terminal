@@ -1818,5 +1818,33 @@
     "trustSuccess": "New host key trusted. Reconnecting...",
     "trustFailed": "Failed to update the host key: {error}",
     "newKeyTrusted": "First connection to {target}. Host key fingerprint trusted and saved: {fingerprint}"
+  },
+  "uxFiles": {
+    "editor": {
+      "confirmCloseModified": "\"{name}\" has unsaved changes. Close it anyway?",
+      "confirmCloseModifiedBatch": "{count} tabs have unsaved changes. Close them all anyway?",
+      "confirmChangeEncodingModified": "\"{name}\" has unsaved changes. Switching the encoding reloads the file content with the new encoding and your unsaved changes will be lost. Continue?"
+    },
+    "upload": {
+      "conflictTitle": "File already exists",
+      "overwriteOne": "\"{name}\" already exists in this folder. Overwrite it?",
+      "overwriteMany": "{count} items with the same names already exist in this folder ({names}). Overwrite them all?",
+      "overwrite": "Overwrite",
+      "skip": "Skip",
+      "overwriteAll": "Overwrite all",
+      "skipAll": "Skip all"
+    },
+    "paste": {
+      "intoItself": "A folder can't be pasted into itself or one of its subfolders.",
+      "sameDirectoryCopy": "The destination is the source folder, so items with the same name were skipped. Paste into another folder or rename first.",
+      "sameDirectoryMove": "The destination is the source folder; nothing to move."
+    },
+    "download": {
+      "handedToBrowser": "{name} was handed to the browser; see its downloads list for progress",
+      "completed": "{name} downloaded",
+      "cancelled": "{name} download cancelled",
+      "failed": "{name} download failed",
+      "cancel": "Cancel"
+    }
   }
 }

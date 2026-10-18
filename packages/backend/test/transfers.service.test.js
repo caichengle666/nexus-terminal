@@ -455,3 +455,37 @@ test('a single failed health probe does not reset the channel', async () => {
   assert.ok(realpathCalls >= 2);
   service.cleanupSftpSession('session-1');
 });
+
+test('upload temp file replacing an existing file keeps the original mode', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-upload-mode-'));
+  try {
+    fs.writeFileSync(path.join(root, 'run.sh'), 'old');
+    fs.chmodSync(path.join(root, 'run.sh'), 0o755);
+    fs.writeFileSync(path.join(root, '.nexus-u1.part'), 'new');
+    fs.chmodSync(path.join(root, '.nexus-u1.part'), 0o600);
+    const service = new SftpService(new Map());
+    await new Promise((resolve, reject) => {
+      service.renameUploadTempFile(createMockSftp(root), '/.nexus-u1.part', '/run.sh', err => (err ? reject(err) : resolve()));
+    });
+    assert.equal(fs.readFileSync(path.join(root, 'run.sh'), 'utf8'), 'new');
+    assert.equal(fs.statSync(path.join(root, 'run.sh')).mode & 0o777, 0o755);
+    assert.equal(fs.existsSync(path.join(root, '.nexus-u1.part')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('upload temp file to a new path keeps the temp file mode', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-upload-mode-'));
+  try {
+    fs.writeFileSync(path.join(root, '.nexus-u2.part'), 'new');
+    fs.chmodSync(path.join(root, '.nexus-u2.part'), 0o640);
+    const service = new SftpService(new Map());
+    await new Promise((resolve, reject) => {
+      service.renameUploadTempFile(createMockSftp(root), '/.nexus-u2.part', '/fresh.txt', err => (err ? reject(err) : resolve()));
+    });
+    assert.equal(fs.statSync(path.join(root, 'fresh.txt')).mode & 0o777, 0o640);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

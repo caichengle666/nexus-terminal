@@ -78,3 +78,18 @@ export const decodeRawContent = (rawContentBase64: string, encoding: string): st
         return `// Error decoding content: ${error.message}`; // 返回错误信息
     }
 };
+/**
+ * 按后端保存文件时的方式（统一换行为 LF，再按指定编码编码）把文本编码为 Base64，
+ * 用于保存成功后同步 rawContentBase64，使之与远端文件内容一致。
+ */
+export const encodeContentToBase64 = (content: string, encoding: string): string => {
+    const normalizedContent = content.replace(/\r\n/g, '\n').replace(/\r(?!\n)/g, '\n');
+    const normalizedEncoding = encoding.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normalizedEncoding === 'utf8') {
+        return Buffer.from(normalizedContent, 'utf8').toString('base64');
+    }
+    if (iconv.encodingExists(normalizedEncoding)) {
+        return Buffer.from(iconv.encode(normalizedContent, normalizedEncoding)).toString('base64');
+    }
+    return Buffer.from(normalizedContent, 'utf8').toString('base64');
+};

@@ -1736,5 +1736,33 @@
     "trustSuccess": "新しいホスト鍵を信頼しました。再接続しています...",
     "trustFailed": "ホスト鍵の更新に失敗しました：{error}",
     "newKeyTrusted": "{target} への初回接続です。ホスト鍵のフィンガープリントを信頼して保存しました：{fingerprint}"
+  },
+  "uxFiles": {
+    "editor": {
+      "confirmCloseModified": "「{name}」には未保存の変更があります。閉じてもよろしいですか？",
+      "confirmCloseModifiedBatch": "{count} 個のタブに未保存の変更があります。すべて閉じてもよろしいですか？",
+      "confirmChangeEncodingModified": "「{name}」には未保存の変更があります。エンコーディングを切り替えると新しいエンコーディングでファイル内容を読み直すため、未保存の変更は失われます。続行しますか？"
+    },
+    "upload": {
+      "conflictTitle": "ファイルは既に存在します",
+      "overwriteOne": "このフォルダーには「{name}」が既に存在します。上書きしますか？",
+      "overwriteMany": "このフォルダーには同じ名前の項目が {count} 個存在します（{names}）。すべて上書きしますか？",
+      "overwrite": "上書き",
+      "skip": "スキップ",
+      "overwriteAll": "すべて上書き",
+      "skipAll": "すべてスキップ"
+    },
+    "paste": {
+      "intoItself": "フォルダーをそれ自身またはそのサブフォルダーに貼り付けることはできません。",
+      "sameDirectoryCopy": "貼り付け先がコピー元と同じフォルダーのため、同名の項目はスキップされました。別のフォルダーに貼り付けるか、先に名前を変更してください。",
+      "sameDirectoryMove": "貼り付け先が移動元と同じフォルダーのため、移動は不要です。"
+    },
+    "download": {
+      "handedToBrowser": "{name} をブラウザーのダウンロードに引き渡しました。進行状況はブラウザーのダウンロード一覧で確認してください",
+      "completed": "{name} のダウンロードが完了しました",
+      "cancelled": "{name} のダウンロードをキャンセルしました",
+      "failed": "{name} のダウンロードに失敗しました",
+      "cancel": "キャンセル"
+    }
   }
 }

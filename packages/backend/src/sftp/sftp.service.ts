@@ -2139,6 +2139,27 @@ export class SftpService {
     }
 
     private renameUploadTempFile(sftp: SFTPWrapper, tempPath: string, remotePath: string, callback: (err?: Error | null) => void): void {
+        // 覆盖已有文件时保留其原始权限位（临时文件通常是默认 0644，直接 rename 会丢失可执行位等）
+        sftp.lstat(remotePath, (statErr, existingStats) => {
+            const originalMode = !statErr && existingStats && existingStats.isFile()
+                ? (existingStats.mode & 0o7777)
+                : null;
+            this.replaceWithUploadTempFile(sftp, tempPath, remotePath, (renameErr) => {
+                if (renameErr || originalMode === null) {
+                    callback(renameErr);
+                    return;
+                }
+                sftp.chmod(remotePath, originalMode, (chmodErr) => {
+                    if (chmodErr) {
+                        console.warn(`[SFTP Upload] Failed to restore mode ${originalMode.toString(8)} on ${remotePath}:`, chmodErr.message);
+                    }
+                    callback();
+                });
+            });
+        });
+    }
+
+    private replaceWithUploadTempFile(sftp: SFTPWrapper, tempPath: string, remotePath: string, callback: (err?: Error | null) => void): void {
         const opensshRename = (sftp as SFTPWrapper & { ext_openssh_rename?: (oldPath: string, newPath: string, cb: (err?: Error) => void) => void }).ext_openssh_rename;
         if (typeof opensshRename === 'function') {
             opensshRename.call(sftp, tempPath, remotePath, callback);

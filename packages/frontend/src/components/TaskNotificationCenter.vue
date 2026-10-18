@@ -111,6 +111,9 @@ function showCenter() {
               <div v-if="task.status === 'running' && task.progress !== undefined" class="mt-1 h-1.5 overflow-hidden rounded bg-border">
                 <div class="h-full bg-primary transition-all" :style="{ width: `${Math.max(0, Math.min(100, task.progress))}%` }"></div>
               </div>
+              <button v-if="task.status === 'running' && task.cancel" type="button" class="mt-1 text-xs text-primary hover:underline" @click="task.cancel?.()">
+                {{ t('uxFiles.download.cancel') }}
+              </button>
               <button v-if="task.status === 'error' && task.retry" type="button" class="mt-1 text-xs text-primary hover:underline" @click="task.retry?.()">
                 {{ t('taskNotifications.retry') }}
               </button>
