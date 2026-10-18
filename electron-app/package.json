@@ -53,6 +53,8 @@
       "update-verification.js",
       "update-public-key.js",
       "security-utils.js",
+      "window-state.js",
+      "main-i18n.js",
       "package.json"
     ],
     "extraResources": [

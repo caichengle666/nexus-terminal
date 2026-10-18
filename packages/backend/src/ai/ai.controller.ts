@@ -1,10 +1,18 @@
 import { Request, Response } from 'express';
 import * as AiService from './ai.service';
+import { resolveAiError } from './ai-error';
 
-const resolveAiErrorStatus = (error: any): number => {
-  const upstreamStatus = Number(error.response?.status);
-  if (upstreamStatus === 401 || upstreamStatus === 403) return 502;
-  return upstreamStatus || Number(error.status) || 500;
+const sendAiError = async (res: Response, error: any, fallbackMessage: string, streaming = false): Promise<void> => {
+  const resolved = await resolveAiError(error, { streaming, fallbackMessage });
+  if (res.headersSent) {
+    if (!res.writableEnded) res.end();
+    return;
+  }
+  res.status(resolved.status).json({
+    message: resolved.message,
+    code: resolved.code,
+    ...(resolved.providerStatus ? { providerStatus: resolved.providerStatus } : {}),
+  });
 };
 
 export const getConfig = async (_req: Request, res: Response): Promise<void> => {
@@ -27,12 +35,7 @@ export const testConfig = async (req: Request, res: Response): Promise<void> => 
   try {
     res.status(200).json(await AiService.testConfig(req.body || {}));
   } catch (error: any) {
-    const status = resolveAiErrorStatus(error);
-    const message = error.response?.data?.error?.message
-      || error.response?.data?.message
-      || error.message
-      || 'AI config test failed.';
-    res.status(status).json({ message });
+    await sendAiError(res, error, 'AI config test failed.');
   }
 };
 
@@ -40,12 +43,7 @@ export const listModels = async (req: Request, res: Response): Promise<void> => 
   try {
     res.status(200).json(await AiService.listModels(req.body || {}));
   } catch (error: any) {
-    const status = resolveAiErrorStatus(error);
-    const message = error.response?.data?.error?.message
-      || error.response?.data?.message
-      || error.message
-      || 'Failed to load AI models.';
-    res.status(status).json({ message });
+    await sendAiError(res, error, 'Failed to load AI models.');
   }
 };
 
@@ -53,12 +51,7 @@ export const testStreaming = async (req: Request, res: Response): Promise<void> 
   try {
     res.status(200).json(await AiService.testStreamingConfig(req.body || {}));
   } catch (error: any) {
-    const status = resolveAiErrorStatus(error);
-    const message = error.response?.data?.error?.message
-      || error.response?.data?.message
-      || error.message
-      || 'AI streaming test failed.';
-    res.status(status).json({ message });
+    await sendAiError(res, error, 'AI streaming test failed.', true);
   }
 };
 
@@ -66,12 +59,7 @@ export const testToolCalling = async (req: Request, res: Response): Promise<void
   try {
     res.status(200).json(await AiService.testToolCallingConfig(req.body || {}));
   } catch (error: any) {
-    const status = resolveAiErrorStatus(error);
-    const message = error.response?.data?.error?.message
-      || error.response?.data?.message
-      || error.message
-      || 'AI tool calling test failed.';
-    res.status(status).json({ message });
+    await sendAiError(res, error, 'AI tool calling test failed.');
   }
 };
 
@@ -98,11 +86,6 @@ export const chat = async (req: Request, res: Response): Promise<void> => {
     const response = await AiService.forwardChatCompletion(req.body || {});
     res.status(response.status).json(response.data);
   } catch (error: any) {
-    const status = resolveAiErrorStatus(error);
-    const message = error.response?.data?.error?.message
-      || error.response?.data?.message
-      || error.message
-      || 'AI request failed.';
-    res.status(status).json({ message });
+    await sendAiError(res, error, 'AI request failed.', req.body?.stream === true);
   }
 };

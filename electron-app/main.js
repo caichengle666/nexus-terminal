@@ -1,4 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage, shell, screen } = require('electron');
+const { captureWindowState, resolveWindowState } = require('./window-state');
+const { createTranslator } = require('./main-i18n');
+
+const tMain = createTranslator(() => (app.isReady() ? app.getLocale() : ''));
 const path = require('path');
 const url = require('url');
 const express = require('express'); 
@@ -85,15 +89,9 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
+  // A second launch just brings the running window to the front.
   app.on('second-instance', () => {
     showMainWindow();
-    void dialog.showMessageBox({
-      type: 'info',
-      title: 'Nexus Terminal',
-      message: '程序已启动',
-      detail: 'Nexus Terminal 已经在运行，已为你显示主窗口。',
-      buttons: ['确定'],
-    });
   });
 }
 
@@ -454,11 +452,11 @@ function createTray() {
   tray.setToolTip('Nexus Terminal');
   tray.setContextMenu(Menu.buildFromTemplate([
     {
-      label: '显示主窗口',
+      label: tMain('trayShow'),
       click: showMainWindow,
     },
     {
-      label: '退出',
+      label: tMain('trayQuit'),
       click: () => {
         isQuitting = true;
         app.quit();
@@ -523,13 +521,20 @@ async function createWindow() {
 
   // 创建浏览器窗口。
   const defaultBounds = { width: 1200, height: 800 };
-  const lastWindowState = store.get('windowBounds', defaultBounds);
+  // Restore the last normal bounds only if they are still on a connected
+  // display; otherwise center on the primary display.
+  const lastWindowState = resolveWindowState(
+    store.get('windowBounds', defaultBounds),
+    screen.getAllDisplays().map(display => display.workArea),
+    screen.getPrimaryDisplay().workArea,
+    defaultBounds,
+  );
 
   mainWindow = new BrowserWindow({
     width: lastWindowState.width,
     height: lastWindowState.height,
-    x: lastWindowState.x, // 如果保存了 x，则恢复
-    y: lastWindowState.y, // 如果保存了 y，则恢复
+    x: lastWindowState.x,
+    y: lastWindowState.y,
     frame: false,
     show: false, // 创建时不显示窗口
     backgroundColor: '#101216',
@@ -581,6 +586,7 @@ async function createWindow() {
   mainWindow.loadURL(mainWindowStartupUrl).catch((error) => {
     console.warn(`[Startup] Failed to load startup screen: ${error.message}`);
   });
+  if (lastWindowState.isMaximized) mainWindow.maximize();
   mainWindow.show();
 
   let frontendUrl;
@@ -1047,11 +1053,10 @@ async function createWindow() {
     // Electron 现在会处理对话框的显示和 item.setSavePath() 的调用
   });
 
-  // 保存窗口状态
+  // 保存窗口状态（未最大化时的位置大小 + 是否最大化）
   mainWindow.on('close', (event) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      const bounds = mainWindow.getBounds();
-      store.set('windowBounds', bounds);
+      store.set('windowBounds', captureWindowState(mainWindow));
     }
     if (!isQuitting) {
       event.preventDefault();
@@ -1059,12 +1064,8 @@ async function createWindow() {
     }
   });
 
-  mainWindow.on('minimize', (event) => {
-    if (!isQuitting) {
-      event.preventDefault();
-      hideMainWindowToTray();
-    }
-  });
+  // Minimize is a normal taskbar minimize (there is no "minimize to tray"
+  // setting); closing the window still hides it to the tray.
 
   // 打开开发者工具。
   if (isDev) {
@@ -1170,8 +1171,8 @@ onTrusted('toMain', (event, args) => {
 
 // IPC handlers for window controls
 onTrusted('minimize-window', () => {
-  if (mainWindow) {
-    hideMainWindowToTray();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.minimize();
   }
 });
 
@@ -1427,14 +1428,14 @@ handleTrusted('install-update', async () => {
     const isPortable = completedUpdateKind === 'portable';
     const confirmation = await dialog.showMessageBox(mainWindow, {
       type: 'question',
-      title: '安装 Nexus Terminal 更新',
-      message: `更新文件已下载：${path.basename(updatePath)}`,
-      detail: isPortable ? '将解压便携版并启动新版本。当前程序会先退出，请保存正在进行的工作。' : '即将打开系统安装程序。请先保存工作，确认后当前程序将退出。',
-      buttons: [isPortable ? '关闭并打开便携版' : '关闭并打开安装程序', '取消'],
+      title: tMain('updateTitle'),
+      message: tMain('updateMessage', { file: path.basename(updatePath) }),
+      detail: isPortable ? tMain('updateDetailPortable') : tMain('updateDetailInstaller'),
+      buttons: [isPortable ? tMain('updateButtonPortable') : tMain('updateButtonInstaller'), tMain('cancel')],
       defaultId: 0,
       cancelId: 1,
     });
-    if (confirmation.response !== 0) return { ok: false, cancelled: true, message: '已取消安装。' };
+    if (confirmation.response !== 0) return { ok: false, cancelled: true, message: tMain('updateCancelled') };
     if (isPortable && process.platform === 'win32') {
       const currentExecutableDirectory = path.dirname(app.getPath('exe'));
       const targetDirectory = fs.existsSync(path.join(currentExecutableDirectory, '.Portable'))
