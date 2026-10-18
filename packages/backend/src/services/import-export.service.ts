@@ -31,6 +31,11 @@ interface ImportedConnectionData {
     tag_names?: string[];
     ssh_key_name?: string | null;
     notes?: string | null;
+    // 跳板机 (v2 导出新增；旧文件没有这些字段)
+    id?: number | null; // 导出时的原连接 ID，仅用于解析 jump_chain
+    proxy_type?: 'proxy' | 'jump' | null;
+    jump_chain?: number[] | null; // 原连接 ID (导出端)
+    jump_chain_names?: string[] | null; // 跳板机连接名称 (优先用于解析)
     proxy?: {
         name: string;
         type: 'SOCKS5' | 'HTTP';
@@ -52,6 +57,7 @@ interface ImportedConnectionData {
 // This will represent the structure of the data *before* it's put into the JSON for export,
 // containing plaintext sensitive info.
 interface PlaintextExportConnectionData {
+    id: number;
     name: string;
     type: 'SSH' | 'RDP' | 'VNC';
     host: string;
@@ -63,6 +69,9 @@ interface PlaintextExportConnectionData {
     passphrase?: string | null; // Plaintext passphrase for key
     ssh_key_id?: number | null; // +++ Add SSH Key ID +++
     tag_ids?: number[];
+    notes?: string | null;
+    proxy_type?: 'proxy' | 'jump' | null; // 连接自身的代理/跳板机模式
+    jump_chain?: number[] | null; // 跳板机连接 ID 列表
     proxy?: {
         name: string;
         type: 'SOCKS5' | 'HTTP';
@@ -92,10 +101,12 @@ const getPlaintextConnectionsData = async (): Promise<PlaintextExportConnectionD
         const db = await getDbInstance();
 
         // Ensure ExportRow reflects the updated FullConnectionData (which now includes 'type')
-        type ExportRow = ConnectionRepository.FullConnectionData & { // FullConnectionData 包含 ssh_key_id
+        // 注意：c.* 中已包含连接自身的 proxy_type ('proxy' | 'jump')，代理服务器类型使用别名 proxy_server_type，避免覆盖
+        type ExportRow = Omit<ConnectionRepository.FullConnectionData, 'jump_chain'> & { // FullConnectionData 包含 ssh_key_id
+             jump_chain: string | null; // DB 中以 JSON 字符串存储
              proxy_db_id: number | null;
              proxy_name: string | null;
-             proxy_type: 'SOCKS5' | 'HTTP' | null; // Proxy type remains the same
+             proxy_server_type: 'SOCKS5' | 'HTTP' | null;
              proxy_host: string | null;
              proxy_port: number | null;
              proxy_username: string | null;
@@ -109,7 +120,7 @@ const getPlaintextConnectionsData = async (): Promise<PlaintextExportConnectionD
         const connectionsWithProxies = await allDb<ExportRow>(db,
             `SELECT
                 c.*,
-                p.id as proxy_db_id, p.name as proxy_name, p.type as proxy_type,
+                p.id as proxy_db_id, p.name as proxy_name, p.type as proxy_server_type,
                 p.host as proxy_host, p.port as proxy_port, p.username as proxy_username,
                 p.auth_method as proxy_auth_method,
                 p.encrypted_password as proxy_encrypted_password,
@@ -151,7 +162,19 @@ const getPlaintextConnectionsData = async (): Promise<PlaintextExportConnectionD
                 catch (e) { console.warn(`解密连接 [${row.name}] 私钥密码失败: ${(e as Error).message}`); }
             }
 
+            let jumpChain: number[] | null = null;
+            if (row.jump_chain) {
+                try {
+                    const parsedChain = JSON.parse(row.jump_chain);
+                    if (Array.isArray(parsedChain)) {
+                        const ids = parsedChain.filter((id: unknown): id is number => typeof id === 'number');
+                        jumpChain = ids.length > 0 ? ids : null;
+                    }
+                } catch (e) { console.warn(`解析连接 [${row.name}] 跳板机配置失败: ${(e as Error).message}`); }
+            }
+
             const connection: PlaintextExportConnectionData = {
+                id: row.id,
                 name: row.name ?? 'Unnamed',
                 type: row.type,
                 host: row.host,
@@ -163,10 +186,13 @@ const getPlaintextConnectionsData = async (): Promise<PlaintextExportConnectionD
                 passphrase: plainPassphrase,
                 ssh_key_id: (row.type === 'SSH' && row.auth_method === 'key') ? row.ssh_key_id : null, // +++ Populate SSH Key ID +++
                 tag_ids: tagsMap[row.id] || [],
+                notes: row.notes ?? null,
+                proxy_type: row.proxy_type ?? null,
+                jump_chain: jumpChain,
                 proxy: null
             };
 
-            if (row.proxy_db_id && row.proxy_name && row.proxy_type && row.proxy_host && row.proxy_port !== null) {
+            if (row.proxy_db_id && row.proxy_name && row.proxy_server_type && row.proxy_host && row.proxy_port !== null) {
                 // Decrypt proxy sensitive data
                 let proxyPlainPassword = null;
                 if (row.proxy_encrypted_password) {
@@ -186,7 +212,7 @@ const getPlaintextConnectionsData = async (): Promise<PlaintextExportConnectionD
 
                 connection.proxy = {
                     name: row.proxy_name,
-                    type: row.proxy_type,
+                    type: row.proxy_server_type,
                     host: row.proxy_host,
                     port: row.proxy_port,
                     username: row.proxy_username,
@@ -245,6 +271,10 @@ export interface ExportJsonData {
         ssh_key_name?: string | null;
         notes?: string | null;
         tag_names?: string[];
+        id?: number;
+        proxy_type?: 'proxy' | 'jump' | null;
+        jump_chain?: number[];
+        jump_chain_names?: string[];
         proxy?: {
             name: string;
             type: 'SOCKS5' | 'HTTP';
@@ -266,8 +296,10 @@ export const exportConnectionsAsJson = async (): Promise<Buffer> => {
     const tagsMap = new Map(allTags.map(tag => [tag.id, tag.name]));
     const sshKeyNames = new Map(allSshKeys.map(k => [k.id, k.name]));
 
+    const connectionNamesById = new Map(connectionsData.map(c => [c.id, c.name]));
+
     const exportData: ExportJsonData = {
-        version: 1,
+        version: 2, // v2: 新增 id / proxy_type / jump_chain / jump_chain_names (导入兼容 v1)
         exported_at: new Date().toISOString(),
         tags: allTags.map(t => ({ id: t.id, name: t.name })),
         connections: connectionsData.map(conn => {
@@ -276,6 +308,7 @@ export const exportConnectionsAsJson = async (): Promise<Buffer> => {
                 .filter((n): n is string => !!n);
 
             const result: ExportJsonData['connections'][0] = {
+                id: conn.id,
                 name: conn.name || `${conn.username}@${conn.host}`,
                 type: conn.type,
                 host: conn.host,
@@ -291,10 +324,16 @@ export const exportConnectionsAsJson = async (): Promise<Buffer> => {
                 result.ssh_key_name = sshKeyNames.get(conn.ssh_key_id)!;
             }
 
-            const connWithNotes = conn as PlaintextExportConnectionData & { notes?: string | null };
-            if (connWithNotes.notes) result.notes = connWithNotes.notes;
+            if (conn.notes) result.notes = conn.notes;
 
             if (tagNames.length > 0) result.tag_names = tagNames;
+
+            if (conn.proxy_type) result.proxy_type = conn.proxy_type;
+            if (conn.jump_chain && conn.jump_chain.length > 0) {
+                // 名称用于在目标实例上解析 (ID 会变化)；ID 作为同一文件内的后备映射
+                result.jump_chain = [...conn.jump_chain];
+                result.jump_chain_names = conn.jump_chain.map(id => connectionNamesById.get(id) ?? '');
+            }
 
             if (conn.proxy) {
                 result.proxy = {
@@ -370,9 +409,8 @@ export const exportConnectionsAsEncryptedZip = async (includeSshKeys: boolean = 
                 }
             }
             
-            const connWithNotes = conn as PlaintextExportConnectionData & { notes?: string };
-            if (connWithNotes.notes) { // notes is already part of PlaintextExportConnectionData
-                 line += ` -note ${escapeCliArgument(connWithNotes.notes)}`;
+            if (conn.notes) {
+                 line += ` -note ${escapeCliArgument(conn.notes)}`;
             }
             
             scriptLines.push(line);
@@ -450,6 +488,67 @@ export const exportConnectionsAsEncryptedZip = async (includeSshKeys: boolean = 
     }
 };
 
+
+/**
+ * 导入第二遍：解析跳板机链。
+ * 解析顺序：本次导入中同名的连接 → 同一文件中的原 ID → 数据库中已存在的同名连接。
+ * 无法解析的跳板机会被跳过，并返回提示 (连接本身仍会导入)。
+ * 注意：应在导入事务中调用。
+ */
+const resolveImportedJumpChains = async (
+    db: Awaited<ReturnType<typeof getDbInstance>>,
+    insertedResults: { connectionId: number; originalData: any }[]
+): Promise<{ connectionName?: string; message: string }[]> => {
+    const warnings: { connectionName?: string; message: string }[] = [];
+    const importedByName = new Map<string, { id: number; type: string }>();
+    const importedByOldId = new Map<number, { id: number; type: string }>();
+    for (const r of insertedResults) {
+        const data = r.originalData;
+        if (data?.name && !importedByName.has(data.name)) importedByName.set(data.name, { id: r.connectionId, type: data.type });
+        if (typeof data?.import_old_id === 'number') importedByOldId.set(data.import_old_id, { id: r.connectionId, type: data.type });
+    }
+
+    for (const r of insertedResults) {
+        const data = r.originalData;
+        const names: string[] = Array.isArray(data?.import_jump_chain_names) ? data.import_jump_chain_names : [];
+        const oldIds: number[] = Array.isArray(data?.import_jump_chain_old_ids) ? data.import_jump_chain_old_ids : [];
+        const hopCount = Math.max(names.length, oldIds.length);
+        if (hopCount === 0) continue;
+
+        const resolved: number[] = [];
+        const unresolved: string[] = [];
+        for (let i = 0; i < hopCount; i++) {
+            const name = names[i];
+            const oldId = oldIds[i];
+            let target: { id: number; type: string } | undefined;
+            if (name) target = importedByName.get(name);
+            if (!target && typeof oldId === 'number') target = importedByOldId.get(oldId);
+            if (!target && name) {
+                const existing = await getDbRow<{ id: number; type: string }>(db, 'SELECT id, type FROM connections WHERE name = ? ORDER BY id ASC LIMIT 1', [name]);
+                if (existing) target = existing;
+            }
+            if (!target || target.type !== 'SSH' || target.id === r.connectionId || resolved.includes(target.id)) {
+                unresolved.push(name || (typeof oldId === 'number' ? `#${oldId}` : `#${i + 1}`));
+                continue;
+            }
+            resolved.push(target.id);
+        }
+
+        if (resolved.length > 0) {
+            await runDb(db, 'UPDATE connections SET jump_chain = ? WHERE id = ?', [JSON.stringify(resolved), r.connectionId]);
+        } else if (data?.proxy_type === 'jump') {
+            // 跳板机全部无法解析：回退为直连，避免保存一个空的跳板机模式
+            await runDb(db, 'UPDATE connections SET proxy_type = NULL WHERE id = ?', [r.connectionId]);
+        }
+        if (unresolved.length > 0) {
+            warnings.push({
+                connectionName: data?.name,
+                message: `已导入，但以下跳板机未找到 (已忽略): ${unresolved.join(', ')}`,
+            });
+        }
+    }
+    return warnings;
+};
 
 /**
  * 导入连接配置
@@ -531,7 +630,17 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
             }
         }
 
-        const connectionsToInsert: Array<Omit<ConnectionRepository.FullConnectionData, 'id' | 'created_at' | 'updated_at' | 'last_connected_at'> & { tag_ids?: number[]; tag_names?: string[]; ssh_key_id?: number | null; notes?: string | null }> = [];
+        type ConnectionToInsert = Omit<ConnectionRepository.FullConnectionData, 'id' | 'created_at' | 'updated_at' | 'last_connected_at'> & {
+            tag_ids?: number[];
+            tag_names?: string[];
+            ssh_key_id?: number | null;
+            notes?: string | null;
+            // 仅用于第二遍解析跳板机链 (不写入数据库)
+            import_old_id?: number | null;
+            import_jump_chain_names?: string[] | null;
+            import_jump_chain_old_ids?: number[] | null;
+        };
+        const connectionsToInsert: ConnectionToInsert[] = [];
         const proxyCache: { [key: string]: number } = {};
 
         for (const connData of importedData) {
@@ -593,6 +702,26 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
                 const encPassword = connData.password ? encrypt(connData.password) : (connData.encrypted_password || null);
                 const encPrivateKey = connData.private_key ? encrypt(connData.private_key) : (connData.encrypted_private_key || null);
                 const encPassphrase = connData.passphrase ? encrypt(connData.passphrase) : (connData.encrypted_passphrase || null);
+
+                // 跳板机链 (仅 SSH)：第一遍只记录，插入全部连接后再解析为新 ID
+                const jumpNames = connData.type === 'SSH' && Array.isArray(connData.jump_chain_names)
+                    ? connData.jump_chain_names.map(n => (typeof n === 'string' ? n : ''))
+                    : null;
+                const jumpOldIds = connData.type === 'SSH' && Array.isArray(connData.jump_chain)
+                    ? connData.jump_chain.filter((id): id is number => typeof id === 'number')
+                    : null;
+                const hasJumpChain = (jumpNames?.length ?? 0) > 0 || (jumpOldIds?.length ?? 0) > 0;
+                let proxyTypeForDb: 'proxy' | 'jump' | null = null;
+                if (connData.type === 'SSH') {
+                    if (connData.proxy_type === 'proxy' || connData.proxy_type === 'jump') {
+                        proxyTypeForDb = connData.proxy_type;
+                    } else if (hasJumpChain) {
+                        proxyTypeForDb = 'jump';
+                    } else if (proxyIdToUse) {
+                        proxyTypeForDb = 'proxy';
+                    }
+                }
+
                 connectionsToInsert.push({
                     name: connData.name,
                     type: connData.type,
@@ -604,11 +733,15 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
                     encrypted_private_key: encPrivateKey,
                     encrypted_passphrase: encPassphrase,
                     proxy_id: proxyIdToUse,
+                    proxy_type: proxyTypeForDb,
                     ssh_key_id: sshKeyId,
                     notes: connData.notes || null,
                     tag_ids: [],
                     tag_names: connData.tag_names || [],
-                    jump_chain: null,
+                    jump_chain: null, // 第二遍解析后更新
+                    import_old_id: typeof connData.id === 'number' ? connData.id : null,
+                    import_jump_chain_names: jumpNames,
+                    import_jump_chain_old_ids: jumpOldIds,
                 });
 
             } catch (connError: any) {
@@ -623,6 +756,10 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
              insertedResults = await ConnectionRepository.bulkInsertConnections(db, connectionsToInsert);
              successCount = insertedResults.length;
         }
+
+        // 第二遍：将跳板机 (名称 / 原 ID) 解析为新 ID 并更新 jump_chain
+        const jumpWarnings = await resolveImportedJumpChains(db, insertedResults);
+        errors.push(...jumpWarnings);
 
         const insertTagSql = `INSERT OR IGNORE INTO connection_tags (connection_id, tag_id) VALUES (?, ?)`;
         for (const result of insertedResults) {

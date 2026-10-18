@@ -214,20 +214,55 @@ export const resetHostKey = async (req: Request, res: Response): Promise<void> =
 export const testUnsavedConnection = async (req: Request, res: Response): Promise<void> => {
     try {
         // 从请求体中提取连接信息 (添加 ssh_key_id)
-        const { host, port, username, auth_method, password, private_key, passphrase, proxy_id, ssh_key_id } = req.body;
+        const { host, port, username, auth_method, password, private_key, passphrase, proxy_id, ssh_key_id, proxy_type, jump_chain, connectionId } = req.body;
 
         // 基本验证
         if (!host || !port || !username || !auth_method) {
             res.status(400).json({ success: false, message: '缺少必要的连接信息 (host, port, username, auth_method)。' });
             return;
         }
-        // 密码认证时，password 字段必须存在，但可以为空字符串
-        if (auth_method === 'password' && password === undefined) {
+
+        // 可选：已保存连接 ID (编辑模式下测试未保存的修改，未提供的凭证从该连接补全)
+        let savedConnectionId: number | null = null;
+        if (connectionId !== undefined && connectionId !== null && connectionId !== '') {
+            savedConnectionId = parseInt(connectionId, 10);
+            if (isNaN(savedConnectionId)) {
+                res.status(400).json({ success: false, message: '无效的连接 ID。' });
+                return;
+            }
+            // 与其他 /connections/:id 路由一致：路由已通过 isAuthenticated，这里确认连接存在且为 SSH
+            const savedConnection = await ConnectionService.getConnectionById(savedConnectionId);
+            if (!savedConnection) {
+                res.status(404).json({ success: false, message: '连接未找到。' });
+                return;
+            }
+            if (savedConnection.type !== 'SSH') {
+                res.status(400).json({ success: false, message: '只能基于 SSH 连接补全凭证。' });
+                return;
+            }
+        }
+
+        // 跳板机链 (可选)
+        let jumpChainIds: number[] | null = null;
+        if (jump_chain !== undefined && jump_chain !== null) {
+            if (!Array.isArray(jump_chain) || jump_chain.some((id: unknown) => typeof id !== 'number' || !Number.isInteger(id))) {
+                res.status(400).json({ success: false, message: 'jump_chain 必须是连接 ID (数字) 数组。' });
+                return;
+            }
+            if (savedConnectionId !== null && jump_chain.includes(savedConnectionId)) {
+                res.status(400).json({ success: false, message: `jump_chain 不能包含当前连接自身的 ID (${savedConnectionId})。` });
+                return;
+            }
+            jumpChainIds = jump_chain;
+        }
+
+        // 密码认证时，password 字段必须存在，但可以为空字符串 (编辑模式下可省略，使用已保存的密码)
+        if (auth_method === 'password' && password === undefined && savedConnectionId === null) {
             res.status(400).json({ success: false, message: '密码认证方式需要提供 password 字段 (可以为空字符串)。' });
             return;
         }
-        // 密钥认证时，必须提供 ssh_key_id 或 private_key
-        if (auth_method === 'key' && !ssh_key_id && !private_key) {
+        // 密钥认证时，必须提供 ssh_key_id 或 private_key (编辑模式下可省略，使用已保存的密钥)
+        if (auth_method === 'key' && !ssh_key_id && !private_key && savedConnectionId === null) {
             res.status(400).json({ success: false, message: '密钥认证方式需要提供 ssh_key_id 或 private_key。' });
             return;
         }
@@ -248,7 +283,10 @@ export const testUnsavedConnection = async (req: Request, res: Response): Promis
             private_key: ssh_key_id ? undefined : private_key, // 如果有 ssh_key_id，则不传递 private_key
             passphrase: ssh_key_id ? undefined : passphrase,   // 如果有 ssh_key_id，则不传递 passphrase
             ssh_key_id: ssh_key_id ? parseInt(ssh_key_id, 10) : null, // 传递 ssh_key_id (确保是数字或 null)
-            proxy_id: proxy_id ? parseInt(proxy_id, 10) : null // 确保 proxy_id 是数字或 null
+            proxy_id: proxy_id ? parseInt(proxy_id, 10) : null, // 确保 proxy_id 是数字或 null
+            proxy_type: proxy_type === 'jump' || proxy_type === 'proxy' ? proxy_type as 'jump' | 'proxy' : null,
+            jump_chain: jumpChainIds,
+            connectionId: savedConnectionId,
         };
 
         // 验证 port 和 proxy_id 是否为有效数字
@@ -276,6 +314,10 @@ export const testUnsavedConnection = async (req: Request, res: Response): Promis
 
     } catch (error: any) {
         console.error(`Controller: 测试未保存连接时发生错误:`, error);
+        if (SshService.isHostKeyMismatchError(error)) {
+            res.status(409).json({ success: false, code: 'HOST_KEY_MISMATCH', message: error.message, hostKey: error.info });
+            return;
+        }
         // SshService 会抛出包含具体原因的 Error
         res.status(500).json({ success: false, message: error.message || '测试连接时发生内部服务器错误。' });
     }
@@ -327,7 +369,9 @@ export const importConnections = async (req: Request, res: Response): Promise<vo
             res.status(200).json({
                 message: `导入成功完成。共导入 ${result.successCount} 条连接。`,
                 successCount: result.successCount,
-                failureCount: 0
+                failureCount: 0,
+                // 非致命提示 (例如未找到的跳板机)
+                errors: result.errors.length > 0 ? result.errors : undefined
             });
         }
     } catch (error: any) {

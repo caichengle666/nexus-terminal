@@ -49,7 +49,7 @@
                {{ importConnectionsLoading ? t('common.loading') : t('settings.importConnections.buttonText', '开始导入') }}
              </button>
            </div>
-           <p v-if="importConnectionsMessage" :class="['text-sm', importConnectionsSuccess ? 'text-success' : 'text-error']">{{ importConnectionsMessage }}</p>
+           <p v-if="importConnectionsMessage" :class="['text-sm whitespace-pre-line', importConnectionsSuccess ? 'text-success' : 'text-error']">{{ importConnectionsMessage }}</p>
          </form>
       </div>
     </div>

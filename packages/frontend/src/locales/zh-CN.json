@@ -1822,5 +1822,13 @@
     "trustSuccess": "已信任新的主机密钥，正在重新连接...",
     "trustFailed": "更新主机密钥失败：{error}",
     "newKeyTrusted": "首次连接 {target}，已信任并保存主机密钥指纹：{fingerprint}"
+  },
+  "uxConn": {
+    "credentialsRequiredOnTypeChange": "已更改连接类型，请为新类型重新填写密码或选择 SSH 密钥。",
+    "jumpHostNotSelected": "存在未选择的跳板机，请选择跳板机或移除该条目。",
+    "batchFailedIps": "添加失败的 IP：{ips}",
+    "cancelTest": "取消测试",
+    "testTimedOut": "测试连接超时。",
+    "importMoreErrors": "……还有 {count} 条错误"
   }
 }

@@ -1736,5 +1736,13 @@
     "trustSuccess": "新しいホスト鍵を信頼しました。再接続しています...",
     "trustFailed": "ホスト鍵の更新に失敗しました：{error}",
     "newKeyTrusted": "{target} への初回接続です。ホスト鍵のフィンガープリントを信頼して保存しました：{fingerprint}"
+  },
+  "uxConn": {
+    "credentialsRequiredOnTypeChange": "接続タイプが変更されました。新しいタイプ用のパスワードを入力するか、SSH キーを選択してください。",
+    "jumpHostNotSelected": "ジャンプホストが選択されていない項目があります。ジャンプホストを選択するか、その項目を削除してください。",
+    "batchFailedIps": "追加に失敗した IP：{ips}",
+    "cancelTest": "テストをキャンセル",
+    "testTimedOut": "接続テストがタイムアウトしました。",
+    "importMoreErrors": "…ほか {count} 件のエラー"
   }
 }

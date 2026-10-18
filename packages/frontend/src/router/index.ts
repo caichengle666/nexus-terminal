@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store'; // 导入 Auth Store
+import { getSafeRedirectPath } from '../utils/safeRedirect';
 
 // 路由配置
 const routes: Array<RouteRecordRaw> = [
@@ -98,11 +99,13 @@ router.beforeEach((to, from, next) => {
   } else if (requiresAuth && !authStore.isAuthenticated && !needsSetup) {
     // 如果需要认证、用户未登录且不需要设置，重定向到登录页
     console.log('路由守卫：未登录，重定向到 /login');
-    next({ name: 'Login' });
+    // 记录原目标，登录成功后返回 (根路径无需记录)
+    next(to.fullPath && to.fullPath !== '/' ? { name: 'Login', query: { redirect: to.fullPath } } : { name: 'Login' });
   } else if (to.name === 'Login' && authStore.isAuthenticated && !needsSetup) {
     // 如果用户已登录、不需要设置且尝试访问登录页，重定向到仪表盘
-    console.log('路由守卫：已登录，从 /login 重定向到 /');
-    next({ name: 'Dashboard' });
+    console.log('路由守卫：已登录，从 /login 重定向');
+    const safeRedirect = getSafeRedirectPath(to.query.redirect);
+    next(safeRedirect ?? { name: 'Dashboard' });
   } else {
     // 其他情况（例如访问公共页面，或已登录访问需认证页面）允许导航
     next();

@@ -2,6 +2,13 @@ import { defineStore } from 'pinia';
 import apiClient from '../utils/apiClient'; 
 import router from '../router'; 
 import { setLocale } from '../i18n'; 
+import { getSafeRedirectPath } from '../utils/safeRedirect';
+
+// 登录成功后整页刷新跳转：优先使用路由 query.redirect (仅站内路径)，否则回到根路径
+const redirectAfterLogin = () => {
+    const safePath = getSafeRedirectPath(router.currentRoute.value.query.redirect);
+    window.location.href = safePath ? router.resolve(safePath).href : '/';
+};
 
 // 扩展的用户信息接口，包含 2FA 状态和语言偏好
 interface UserInfo {
@@ -123,8 +130,7 @@ export const useAuthStore = defineStore('auth', {
                     if (this.user?.language) {
                         setLocale(this.user.language);
                     }
-                    // await router.push({ name: 'Workspace' }); // 改为页面刷新
-                    window.location.href = '/'; // 跳转到根路径并刷新
+                    redirectAfterLogin(); // 整页刷新跳转 (支持安全的 redirect 参数)
                     return { success: true };
                 } else {
                     // 不应该发生，但作为防御性编程
@@ -160,8 +166,7 @@ export const useAuthStore = defineStore('auth', {
                 if (this.user?.language) {
                     setLocale(this.user.language);
                 }
-                // await router.push({ name: 'Workspace' }); // 改为页面刷新
-                window.location.href = '/'; // 跳转到根路径并刷新
+                redirectAfterLogin(); // 整页刷新跳转 (支持安全的 redirect 参数)
                 return { success: true };
             } catch (err: any) {
                 console.error('2FA 验证失败:', err);
@@ -182,19 +187,21 @@ export const useAuthStore = defineStore('auth', {
             try {
                 // 调用后端的登出 API
                 await apiClient.post('/auth/logout'); // 使用 apiClient
-
-                // 清除本地状态
-                this.isAuthenticated = false;
-                this.user = null;
-                // Removed passkeys clear on logout
                 console.log('已登出');
-                // 登出后重定向到登录页
-                await router.push({ name: 'Login' });
             } catch (err: any) {
+                // 即使后端登出失败 (例如网络错误或会话已失效)，本地也要退出登录
                 console.error('登出失败:', err);
                 this.error = err.response?.data?.message || err.message || '登出时发生未知错误。';
             } finally {
+                // 清除本地状态并重定向到登录页
+                this.isAuthenticated = false;
+                this.user = null;
                 this.isLoading = false;
+                try {
+                    await router.push({ name: 'Login' });
+                } catch (navErr) {
+                    console.error('登出后跳转登录页失败:', navErr);
+                }
             }
         },
 
@@ -372,7 +379,7 @@ export const useAuthStore = defineStore('auth', {
                 if (this.user?.language) {
                     setLocale(this.user.language);
                 }
-                window.location.href = '/'; // 跳转到根路径并刷新
+                redirectAfterLogin(); // 整页刷新跳转 (支持安全的 redirect 参数)
                 return { success: true };
 
             } catch (err: any) {

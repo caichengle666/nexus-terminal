@@ -1818,5 +1818,13 @@
     "trustSuccess": "New host key trusted. Reconnecting...",
     "trustFailed": "Failed to update the host key: {error}",
     "newKeyTrusted": "First connection to {target}. Host key fingerprint trusted and saved: {fingerprint}"
+  },
+  "uxConn": {
+    "credentialsRequiredOnTypeChange": "The connection type was changed. Please enter a new password or select an SSH key for the new type.",
+    "jumpHostNotSelected": "A jump host entry has no host selected. Select a jump host or remove the entry.",
+    "batchFailedIps": "Failed IPs: {ips}",
+    "cancelTest": "Cancel test",
+    "testTimedOut": "Connection test timed out.",
+    "importMoreErrors": "…and {count} more errors"
   }
 }

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, Teleport, nextTick, type Ref } from 'vue';
+import { ref, Teleport, nextTick, onMounted, onBeforeUnmount, type Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ConnectionInfo } from '../stores/connections.store'; // Keep ConnectionInfo type
 import { useAddConnectionForm } from '../composables/useAddConnectionForm';
+import { useDialogStore } from '../stores/dialog.store';
 import AddConnectionFormBasicInfo from './AddConnectionFormBasicInfo.vue';
 import AddConnectionFormAuth from './AddConnectionFormAuth.vue';
 import AddConnectionFormAdvanced from './AddConnectionFormAdvanced.vue';
@@ -45,11 +46,39 @@ const {
   handleSubmit,
   handleDeleteConnection,
   handleTestConnection,
+  cancelTestConnection,
   handleCreateTag,
   handleDeleteTag,
   latencyColor,
   testButtonText,
 } = useAddConnectionForm(props, emit);
+
+const dialogStore = useDialogStore();
+
+// 关闭表单：若正在测试连接，先取消测试
+const handleCancel = () => {
+  if (isLoading.value) return; // 保存中不允许关闭
+  cancelTestConnection();
+  emit('close');
+};
+
+// 测试按钮：测试中再次点击即取消测试
+const handleTestButtonClick = () => {
+  if (testStatus.value === 'testing') {
+    cancelTestConnection();
+  } else {
+    handleTestConnection();
+  }
+};
+
+// Esc 关闭表单 (保存中除外；已被其他组件处理的 Esc 不响应)
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+  if (dialogStore.state.visible) return; // 确认对话框打开时由对话框处理
+  handleCancel();
+};
+onMounted(() => window.addEventListener('keydown', handleKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
 
 const handleAdvancedConnectionModeUpdate = (newMode: 'proxy' | 'jump') => {
   advancedConnectionMode.value = newMode;
@@ -113,6 +142,8 @@ const handleHostIconMouseLeave = () => {
             :proxies="proxies"
             :tags="tags"
             :connections="connections"
+            :is-edit-mode="isEditMode"
+            :connection-id="props.connectionToEdit?.id ?? null"
             :is-proxy-loading="isProxyLoading"
             :proxy-store-error="proxyStoreError"
             :is-tag-loading="isTagLoading"
@@ -173,13 +204,13 @@ const handleHostIconMouseLeave = () => {
          <!-- Test Area (Only show for SSH and when script mode is NOT active) -->
          <div v-if="formData.type === 'SSH' && !isScriptModeActive" class="flex flex-col items-start gap-1">
              <div class="flex items-center gap-2"> <!-- Button and Icon -->
-                 <button type="button" @click="handleTestConnection" :disabled="isLoading || testStatus === 'testing'"
+                 <button type="button" @click="handleTestButtonClick" :disabled="isLoading"
                          class="px-3 py-1.5 border border-border rounded-md text-sm font-medium text-text-secondary bg-background hover:bg-border focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center transition-colors duration-150">
                      <svg v-if="testStatus === 'testing'" class="animate-spin -ml-0.5 mr-2 h-4 w-4 text-text-secondary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                      </svg>
-                     {{ testButtonText }}
+                     {{ testStatus === 'testing' ? t('uxConn.cancelTest') : testButtonText }}
                  </button>
                  <div class="relative group"> <!-- Tooltip Container -->
                      <i class="fas fa-info-circle text-text-secondary cursor-help"></i>
@@ -215,7 +246,7 @@ const handleHostIconMouseLeave = () => {
                      class="px-4 py-2 bg-button text-button-text rounded-md shadow-sm hover:bg-button-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out">
                {{ submitButtonText }}
              </button>
-             <button type="button" @click="emit('close')" :disabled="isLoading || (formData.type === 'SSH' && testStatus === 'testing')"
+             <button type="button" @click="handleCancel" :disabled="isLoading"
                      class="px-4 py-2 bg-transparent text-text-secondary border border-border rounded-md shadow-sm hover:bg-border hover:text-foreground focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out">
                {{ t('connections.form.cancel') }}
              </button>
