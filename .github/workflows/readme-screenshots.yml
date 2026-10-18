@@ -39,7 +39,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/tools" && cd "$RUNNER_TEMP/tools"
           npm init -y >/dev/null
-          npm install --no-audit --no-fund playwright-core@1 sharp@0.34
+          npm install --no-audit --no-fund playwright-core@1
 
       - name: Enable local SSH (macOS)
         if: matrix.platform == 'macos'

@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 // Drives the packaged desktop app (started with --remote-debugging-port=9222)
-// to produce README screenshots on a CI runner. Needs playwright-core and sharp.
+// to produce README screenshots on a CI runner. Needs playwright-core.
 // env: SHOT_DIR, SHOT_PLATFORM (macos|windows), SSH_USER, SSH_KEY_FILE
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
 const { chromium } = require('playwright-core');
-const sharp = require('sharp');
 
 const outDir = process.env.SHOT_DIR || 'shots';
 const platform = process.env.SHOT_PLATFORM || process.platform;
@@ -19,10 +17,11 @@ const log = (...args) => console.log(new Date().toISOString(), ...args);
 const annotate = (level, message) => console.log(`::${level}::${platform}: ${String(message).replace(/\r?\n/g, ' | ')}`);
 
 const connect = async () => {
-  for (let i = 0; i < 90; i += 1) {
-    try { return await chromium.connectOverCDP('http://127.0.0.1:9222'); } catch { await sleep(2000); }
+  let lastError = null;
+  for (let i = 0; i < 60; i += 1) {
+    try { return await chromium.connectOverCDP('http://127.0.0.1:9222', { timeout: 15000 }); } catch (error) { lastError = error; await sleep(2000); }
   }
-  throw new Error('could not reach the app on port 9222');
+  throw new Error(`could not reach the app on port 9222: ${lastError?.message}`);
 };
 
 const findMainPage = async browser => {
@@ -36,36 +35,18 @@ const findMainPage = async browser => {
   throw new Error(`main window not found; pages: ${urls.join(', ')}`);
 };
 
-// OS-level capture so the shot carries the real window frame, cropped to the
-// window's bounds. Falls back to a page-only capture if the OS refuses.
+// The app draws its own title bar (min/max/close), so a page capture at a
+// fixed 1440x900 viewport already looks like the whole window.
 const captureWindow = async (page, name) => {
-  const pagePath = path.join(outDir, `${name}-page.png`);
-  await page.screenshot({ path: pagePath });
-  const full = path.join(outDir, `.${name}-screen.png`);
-  try {
-    if (platform === 'macos') {
-      execFileSync('screencapture', ['-x', '-o', full]);
-    } else {
-      const ps = `Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $bmp=New-Object System.Drawing.Bitmap $b.Width,$b.Height; $g=[System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); $bmp.Save('${full.replace(/'/g, "''")}',[System.Drawing.Imaging.ImageFormat]::Png)`;
-      execFileSync('powershell', ['-NoProfile', '-Command', ps]);
-    }
-    const bounds = await page.evaluate(() => ({ left: window.screenX, top: window.screenY, width: window.outerWidth, height: window.outerHeight }));
-    const screenWidth = await page.evaluate(() => window.screen.width);
-    const meta = await sharp(full).metadata();
-    const scale = meta.width / screenWidth;
-    const left = Math.max(0, Math.round(bounds.left * scale));
-    const top = Math.max(0, Math.round(bounds.top * scale));
-    const width = Math.min(meta.width - left, Math.round(bounds.width * scale));
-    const height = Math.min(meta.height - top, Math.round(bounds.height * scale));
-    log(`screen ${meta.width}x${meta.height} scale ${scale} window`, bounds);
-    await sharp(full).extract({ left, top, width, height }).png().toFile(path.join(outDir, `${name}.png`));
-    fs.copyFileSync(full, path.join(outDir, `${name}-screen.png`));
-  } catch (error) {
-    annotate('warning', `OS capture failed for ${name}: ${error.message}`);
-  } finally {
-    fs.rmSync(full, { force: true });
-  }
+  await page.screenshot({ path: path.join(outDir, `${name}.png`) });
   log(`captured ${name}`);
+};
+
+const clickText = async (page, text) => {
+  const target = page.getByText(text, { exact: true }).first();
+  if (!(await target.count())) return false;
+  await target.click();
+  return true;
 };
 
 (async () => {
@@ -74,18 +55,9 @@ const captureWindow = async (page, name) => {
   log('main page', page.url());
   await page.waitForLoadState('domcontentloaded');
 
-  try {
-    const pageSession = await page.context().newCDPSession(page);
-    const { targetInfo } = await pageSession.send('Target.getTargetInfo');
-    const browserSession = await browser.newBrowserCDPSession();
-    const { windowId } = await browserSession.send('Browser.getWindowForTarget', { targetId: targetInfo.targetId });
-    await browserSession.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } });
-    await browserSession.send('Browser.setWindowBounds', { windowId, bounds: { left: 40, top: 40, width: 1440, height: 900 } });
-  } catch (error) {
-    annotate('warning', `could not resize the window: ${error.message}`);
-  }
-  await sleep(1500);
-  log('window', await page.evaluate(() => [window.screenX, window.screenY, window.outerWidth, window.outerHeight, window.screen.width, window.screen.height, devicePixelRatio]));
+  const pageSession = await page.context().newCDPSession(page);
+  await pageSession.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
+  await sleep(1000);
 
   const api = (method, url, body) => page.evaluate(async ([m, u, b]) => {
     const response = await fetch(u, {
@@ -120,44 +92,45 @@ const captureWindow = async (page, name) => {
   for (const [name, ip] of demoConnections) {
     await api('POST', '/api/v1/connections', { name, type: 'SSH', host: ip, port: 22, username: 'root', auth_method: 'password', password: 'demo-password' });
   }
-  const connectionId = JSON.parse(created.text)?.connection?.id ?? JSON.parse(created.text)?.id;
 
-  // Dashboard
+  // Dashboard (reload so the new connections and audit entries show)
   await page.goto('http://localhost:22457/');
-  await sleep(4000);
+  await sleep(5000);
   await captureWindow(page, 'dashboard');
 
-  // Workspace with a live SSH session
-  await page.goto('http://localhost:22457/workspace');
-  await sleep(4000);
-  const item = page.locator(`li[data-conn-id="${connectionId}"]`).first();
-  if (await item.count()) {
-    await item.click();
+  // Connect from the dashboard card; navigation stays in-app from here on so
+  // the SSH session survives.
+  const connectButton = page.locator(`xpath=//*[normalize-space(text())='${host}']/ancestor::*[.//button[normalize-space()='连接']][1]//button[normalize-space()='连接']`).first();
+  if (await connectButton.count()) {
+    await connectButton.click();
   } else {
-    annotate('warning', `connection item ${connectionId} not found in list`);
+    annotate('warning', 'connect button for the local host not found on the dashboard');
   }
+  await sleep(4000);
+  if (!/\/workspace/.test(page.url())) await clickText(page, '终端');
   await sleep(8000);
   const terminal = page.locator('.xterm').first();
   if (await terminal.count()) {
     await terminal.click();
     const commands = platform === 'macos'
       ? ['clear', 'sw_vers', 'uname -mrs', 'ls -lhG ~', 'df -h / | tail -1']
-      : ['cls', '$PSVersionTable.PSVersion', '[System.Environment]::OSVersion.VersionString', 'Get-ChildItem C:\\ | Select-Object -First 8'];
+      : ['cls', '[System.Environment]::OSVersion.VersionString', '$PSVersionTable.PSVersion.ToString()', 'Get-ChildItem C:\\ | Select-Object -First 8'];
     for (const command of commands) {
       await page.keyboard.type(command, { delay: 15 });
       await page.keyboard.press('Enter');
-      await sleep(1200);
+      await sleep(1500);
     }
   } else {
-    annotate('warning', 'no terminal found in workspace');
+    annotate('warning', `no terminal found in workspace (url ${page.url()})`);
   }
-  await sleep(5000);
+  await sleep(6000);
   await captureWindow(page, 'workspace');
 
-  // Appearance customizer
-  await page.goto('http://localhost:22457/settings');
-  await sleep(4000);
-  await captureWindow(page, 'settings');
+  // Settings
+  if (await clickText(page, '设置')) {
+    await sleep(4000);
+    await captureWindow(page, 'settings');
+  }
 
   annotate('notice', 'screenshots captured');
   await browser.close().catch(() => {});
