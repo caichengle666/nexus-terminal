@@ -99,14 +99,6 @@ One-line Docker deployment with PWA support, or native builds for Windows (insta
 </tr>
 </table>
 
-### 🎬 AI agent in action
-
-| Ask in plain language | It calls terminal tools | Keeps reasoning, stop any time |
-|:---:|:---:|:---:|
-| ![Start a task](./images/ai-agent-demo-10s.webp) | ![Tool calls](./images/ai-agent-demo-30s.webp) | ![Ongoing analysis](./images/ai-agent-demo-final.webp) |
-
-Full video: [Nexus Terminal AI Agent Demo](https://github.com/caichengle666/nexus-terminal/releases/download/0.9.9/Nexus-Terminal-0.9.9-AI-Agent-Demo.mp4)
-
 ## 🧩 Feature map
 
 | Area | What you get |
@@ -254,9 +246,3 @@ Add this to `/etc/docker/daemon.json`, then run `sudo systemctl restart docker`:
 ## 💐 Acknowledgements
 
 This repository is a maintained fork of [Heavrnl/nexus-terminal](https://github.com/Heavrnl/nexus-terminal) — thanks to [Heavrnl](https://github.com/Heavrnl) for the excellent foundation. Terminal color presets come from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes).
-
-If Nexus Terminal helps you, a ⭐ goes a long way — or [buy the original author a coffee](https://ko-fi.com/0heavrnl).
-
-## 📄 License
-
-[GPL-3.0](../LICENSE)

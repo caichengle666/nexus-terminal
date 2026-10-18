@@ -99,14 +99,6 @@ Docker 一键部署到服务器，浏览器随处访问，支持 PWA；也可以
 </tr>
 </table>
 
-### 🎬 AI Agent 实战
-
-| 发起自然语言任务 | 自动调用终端工具 | 持续分析，随时停止 |
-|:---:|:---:|:---:|
-| ![AI Agent 发起任务](./doc/images/ai-agent-demo-10s.webp) | ![AI Agent 调用工具](./doc/images/ai-agent-demo-30s.webp) | ![AI Agent 持续分析](./doc/images/ai-agent-demo-final.webp) |
-
-完整演示视频：[Nexus Terminal AI Agent Demo](https://github.com/caichengle666/nexus-terminal/releases/download/0.9.9/Nexus-Terminal-0.9.9-AI-Agent-Demo.mp4)
-
 ## 🧩 功能全景
 
 | 领域 | 能力 |
@@ -254,9 +246,3 @@ location / {
 ## 💐 致谢
 
 本仓库基于 [Heavrnl/nexus-terminal](https://github.com/Heavrnl/nexus-terminal) 分叉维护，感谢原作者 [Heavrnl](https://github.com/Heavrnl) 出色的架构与开源精神。预设终端配色来自 [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)。
-
-如果这个项目帮到了你，欢迎点一个 ⭐，或者 [请原作者喝杯咖啡](https://ko-fi.com/0heavrnl)。
-
-## 📄 开源协议
-
-[GPL-3.0](./LICENSE)
