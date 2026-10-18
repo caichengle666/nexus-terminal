@@ -1,0 +1,141 @@
+name: README Screenshots
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag whose desktop builds are photographed (e.g. v0.9.22.45)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  shoot:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      SHOT_PLATFORM: ${{ matrix.platform }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Install screenshot tooling
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools" && cd "$RUNNER_TEMP/tools"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright-core@1 sharp@0.34
+
+      - name: Enable local SSH (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist || sudo systemsetup -setremotelogin on || true
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keygen -t ed25519 -N "" -f "$RUNNER_TEMP/demo_key" -q
+          cat "$RUNNER_TEMP/demo_key.pub" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+          sleep 3
+          ssh -i "$RUNNER_TEMP/demo_key" -o StrictHostKeyChecking=no -o BatchMode=yes "$USER@127.0.0.1" 'echo ssh-ok' || echo "::warning::macOS ssh to localhost failed"
+          echo "SSH_USER=$USER" >> "$GITHUB_ENV"
+          echo "SSH_KEY_FILE=$RUNNER_TEMP/demo_key" >> "$GITHUB_ENV"
+
+      - name: Enable local SSH (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $cap = Get-WindowsCapability -Online -Name 'OpenSSH.Server*' | Select-Object -First 1
+          if ($cap.State -ne 'Installed') { Add-WindowsCapability -Online -Name $cap.Name | Out-Null }
+          New-Item -Path 'HKLM:\SOFTWARE\OpenSSH' -Force | Out-Null
+          New-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell -Value "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force | Out-Null
+          Start-Service sshd
+          $key = Join-Path $env:RUNNER_TEMP 'demo_key'
+          ssh-keygen -t ed25519 -N '""' -f $key -q
+          $auth = 'C:\ProgramData\ssh\administrators_authorized_keys'
+          Get-Content "$key.pub" | Add-Content -Path $auth
+          icacls $auth /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
+          Start-Sleep 3
+          ssh -i $key -o StrictHostKeyChecking=no -o BatchMode=yes "$env:USERNAME@127.0.0.1" 'echo ssh-ok'
+          if ($LASTEXITCODE -ne 0) { Write-Output '::warning::Windows ssh to localhost failed' }
+          "SSH_USER=$env:USERNAME" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SSH_KEY_FILE=$key" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          try { Set-DisplayResolution -Width 1920 -Height 1080 -Force } catch { Write-Output "resolution unchanged: $_" }
+
+      - name: Install and launch the app (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*macOS-arm64.dmg' --dir "$RUNNER_TEMP"
+          hdiutil attach "$RUNNER_TEMP"/*.dmg -nobrowse -noautoopen -mountpoint /Volumes/NexusTerminal
+          cp -R /Volumes/NexusTerminal/*.app /Applications/
+          APP="$(ls -d /Applications/Nexus*Terminal*.app | head -1)"
+          xattr -cr "$APP" || true
+          BIN="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
+          nohup "$BIN" --remote-debugging-port=9222 --lang=zh-CN > "$RUNNER_TEMP/app.log" 2>&1 &
+          system_profiler SPDisplaysDataType | grep -i resolution || true
+
+      - name: Install and launch the app (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --pattern '*Portable*.zip' --dir $env:RUNNER_TEMP
+          $zip = Get-ChildItem $env:RUNNER_TEMP -Filter '*Portable*.zip' | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP 'nexus'
+          Expand-Archive $zip.FullName -DestinationPath $dir
+          $exe = Get-ChildItem $dir -Recurse -Filter 'Nexus Terminal.exe' | Select-Object -First 1
+          Start-Process -FilePath $exe.FullName -ArgumentList '--remote-debugging-port=9222','--lang=zh-CN' -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'app.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'app.err.log')
+
+      - name: Take screenshots
+        shell: bash
+        env:
+          NODE_PATH: ${{ runner.temp }}/tools/node_modules
+          SHOT_DIR: shots/${{ matrix.platform }}
+        run: node electron-app/scripts/readme-screenshots.js
+
+      - name: Keep app log
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "shots/${{ matrix.platform }}"
+          cp "$RUNNER_TEMP"/app*.log "shots/${{ matrix.platform }}/" 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shots-${{ matrix.platform }}
+          path: shots/${{ matrix.platform }}
+
+  publish:
+    needs: shoot
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: shots
+          pattern: shots-*
+      - name: Push screenshots to the readme-screenshots branch
+        run: |
+          cd shots
+          for d in shots-*; do mv "$d" "${d#shots-}"; done
+          git init -q -b readme-screenshots
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -qm "README screenshots for ${{ inputs.tag }} (run ${{ github.run_id }})"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" readme-screenshots
