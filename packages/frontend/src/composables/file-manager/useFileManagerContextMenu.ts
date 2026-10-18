@@ -44,7 +44,7 @@ export interface UseFileManagerContextMenuOptions {
   onNewFile: () => void;
   onCopy: () => void; // +++ 复制回调 +++
   onCut: () => void; // +++ 剪切回调 +++
-  onPaste: () => void; // +++ 粘贴回调 +++
+  onPaste: (destinationDir?: string) => void; // 粘贴回调；未传目标目录时粘贴到当前目录
   // --- 压缩/解压回调 ---
   onCompressRequest: (items: FileListItem[], format: CompressFormat) => void; // +++ 压缩回调 +++
   onDecompressRequest: (item: FileListItem) => void; // +++ 解压回调 +++
@@ -57,6 +57,13 @@ function isSupportedArchive(filename: string): boolean {
   const lowerCaseFilename = filename.toLowerCase();
   return SUPPORTED_ARCHIVE_EXTENSIONS.some(ext => lowerCaseFilename.endsWith(ext));
 }
+
+const joinRemotePath = (base: string, name: string): string => (base.endsWith('/') ? `${base}${name}` : `${base}/${name}`);
+const getParentRemotePath = (path: string): string => {
+  const trimmed = path.length > 1 ? path.replace(/\/+$/, '') : path;
+  const lastSlashIndex = trimmed.lastIndexOf('/');
+  return lastSlashIndex <= 0 ? '/' : trimmed.substring(0, lastSlashIndex);
+};
 
 
 export function useFileManagerContextMenu(options: UseFileManagerContextMenuOptions) {
@@ -97,8 +104,8 @@ export function useFileManagerContextMenu(options: UseFileManagerContextMenuOpti
     event.preventDefault();
     const targetItem = item || null;
 
-    // Adjust selection based on right-click target (逻辑保持不变)
-    if (targetItem && !event.ctrlKey && !event.metaKey && !event.shiftKey && !selectedItems.value.has(targetItem.filename)) {
+    // 右键（含 macOS 的 Ctrl+点击）一个未选中的项时，总是只选中它，避免删除/复制等作用于之前选中的项
+    if (targetItem && !selectedItems.value.has(targetItem.filename)) {
         selectedItems.value.clear();
         selectedItems.value.add(targetItem.filename);
         // 使用传入的 fileList ref
@@ -175,7 +182,7 @@ export function useFileManagerContextMenu(options: UseFileManagerContextMenuOpti
         menu.push({ label: t('fileManager.actions.cut'), action: onCut, disabled: !(isConnected.value && isSftpReady.value) });
         menu.push({ label: t('fileManager.actions.copy'), action: onCopy, disabled: !(isConnected.value && isSftpReady.value) });
         if (targetItem.attrs.isDirectory) {
-             menu.push({ label: t('fileManager.actions.paste'), action: onPaste, disabled: !(isConnected.value && isSftpReady.value) || !hasClipboardContent });
+             menu.push({ label: t('fileManager.actions.paste'), action: () => onPaste(joinRemotePath(currentPath.value, targetItem.filename)), disabled: !(isConnected.value && isSftpReady.value) || !hasClipboardContent });
         }
        // +++ 添加复制路径菜单项 +++
        if (onCopyPath) {
@@ -236,7 +243,7 @@ export function useFileManagerContextMenu(options: UseFileManagerContextMenuOpti
         // Right-click on empty space menu
         menu = [
             // 1. 粘贴
-            { label: t('fileManager.actions.paste'), action: onPaste, disabled: !(isConnected.value && isSftpReady.value) || !hasClipboardContent },
+            { label: t('fileManager.actions.paste'), action: () => onPaste(), disabled: !(isConnected.value && isSftpReady.value) || !hasClipboardContent },
             // --- 分隔符 (视觉) ---
             // 2. 新建、上传
             { label: t('fileManager.actions.newFolder'), action: onNewFolder, disabled: !(isConnected.value && isSftpReady.value) },
@@ -249,7 +256,7 @@ export function useFileManagerContextMenu(options: UseFileManagerContextMenuOpti
     } else { // Clicked on '..'
         menu = [
              // +++ 粘贴 (可以粘贴到上级目录) +++
-            { label: t('fileManager.actions.paste'), action: onPaste, disabled: !(isConnected.value && isSftpReady.value) || !hasClipboardContent },
+            { label: t('fileManager.actions.paste'), action: () => onPaste(getParentRemotePath(currentPath.value)), disabled: !(isConnected.value && isSftpReady.value) || !hasClipboardContent || currentPath.value === '/' },
             { label: t('fileManager.actions.refresh'), action: onRefresh, disabled: !(isConnected.value && isSftpReady.value) }
         ];
     }

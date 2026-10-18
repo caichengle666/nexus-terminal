@@ -5,6 +5,7 @@ import type { UploadItem } from '../types/upload.types';
 import type { WebSocketMessage, MessagePayload } from '../types/websocket.types';
 import type { WebSocketDependencies } from './useSftpActions';
 import { useTransferStore } from '../stores/transfer.store';
+import { useConfirmDialog } from './useConfirmDialog';
 
 const UPLOAD_CHUNK_SIZE = 256 * 1024;
 const TRANSFER_SYNC_INTERVAL_MS = 250;
@@ -31,7 +32,7 @@ export function useFileUploader(
 ) {
     const { t } = useI18n();
     const transferStore = useTransferStore();
-    void fileListRef;
+    const { showConfirmDialog } = useConfirmDialog();
 
     const uploads = reactive<Record<string, UploadItem>>({});
     const uploadTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
@@ -183,22 +184,64 @@ export function useFileUploader(
         reader.readAsArrayBuffer(slice);
     };
 
-    const startFileUpload = (file: File, relativePath?: string) => {
+    /**
+     * 检查即将上传到 targetDir 的顶层名称是否与当前目录已有项重名，并询问用户覆盖或跳过。
+     * 多个重名时只询问一次（全部覆盖 / 全部跳过）。返回需要跳过的名称集合。
+     * 只有 targetDir 就是当前显示的目录时 fileListRef 才可用于判断。
+     */
+    const resolveUploadConflicts = async (names: string[], targetDir: string = currentPathRef.value): Promise<Set<string>> => {
+        if (targetDir !== currentPathRef.value || names.length === 0) return new Set();
+        const existingNames = new Set(fileListRef.value.map(item => item.filename));
+        const conflicts = Array.from(new Set(names.filter(name => existingNames.has(name))));
+        if (conflicts.length === 0) return new Set();
+
+        const overwrite = conflicts.length === 1
+            ? await showConfirmDialog({
+                title: t('uxFiles.upload.conflictTitle'),
+                message: t('uxFiles.upload.overwriteOne', { name: conflicts[0] }),
+                confirmText: t('uxFiles.upload.overwrite'),
+                cancelText: t('uxFiles.upload.skip'),
+            })
+            : await showConfirmDialog({
+                title: t('uxFiles.upload.conflictTitle'),
+                message: t('uxFiles.upload.overwriteMany', {
+                    count: conflicts.length,
+                    names: conflicts.slice(0, 5).join(', ') + (conflicts.length > 5 ? ', …' : ''),
+                }),
+                confirmText: t('uxFiles.upload.overwriteAll'),
+                cancelText: t('uxFiles.upload.skipAll'),
+            });
+        return overwrite ? new Set() : new Set(conflicts);
+    };
+
+    /** 上传一组顶层文件（文件选择框），先处理重名。 */
+    const startFileUploads = async (files: File[]) => {
+        if (files.length === 0) return;
+        const targetDir = currentPathRef.value; // 在询问前锁定目标目录
+        const skipped = await resolveUploadConflicts(files.map(file => file.name), targetDir);
+        files.forEach(file => {
+            if (!skipped.has(file.name)) startFileUpload(file, undefined, targetDir);
+        });
+    };
+
+    const startFileUpload = (file: File, relativePath?: string, targetDir?: string) => {
         if (!wsDeps.value.isConnected.value) {
             console.warn(`[FileUploader ${sessionIdForLog.value}] Cannot start upload: WebSocket not connected.`);
             return;
         }
 
         const uploadId = generateUploadId();
+        // 目标目录应在用户操作（选择/拖放）时锁定，避免期间切换目录导致上传到错误位置
+        const baseDir = targetDir || currentPathRef.value;
 
         let finalRemotePath: string;
         if (relativePath) {
-            const basePath = currentPathRef.value.endsWith('/') ? currentPathRef.value : `${currentPathRef.value}/`;
+            const basePath = baseDir.endsWith('/') ? baseDir : `${baseDir}/`;
             let cleanRelativePath = relativePath.startsWith('/') ? relativePath.substring(1) : relativePath;
             cleanRelativePath = cleanRelativePath.endsWith('/') ? cleanRelativePath.slice(0, -1) : cleanRelativePath;
             finalRemotePath = `${basePath}${cleanRelativePath ? cleanRelativePath + '/' : ''}${file.name}`;
         } else {
-            finalRemotePath = joinPath(currentPathRef.value, file.name);
+            finalRemotePath = joinPath(baseDir, file.name);
         }
         finalRemotePath = finalRemotePath.replace(/\/+/g, '/');
 
@@ -463,6 +506,8 @@ export function useFileUploader(
     return {
         uploads,
         startFileUpload,
+        startFileUploads,
+        resolveUploadConflicts,
         cancelUpload,
         dismissUpload,
     };

@@ -28,8 +28,11 @@ export interface SftpManagerInstance {
    currentPath: Readonly<Ref<string>>;
 
    // Methods
-   loadDirectory: (path: string, forceRefresh?: boolean) => void;
+   /** 返回的 Promise 在目录成功加载时 resolve(true)，失败（含重试耗尽）时 resolve(false)；从不 reject。 */
+   loadDirectory: (path: string, forceRefresh?: boolean) => Promise<boolean>;
    createDirectory: (newDirName: string) => void;
+   /** 按完整路径创建目录；已存在等错误静默忽略（用于上传文件夹时补建空目录）。 */
+   ensureDirectory: (fullPath: string) => void;
    createFile: (newFileName: string) => void;
    deleteItems: (items: FileListItem[]) => void;
    renameItem: (item: FileListItem, newName: string) => void;
@@ -53,6 +56,8 @@ const DIRECTORY_LOAD_TIMEOUT_MS = 75000;
 const DIRECTORY_REQUEST_COALESCE_MS = 250;
 const DIRECTORY_RETRY_BACKOFFS_MS = [0, 1500, 4000, 9000];
 const MAX_DIRECTORY_RETRY_ATTEMPTS = DIRECTORY_RETRY_BACKOFFS_MS.length;
+// 由 ensureDirectory 发出的 mkdir 请求：失败时不弹错误（多个实例共享同一 WebSocket，所以放在模块级）
+const silentMkdirRequestIds = new Set<string>();
 
 // Helper function
 const joinPath = (base: string, name: string): string => {
@@ -107,6 +112,16 @@ export function createSftpActionsManager(
     const pendingDirectoryPath = { current: '/' };
     const pendingDirectoryRequest = { current: null as { path: string; forceRefresh: boolean } | null };
     const directoryRetryCount = { current: 0 };
+    // 等待某个目录加载结果的调用方（loadDirectory 返回的 Promise）
+    const directoryWaiters: Array<{ path: string; resolve: (ok: boolean) => void }> = [];
+    const settleDirectoryWaiters = (path: string | null, ok: boolean) => {
+        for (let i = directoryWaiters.length - 1; i >= 0; i -= 1) {
+            if (path === null || directoryWaiters[i].path === path) {
+                directoryWaiters[i].resolve(ok);
+                directoryWaiters.splice(i, 1);
+            }
+        }
+    };
     let directoryLoadTimeoutId: ReturnType<typeof setTimeout> | null = null;
     const instanceSessionId = sessionId; // 保存会话 ID 用于日志
     const uiNotificationsStore = useUiNotificationsStore(); // 初始化 UI 通知 store
@@ -172,6 +187,7 @@ export function createSftpActionsManager(
         console.log(`[SFTP ${instanceSessionId}] Cleaning up message handlers.`);
         resetDirectoryLoading();
         pendingDirectoryRequest.current = null;
+        settleDirectoryWaiters(null, false);
         fileOperationTaskIds.clear();
         unregisterCallbacks.forEach(cb => cb());
         unregisterCallbacks.length = 0; // 清空数组
@@ -273,10 +289,14 @@ export function createSftpActionsManager(
         resetDirectoryLoading();
         if (!isConnected.value) {
             resetDirectoryLoading();
+            settleDirectoryWaiters(path, false);
             return;
         }
         if (directoryRetryCount.current >= MAX_DIRECTORY_RETRY_ATTEMPTS) {
             resetDirectoryLoading();
+            // 重试耗尽：不要让 sftp_ready 再次请求这个失败的路径
+            pendingDirectoryPath.current = currentPathRef.value;
+            settleDirectoryWaiters(path, false);
             console.error(`[SFTP ${instanceSessionId}] 加载目录 ${path} 已重试 ${MAX_DIRECTORY_RETRY_ATTEMPTS} 次，停止重试。`);
             uiNotificationsStore.showError(`${t('fileManager.errors.loadDirectoryFailed')}: ${reason}`);
             directoryRetryCount.current = 0;
@@ -305,6 +325,7 @@ export function createSftpActionsManager(
             isLoading.value = false;
             currentPathRef.value = path;
             directoryRetryCount.current = 0;
+            settleDirectoryWaiters(path, true);
             return;
         }
 
@@ -315,10 +336,16 @@ export function createSftpActionsManager(
                 sendMessage({ type: 'sftp:initialize', payload: {} });
             } else {
                 uiNotificationsStore.showError(t('fileManager.errors.sftpNotReady'));
+                settleDirectoryWaiters(path, false);
             }
             return;
         }
         if (isLoading.value) {
+            const replacedRequest = pendingDirectoryRequest.current;
+            if (replacedRequest && replacedRequest.path !== path) {
+                // 被新的排队请求替换掉的路径不会再加载
+                settleDirectoryWaiters(replacedRequest.path, false);
+            }
             pendingDirectoryRequest.current = { path, forceRefresh };
             console.warn(`[SFTP ${instanceSessionId}] 当前目录请求仍在进行，${forceRefresh ? '刷新' : '目录切换'}将排队等待。`);
             return;
@@ -339,16 +366,20 @@ export function createSftpActionsManager(
         }, DIRECTORY_LOAD_TIMEOUT_MS);
     };
 
-    const loadDirectory = (path: string, forceRefresh: boolean = false) => {
+    const loadDirectory = (path: string, forceRefresh: boolean = false): Promise<boolean> => {
         const now = Date.now();
         if (!forceRefresh && !loadingRequestId.value
             && lastDirectoryRequestPath.current === path
             && (now - lastDirectoryRequestAt.current) < DIRECTORY_REQUEST_COALESCE_MS) {
             console.warn(`[SFTP ${instanceSessionId}] 目录 ${path} 请求过快，已合并。`);
-            return;
+            return Promise.resolve(currentPathRef.value === path);
         }
+        const result = new Promise<boolean>(resolve => {
+            directoryWaiters.push({ path, resolve });
+        });
         if (!loadingRequestId.value) directoryRetryCount.current = 0;
         loadDirectoryInternal(path, forceRefresh);
+        return result;
     };
 
     const createDirectory = (newDirName: string) => {
@@ -360,6 +391,18 @@ export function createSftpActionsManager(
         const newFolderPath = joinPath(currentPathRef.value, newDirName);
         const requestId = generateRequestId();
         sendMessage({ type: 'sftp:mkdir', requestId: requestId, payload: { path: newFolderPath } });
+    };
+
+    const ensureDirectory = (fullPath: string) => {
+        if (!isSftpReady.value) {
+            console.warn(`[SFTP ${instanceSessionId}] 尝试创建目录 ${fullPath} 但 SFTP 未就绪。`);
+            return;
+        }
+        const requestId = generateRequestId();
+        silentMkdirRequestIds.add(requestId);
+        // 兜底清理，避免请求无响应时 Set 无限增长
+        setTimeout(() => silentMkdirRequestIds.delete(requestId), 120000);
+        sendMessage({ type: 'sftp:mkdir', requestId, payload: { path: fullPath } });
     };
 
     const createFile = (newFileName: string) => {
@@ -775,6 +818,7 @@ export function createSftpActionsManager(
 
         // 重置加载状态，因为这是匹配的响应
         resetDirectoryLoading();
+        settleDirectoryWaiters(path, true);
         console.log(`[SFTP ${instanceSessionId}] isLoading reset after successful readdir for ${path}.`);
         const queuedRequest = pendingDirectoryRequest.current;
         pendingDirectoryRequest.current = null;
@@ -803,7 +847,12 @@ export function createSftpActionsManager(
             scheduleDirectoryRetry(errorPath || pendingDirectoryPath.current || currentPathRef.value || '/', errorPayload);
         } else {
             resetDirectoryLoading();
+            const droppedRequest = pendingDirectoryRequest.current;
             pendingDirectoryRequest.current = null;
+            // 失败的路径不能留作待加载路径，否则 sftp_ready 会再次请求它
+            pendingDirectoryPath.current = currentPathRef.value;
+            settleDirectoryWaiters(errorPath || lastDirectoryRequestPath.current, false);
+            if (droppedRequest) settleDirectoryWaiters(droppedRequest.path, false);
             uiNotificationsStore.showError(`${t('fileManager.errors.loadDirectoryFailed')}: ${errorPayload}`);
             console.log(`[SFTP ${instanceSessionId}] isLoading reset after failed readdir for ${errorPath}.`);
         }
@@ -828,6 +877,7 @@ export function createSftpActionsManager(
 
     const onConnectionClosed = () => {
         if (isLoading.value) resetDirectoryLoading();
+        settleDirectoryWaiters(null, false);
     };
 
     // *** 具体操作成功后的处理函数 ***
@@ -1168,6 +1218,11 @@ export function createSftpActionsManager(
     const onActionError = (payload: MessagePayload, message: WebSocketMessage) => {
         // 类型断言，因为我们知道这些错误的 payload 是 string
         const errorPayload = payload as string;
+        if (message.type === 'sftp:mkdir:error' && message.requestId && silentMkdirRequestIds.has(message.requestId)) {
+            // ensureDirectory 发出的 mkdir（目录已存在等）不提示；不删除 ID，其他共享连接的实例也要能识别
+            console.log(`[SFTP ${instanceSessionId}] ensureDirectory ${message.path} skipped: ${errorPayload}`);
+            return;
+        }
         console.error(`[SFTP ${instanceSessionId}] Action ${message.type} failed:`, errorPayload);
         const actionTypeMap: Record<string, string> = {
             'sftp:mkdir:error': t('fileManager.errors.createFolderFailed'),
@@ -1260,6 +1315,7 @@ export function createSftpActionsManager(
         // Methods
         loadDirectory,
         createDirectory,
+        ensureDirectory,
         createFile,
         deleteItems,
         renameItem,

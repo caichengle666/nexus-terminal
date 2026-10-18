@@ -90,6 +90,8 @@ initializeSftpManager(props.sessionId, props.instanceId);
 const {
     uploads,
     startFileUpload,
+    startFileUploads,
+    resolveUploadConflicts,
     cancelUpload,
     dismissUpload,
 } = useFileUploader(
@@ -739,25 +741,42 @@ const handleCut = () => {
     // 可选：添加 UI 通知
 };
 
-const handlePaste = () => {
+const getRemoteParentDir = (remotePath: string): string => {
+    const trimmed = remotePath.length > 1 ? remotePath.replace(/\/+$/, '') : remotePath;
+    const lastSlashIndex = trimmed.lastIndexOf('/');
+    return lastSlashIndex <= 0 ? '/' : trimmed.substring(0, lastSlashIndex);
+};
+
+// destinationDirArg：右键文件夹/“..”时传入的目标目录；未传时粘贴到当前目录
+const handlePaste = (destinationDirArg?: string) => {
     if (!currentSftpManager.value || !clipboardState.value.hasContent || clipboardSourcePaths.value.length === 0) return;
     const manager = currentSftpManager.value;
-    const destinationDir = manager.currentPath.value;
+    const destinationDir = typeof destinationDirArg === 'string' && destinationDirArg ? destinationDirArg : manager.currentPath.value;
     const operation = clipboardState.value.operation;
     const sources = clipboardSourcePaths.value;
     const sourceBaseDir = clipboardSourceBaseDir.value; // 获取源目录
 
     console.log(`[FileManager ${props.sessionId}-${props.instanceId}] Pasting items. Operation: ${operation}, Sources: ${sources.join(', ')}, Destination: ${destinationDir}`);
 
+    // 不能把文件夹粘贴到它自身或其子目录中（复制会无限递归，移动会失败）
+    if (sources.some(source => destinationDir === source || destinationDir.startsWith(`${source.replace(/\/+$/, '')}/`))) {
+        uiNotificationsStore.showWarning(t('uxFiles.paste.intoItself'));
+        return;
+    }
+
     if (operation === 'copy') {
-        // 调用 SFTP 管理器的 copyItems 方法 (稍后添加)
-        manager.copyItems(sources, destinationDir);
+        // 复制到源文件所在目录时后端会直接跳过（同名），这里提示用户而不是静默无反应
+        const effectiveSources = sources.filter(source => getRemoteParentDir(source) !== destinationDir);
+        if (effectiveSources.length < sources.length) {
+            uiNotificationsStore.showWarning(t('uxFiles.paste.sameDirectoryCopy'));
+        }
+        if (effectiveSources.length === 0) return;
+        manager.copyItems(effectiveSources, destinationDir);
     } else if (operation === 'cut') {
-        // 调用 SFTP 管理器的 moveItems 方法 (稍后添加)
         // 检查是否在同一目录下剪切粘贴（无效操作）
         if (sourceBaseDir === destinationDir) {
              console.warn(`[FileManager ${props.sessionId}-${props.instanceId}] Cannot cut and paste in the same directory.`);
-             // 可选：显示警告通知
+             uiNotificationsStore.showWarning(t('uxFiles.paste.sameDirectoryMove'));
              return;
         }
         manager.moveItems(sources, destinationDir);
@@ -767,16 +786,22 @@ const handlePaste = () => {
         clipboardSourceBaseDir.value = '';
     }
     // 粘贴后不清空复制的剪贴板，允许重复粘贴
-    // 清空选择可能不是最佳体验，用户可能想继续操作粘贴后的文件
-    // clearSelection();
 };
 
 
 // --- 文件上传触发器 (定义在此处，供 Composable 使用) ---
 const triggerFileUpload = () => { fileInputRef.value?.click(); };
 
-const downloadResponseAsBlob = async (response: Response, onProgress: (progress?: number) => void) => {
-    const contentLength = Number(response.headers.get('content-length'));
+// 能在内存中缓冲（以便显示进度）的最大下载大小；更大或长度未知（如文件夹 zip 流）时交给浏览器原生下载
+const MAX_IN_MEMORY_DOWNLOAD_BYTES = 200 * 1024 * 1024;
+// Blob URL 需要在浏览器真正开始写盘之后才能释放，立即 revoke 在部分浏览器中会导致下载失败
+const OBJECT_URL_REVOKE_DELAY_MS = 30000;
+
+const downloadResponseAsBlob = async (
+    response: Response,
+    contentLength: number,
+    onProgress: (progress?: number) => void,
+) => {
     if (!response.body) {
         const blob = await response.blob();
         onProgress(100);
@@ -786,18 +811,98 @@ const downloadResponseAsBlob = async (response: Response, onProgress: (progress?
     const reader = response.body.getReader();
     const chunks: BlobPart[] = [];
     let receivedBytes = 0;
+    let lastReportedProgress = -1;
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         if (!value) continue;
         chunks.push(value);
         receivedBytes += value.byteLength;
-        onProgress(Number.isFinite(contentLength) && contentLength > 0
-            ? Math.min(100, Math.round((receivedBytes / contentLength) * 100))
-            : undefined);
+        const progress = contentLength > 0 ? Math.min(100, Math.round((receivedBytes / contentLength) * 100)) : undefined;
+        if (progress !== lastReportedProgress) {
+            lastReportedProgress = progress ?? -1;
+            onProgress(progress);
+        }
     }
     onProgress(100);
     return new Blob(chunks);
+};
+
+const clickDownloadLink = (href: string, filename: string) => {
+    const link = document.createElement('a');
+    link.href = href;
+    link.setAttribute('download', filename);
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+};
+
+// 让浏览器 / Electron 直接下载（流式写盘，不占用页面内存）。接口为同源 + Cookie 鉴权，可直接用 <a download>；
+// Electron 中同样会触发主进程的 will-download（弹出保存对话框，文件名取自 Content-Disposition）。
+// 不走 electronAPI.requestDownload：它固定拼接本地后端地址，而页面可能连接的是其他来源的后端。
+const startNativeDownload = (url: string, filename: string) => {
+    clickDownloadLink(url, filename);
+};
+
+/**
+ * 下载一个 SFTP 资源：先请求以便尽早拿到服务器错误；小文件在内存中接收并显示进度，
+ * 大文件或长度未知的流（文件夹打包）中止本次请求并交给浏览器原生下载，避免整个文件缓冲在内存中。
+ * 通知中提供“取消”。
+ */
+const runSftpDownload = (options: { url: string; fallbackFilename: string; displayName: string; taskId: string }) => {
+    const { url, fallbackFilename, displayName, taskId } = options;
+    const controller = new AbortController();
+    let handedOff = false;
+    uiNotificationsStore.updateTaskNotification(taskId, { cancel: () => controller.abort() });
+
+    void fetch(url, { signal: controller.signal, credentials: 'same-origin' })
+        .then(async response => {
+            if (!response.ok) throw new Error(await readDownloadError(response));
+            const filename = getDownloadFilename(response, fallbackFilename);
+            const contentLength = Number(response.headers.get('content-length'));
+            const hasKnownLength = Number.isFinite(contentLength) && contentLength > 0;
+
+            if (!hasKnownLength || contentLength > MAX_IN_MEMORY_DOWNLOAD_BYTES) {
+                handedOff = true;
+                controller.abort();
+                startNativeDownload(url, filename);
+                uiNotificationsStore.updateTaskNotification(taskId, {
+                    status: 'success',
+                    progress: 100,
+                    cancel: undefined,
+                    message: t('uxFiles.download.handedToBrowser', { name: displayName }),
+                });
+                return;
+            }
+
+            const blob = await downloadResponseAsBlob(response, contentLength, progress => {
+                uiNotificationsStore.updateTaskNotification(taskId, { progress });
+            });
+            const objectUrl = URL.createObjectURL(blob);
+            clickDownloadLink(objectUrl, filename);
+            setTimeout(() => URL.revokeObjectURL(objectUrl), OBJECT_URL_REVOKE_DELAY_MS);
+            uiNotificationsStore.updateTaskNotification(taskId, {
+                status: 'success',
+                progress: 100,
+                cancel: undefined,
+                message: t('uxFiles.download.completed', { name: displayName }),
+            });
+        })
+        .catch(error => {
+            if (handedOff) return;
+            if (controller.signal.aborted) {
+                uiNotificationsStore.updateTaskNotification(taskId, {
+                    status: 'cancelled',
+                    cancel: undefined,
+                    message: t('uxFiles.download.cancelled', { name: displayName }),
+                });
+                return;
+            }
+            const message = error instanceof Error ? error.message : t('uxFiles.download.failed', { name: displayName });
+            console.error(`[FileManager ${props.sessionId}-${props.instanceId}] Download failed for ${displayName}:`, error);
+            uiNotificationsStore.updateTaskNotification(taskId, { status: 'error', cancel: undefined, message });
+        });
 };
 
 const getDownloadFilename = (response: Response, fallback: string) => {
@@ -861,31 +966,7 @@ const triggerDownload = (items: FileListItem[]) => { // 修改：接受 FileList
             progress: 0,
         });
 
-        void fetch(downloadUrl)
-            .then(async response => {
-                if (!response.ok) throw new Error(await readDownloadError(response));
-                const blob = await downloadResponseAsBlob(response, progress => {
-                    uiNotificationsStore.updateTaskNotification(taskId, { progress });
-                });
-                const link = document.createElement('a');
-                const objectUrl = URL.createObjectURL(blob);
-                link.href = objectUrl;
-                link.setAttribute('download', getDownloadFilename(response, item.filename));
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                URL.revokeObjectURL(objectUrl);
-                uiNotificationsStore.updateTaskNotification(taskId, {
-                    status: 'success',
-                    progress: 100,
-                    message: `${item.filename} 下载完成`,
-                });
-            })
-            .catch(error => {
-                const message = error instanceof Error ? error.message : '文件下载失败';
-                console.error(`[FileManager ${props.sessionId}-${props.instanceId}] Download failed for ${item.filename}:`, error);
-                uiNotificationsStore.updateTaskNotification(taskId, { status: 'error', message });
-            });
+        runSftpDownload({ url: downloadUrl, fallbackFilename: item.filename, displayName: item.filename, taskId });
     });
 };
 
@@ -925,33 +1006,7 @@ const triggerDownloadDirectory = (item: FileListItem) => {
         progress: 0,
     });
 
-    void fetch(downloadUrl)
-        .then(async response => {
-            if (!response.ok) throw new Error(await readDownloadError(response));
-            const blob = await downloadResponseAsBlob(response, progress => {
-                uiNotificationsStore.updateTaskNotification(taskId, { progress });
-            });
-            const filename = getDownloadFilename(response, `${item.filename}.zip`);
-                const link = document.createElement('a');
-                const objectUrl = URL.createObjectURL(blob);
-                link.href = objectUrl;
-                link.setAttribute('download', filename);
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                URL.revokeObjectURL(objectUrl);
-                console.log(`[FileManager ${props.sessionId}-${props.instanceId}] Directory download triggered for: ${filename}`);
-            uiNotificationsStore.updateTaskNotification(taskId, {
-                status: 'success',
-                progress: 100,
-                message: `${item.filename} 下载完成`,
-            });
-        })
-        .catch(error => {
-            console.error(`[FileManager ${props.sessionId}-${props.instanceId}] Network error during directory download:`, error);
-            const message = error instanceof Error ? error.message : '文件夹下载失败';
-            uiNotificationsStore.updateTaskNotification(taskId, { status: 'error', message });
-        });
+    runSftpDownload({ url: downloadUrl, fallbackFilename: `${item.filename}.zip`, displayName: item.filename, taskId });
 };
 
 
@@ -1069,6 +1124,10 @@ const {
       return currentSftpManager.value?.joinPath(base, target) ?? `${base}/${target}`.replace(/\/+/g, '/'); // 提供简单的默认实现
   },
   onFileUpload: startFileUpload,
+  onResolveUploadConflicts: resolveUploadConflicts,
+  onEnsureDirectory: (fullPath: string) => {
+      currentSftpManager.value?.ensureDirectory(fullPath);
+  },
   // 修改：确保在调用前检查 currentSftpManager.value
   onItemMove: (item, newName) => {
       currentSftpManager.value?.renameItem(item, newName);
@@ -1085,7 +1144,7 @@ const handleFileSelected = (event: Event) => {
     // 恢复使用 props.wsDeps.isConnected
     if (!input.files || !props.wsDeps.isConnected.value) return;
     // --- 修正：使用匿名函数包装 startFileUpload 调用 ---
-    Array.from(input.files).forEach(file => startFileUpload(file)); // 只传递 file 参数
+    void startFileUploads(Array.from(input.files)); // 处理同名文件的覆盖/跳过
     // --- 结束修正 ---
     input.value = '';
 };
@@ -1511,8 +1570,12 @@ const navigateToPath = async (path: string) => {
 
   console.log(`[FileManager ${props.sessionId}-${props.instanceId}] 尝试导航到新路径: ${trimmedPath}`);
   try {
-    await currentSftpManager.value.loadDirectory(trimmedPath);
-    // 如果 loadDirectory 没有抛出错误，我们认为它成功了
+    // loadDirectory 在 readdir 成功时 resolve(true)，失败时 resolve(false)
+    const loaded = await currentSftpManager.value.loadDirectory(trimmedPath);
+    if (!loaded) {
+      console.warn(`[FileManager ${props.sessionId}-${props.instanceId}] 导航到路径 ${trimmedPath} 失败，未加入历史记录。`);
+      return;
+    }
     pathHistoryStore.addPath(trimmedPath); // 导航成功后添加到历史
     editablePath.value = trimmedPath; // 更新输入框内容
   } catch (error) {

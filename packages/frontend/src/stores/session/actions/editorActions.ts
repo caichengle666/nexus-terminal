@@ -1,11 +1,14 @@
 // packages/frontend/src/stores/session/actions/editorActions.ts
 
 import { sessions } from '../state';
-import { getLanguageFromFilename, decodeRawContent } from '../utils';
+import { getLanguageFromFilename, decodeRawContent, encodeContentToBase64 } from '../utils';
 import type { FileTab, SftpManagerInstance } from '../types';
 import type { FileInfo } from '../../fileEditor.store'; // 路径: packages/frontend/src/stores/fileEditor.store.ts
 import type { SftpReadFileSuccessPayload } from '../../../types/sftp.types'; // 路径: packages/frontend/src/types/sftp.types.ts
-import type { useI18n } from 'vue-i18n';
+import type { useI18n, ComposerTranslation } from 'vue-i18n';
+import i18n from '../../../i18n';
+
+const globalT: ComposerTranslation = i18n.global.t;
 
 // --- Editor Actions ---
 export const openFileInSession = (
@@ -96,7 +99,7 @@ export const openFileInSession = (
     }
 };
 
-export const closeEditorTabInSession = (sessionId: string, tabId: string) => {
+export const closeEditorTabInSession = (sessionId: string, tabId: string, options: { skipConfirm?: boolean } = {}) => {
     const session = sessions.value.get(sessionId);
     if (!session) {
         console.error(`[EditorActions] 尝试在不存在的会话 ${sessionId} 中关闭标签页 ${tabId}`);
@@ -110,8 +113,8 @@ export const closeEditorTabInSession = (sessionId: string, tabId: string) => {
     }
 
     const tab = session.editorTabs.value[tabIndex];
-    if (tab.isModified && typeof window !== 'undefined') {
-        const confirmed = window.confirm(`“${tab.filename}”包含未保存的修改，确定要关闭吗？`);
+    if (tab.isModified && !options.skipConfirm && typeof window !== 'undefined') {
+        const confirmed = window.confirm(globalT('uxFiles.editor.confirmCloseModified', { name: tab.filename }));
         if (!confirmed) return;
     }
 
@@ -223,7 +226,10 @@ export const saveFileInSession = async (
         tab.saveStatus = 'success';
         tab.saveError = null;
         tab.originalContent = contentToSave;
-        tab.isModified = false;
+        // 同步原始数据，使保存后切换编码基于刚保存的内容
+        tab.rawContentBase64 = encodeContentToBase64(contentToSave, encodingToUse);
+        // 保存期间用户可能继续编辑
+        tab.isModified = tab.content !== contentToSave;
         setTimeout(() => { if (tab.saveStatus === 'success') { tab.saveStatus = 'idle'; } }, 2000);
     } catch (err: any) {
         console.error(`[EditorActions] 保存文件 ${tab.filePath} (会话 ${sessionId}) 失败:`, err);
@@ -257,23 +263,40 @@ export const changeEncodingInSession = (sessionId: string, tabId: string, newEnc
         return;
     }
 
+    // 重新解码会用文件原始数据替换编辑器内容，未保存的修改会丢失
+    if (tab.isModified && typeof window !== 'undefined') {
+        const confirmed = window.confirm(globalT('uxFiles.editor.confirmChangeEncodingModified', { name: tab.filename }));
+        if (!confirmed) return;
+    }
+
     console.log(`[EditorActions] 使用新编码 "${newEncoding}" 在前端重新解码文件: ${tab.filePath} (会话 ${sessionId}, Tab ID: ${tabId})`);
 
     try {
         const newContent = decodeRawContent(tab.rawContentBase64, newEncoding);
         tab.content = newContent;
+        tab.originalContent = newContent; // 以新编码解码的文件内容作为基准
         tab.selectedEncoding = newEncoding;
-        // tab.isModified 状态取决于新内容是否与 originalContent 不同，或者用户可能希望将更改编码视为“修改”
-        // 这里我们假设仅更改编码预览不直接标记为 isModified，除非内容实际变化
-        // 如果 newContent === tab.originalContent，isModified 可以保持不变或设为 false
-        // 如果 newContent !== tab.originalContent，isModified 应该为 true
-        // 为了简单起见，这里不改变 isModified，由后续的 content 比较来决定
+        tab.isModified = false;
         tab.loadingError = null; // 清除可能存在的旧错误
         console.log(`[EditorActions] 文件 ${tab.filePath} (会话 ${sessionId}) 使用新编码 "${newEncoding}" 解码完成。`);
     } catch (err: any) {
         console.error(`[EditorActions] 使用编码 "${newEncoding}" 在前端解码文件 ${tab.filePath} (会话 ${sessionId}) 失败:`, err);
         tab.loadingError = `前端解码失败 (编码: ${newEncoding}): ${err.message || err}`;
     }
+};
+
+// 批量关闭：存在未保存修改时只确认一次
+const closeTabsInSessionWithConfirm = (sessionId: string, idsToClose: string[]) => {
+    const session = sessions.value.get(sessionId);
+    if (!session || idsToClose.length === 0) return;
+    const modifiedTabs = session.editorTabs.value.filter(tab => idsToClose.includes(tab.id) && tab.isModified);
+    if (modifiedTabs.length > 0 && typeof window !== 'undefined') {
+        const confirmed = modifiedTabs.length === 1
+            ? window.confirm(globalT('uxFiles.editor.confirmCloseModified', { name: modifiedTabs[0].filename }))
+            : window.confirm(globalT('uxFiles.editor.confirmCloseModifiedBatch', { count: modifiedTabs.length }));
+        if (!confirmed) return;
+    }
+    idsToClose.forEach(id => closeEditorTabInSession(sessionId, id, { skipConfirm: true }));
 };
 
 export const closeOtherTabsInSession = (sessionId: string, targetTabId: string) => {
@@ -286,7 +309,7 @@ export const closeOtherTabsInSession = (sessionId: string, targetTabId: string) 
     const tabsToClose = session.editorTabs.value.filter(tab => tab.id !== targetTabId);
     // 为了避免在迭代中修改数组导致的问题，先收集 ID
     const idsToClose = tabsToClose.map(t => t.id);
-    idsToClose.forEach(id => closeEditorTabInSession(sessionId, id));
+    closeTabsInSessionWithConfirm(sessionId, idsToClose);
 };
 
 export const closeTabsToTheRightInSession = (sessionId: string, targetTabId: string) => {
@@ -298,7 +321,7 @@ export const closeTabsToTheRightInSession = (sessionId: string, targetTabId: str
     console.log(`[EditorActions ${sessionId}] 关闭 ${targetTabId} 右侧的所有标签页...`);
     const tabsToClose = session.editorTabs.value.slice(targetIndex + 1);
     const idsToClose = tabsToClose.map(t => t.id);
-    idsToClose.forEach(id => closeEditorTabInSession(sessionId, id));
+    closeTabsInSessionWithConfirm(sessionId, idsToClose);
 };
 
 export const updateTabScrollPositionInSession = (
@@ -330,5 +353,5 @@ export const closeTabsToTheLeftInSession = (sessionId: string, targetTabId: stri
     console.log(`[EditorActions ${sessionId}] 关闭 ${targetTabId} 左侧的所有标签页...`);
     const tabsToClose = session.editorTabs.value.slice(0, targetIndex);
     const idsToClose = tabsToClose.map(t => t.id);
-    idsToClose.forEach(id => closeEditorTabInSession(sessionId, id));
+    closeTabsInSessionWithConfirm(sessionId, idsToClose);
 };
