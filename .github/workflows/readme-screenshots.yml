@@ -58,19 +58,20 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
+          trap { Write-Output "::error::windows ssh setup: $_"; continue }
           $cap = Get-WindowsCapability -Online -Name 'OpenSSH.Server*' | Select-Object -First 1
           if ($cap.State -ne 'Installed') { Add-WindowsCapability -Online -Name $cap.Name | Out-Null }
           New-Item -Path 'HKLM:\SOFTWARE\OpenSSH' -Force | Out-Null
           New-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell -Value "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force | Out-Null
           Start-Service sshd
           $key = Join-Path $env:RUNNER_TEMP 'demo_key'
-          ssh-keygen -t ed25519 -N '""' -f $key -q
+          ssh-keygen -t ed25519 -N '' -f $key -q
           $auth = 'C:\ProgramData\ssh\administrators_authorized_keys'
           Get-Content "$key.pub" | Add-Content -Path $auth
           icacls $auth /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
           Start-Sleep 3
           ssh -i $key -o StrictHostKeyChecking=no -o BatchMode=yes "$env:USERNAME@127.0.0.1" 'echo ssh-ok'
-          if ($LASTEXITCODE -ne 0) { Write-Output '::warning::Windows ssh to localhost failed' }
+          if ($LASTEXITCODE -ne 0) { Write-Output "::warning::Windows ssh to localhost failed (user $env:USERNAME, sshd $((Get-Service sshd).Status))" }
           "SSH_USER=$env:USERNAME" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "SSH_KEY_FILE=$key" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           try { Set-DisplayResolution -Width 1920 -Height 1080 -Force } catch { Write-Output "resolution unchanged: $_" }
@@ -92,11 +93,14 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          trap { Write-Output "::error::windows launch: $_"; break }
           gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --pattern '*Portable*.zip' --dir $env:RUNNER_TEMP
           $zip = Get-ChildItem $env:RUNNER_TEMP -Filter '*Portable*.zip' | Select-Object -First 1
           $dir = Join-Path $env:RUNNER_TEMP 'nexus'
           Expand-Archive $zip.FullName -DestinationPath $dir
-          $exe = Get-ChildItem $dir -Recurse -Filter 'Nexus Terminal.exe' | Select-Object -First 1
+          $exe = Get-ChildItem $dir -Recurse -Filter '*.exe' | Where-Object { $_.Name -like 'Nexus*' } | Select-Object -First 1
+          Write-Output "launching $($exe.FullName)"
           Start-Process -FilePath $exe.FullName -ArgumentList '--remote-debugging-port=9222','--lang=zh-CN' -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'app.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'app.err.log')
 
       - name: Take screenshots

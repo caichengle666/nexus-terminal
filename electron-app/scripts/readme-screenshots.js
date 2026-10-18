@@ -49,9 +49,7 @@ const captureWindow = async (page, name) => {
       const ps = `Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $bmp=New-Object System.Drawing.Bitmap $b.Width,$b.Height; $g=[System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); $bmp.Save('${full.replace(/'/g, "''")}',[System.Drawing.Imaging.ImageFormat]::Png)`;
       execFileSync('powershell', ['-NoProfile', '-Command', ps]);
     }
-    const session = await page.context().newCDPSession(page);
-    const { windowId } = await session.send('Browser.getWindowForTarget');
-    const { bounds } = await session.send('Browser.getWindowBounds', { windowId });
+    const bounds = await page.evaluate(() => ({ left: window.screenX, top: window.screenY, width: window.outerWidth, height: window.outerHeight }));
     const screenWidth = await page.evaluate(() => window.screen.width);
     const meta = await sharp(full).metadata();
     const scale = meta.width / screenWidth;
@@ -76,10 +74,18 @@ const captureWindow = async (page, name) => {
   log('main page', page.url());
   await page.waitForLoadState('domcontentloaded');
 
-  const session = await page.context().newCDPSession(page);
-  const { windowId } = await session.send('Browser.getWindowForTarget');
-  await session.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } });
-  await session.send('Browser.setWindowBounds', { windowId, bounds: { left: 40, top: 40, width: 1440, height: 900 } });
+  try {
+    const pageSession = await page.context().newCDPSession(page);
+    const { targetInfo } = await pageSession.send('Target.getTargetInfo');
+    const browserSession = await browser.newBrowserCDPSession();
+    const { windowId } = await browserSession.send('Browser.getWindowForTarget', { targetId: targetInfo.targetId });
+    await browserSession.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } });
+    await browserSession.send('Browser.setWindowBounds', { windowId, bounds: { left: 40, top: 40, width: 1440, height: 900 } });
+  } catch (error) {
+    annotate('warning', `could not resize the window: ${error.message}`);
+  }
+  await sleep(1500);
+  log('window', await page.evaluate(() => [window.screenX, window.screenY, window.outerWidth, window.outerHeight, window.screen.width, window.screen.height, devicePixelRatio]));
 
   const api = (method, url, body) => page.evaluate(async ([m, u, b]) => {
     const response = await fetch(u, {
