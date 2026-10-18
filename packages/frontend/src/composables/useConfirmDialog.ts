@@ -6,6 +6,8 @@ interface ConfirmDialogOptions {
   message: string;
   confirmText?: string;
   cancelText?: string;
+  /** Aborting dismisses the dialog and resolves it as cancelled. */
+  signal?: AbortSignal;
 }
 
 export function useConfirmDialog() {
@@ -19,6 +21,7 @@ export function useConfirmDialog() {
       message: options.message,
       confirmText: options.confirmText,
       cancelText: options.cancelText,
+      signal: options.signal,
     };
     return dialogStore.showDialog(finalOptions);
   };

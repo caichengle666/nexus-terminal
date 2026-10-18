@@ -116,6 +116,8 @@ export const normalizeMemoryForStorage = (memory: AiSessionMemory): AiSessionMem
   summaryUpdatedAt: memory.summaryUpdatedAt,
   lastCompactedAt: memory.lastCompactedAt,
   compression: memory.compression,
+  ...(memory.connectionId ? { connectionId: String(memory.connectionId) } : {}),
+  ...(memory.updatedAt ? { updatedAt: memory.updatedAt } : {}),
 });
 
 export const loadStoredMemories = () => {
@@ -161,9 +163,7 @@ export const persistMemories = (memories: Record<string, AiSessionMemory>, prior
   const entries = Object.entries(normalized).reverse().sort(([leftKey, left], [rightKey, right]) => {
     if (leftKey === priorityKey) return -1;
     if (rightKey === priorityKey) return 1;
-    return (
-    (right.summaryUpdatedAt || right.lastCompactedAt || 0) - (left.summaryUpdatedAt || left.lastCompactedAt || 0)
-    );
+    return memoryLastActivity(right) - memoryLastActivity(left);
   });
   const retained: Record<string, AiSessionMemory> = {};
   let droppedSessionCount = 0;
@@ -183,4 +183,111 @@ export const persistMemories = (memories: Record<string, AiSessionMemory>, prior
     console.warn('[AI Terminal] Failed to persist AI memories:', error);
     return { ok: false, droppedSessionCount };
   }
+};
+
+// ---------------------------------------------------------------------------
+// Memory keys
+//
+// Session IDs are random per page load, so AI memories are keyed by the
+// connection instead: `conn:<connectionId>` for the first open tab of a
+// connection and `conn:<connectionId>#<n>` for additional tabs of the same
+// connection that are open at the same time. Keys from older versions were the
+// raw session ID; those are "orphans" that get adopted by the next session of
+// the matching connection, or pruned.
+// ---------------------------------------------------------------------------
+
+export const CONNECTION_MEMORY_PREFIX = 'conn:';
+export const GLOBAL_MEMORY_KEY = 'global';
+export const MAX_ORPHAN_MEMORIES = 5;
+export const MAX_ORPHAN_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+export const connectionMemoryKey = (connectionId: string, slot = 0) => (
+  slot > 0 ? `${CONNECTION_MEMORY_PREFIX}${connectionId}#${slot + 1}` : `${CONNECTION_MEMORY_PREFIX}${connectionId}`
+);
+
+export const isConnectionMemoryKey = (key: string) => key.startsWith(CONNECTION_MEMORY_PREFIX);
+
+export const isOrphanMemoryKey = (key: string) => key !== GLOBAL_MEMORY_KEY && !isConnectionMemoryKey(key);
+
+export const isMemoryEmpty = (memory?: AiSessionMemory) => !memory || (
+  (memory.messages?.length || 0) === 0 && (memory.toolRuns?.length || 0) === 0 && !memory.summary
+);
+
+export const memoryLastActivity = (memory?: AiSessionMemory) => {
+  if (!memory) return 0;
+  let latest = Math.max(memory.updatedAt || 0, memory.summaryUpdatedAt || 0, memory.lastCompactedAt || 0, memory.compression?.at || 0);
+  for (const run of memory.toolRuns || []) {
+    latest = Math.max(latest, Number(run.finishedAt) || 0, Number(run.startedAt) || 0);
+  }
+  return latest;
+};
+
+/** Old memories carry no connection ID; terminal tool results recorded the connection name. */
+export const inferMemoryConnectionName = (memory: AiSessionMemory): string => {
+  const runs = memory.toolRuns || [];
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const result = runs[index]?.result as { connectionName?: unknown } | undefined;
+    if (result && typeof result === 'object' && typeof result.connectionName === 'string' && result.connectionName.trim()) {
+      return result.connectionName.trim();
+    }
+  }
+  return '';
+};
+
+/**
+ * Picks the most recent orphan memory that belongs to the given connection.
+ * `connectionName` is only used for legacy memories without a stored
+ * connectionId, and only when the caller knows the name is unambiguous.
+ */
+export const findOrphanMemoryKey = (
+  memories: Record<string, AiSessionMemory>,
+  target: { connectionId: string; connectionName?: string },
+): string | null => {
+  let bestKey: string | null = null;
+  let bestActivity = -1;
+  for (const [key, memory] of Object.entries(memories)) {
+    if (!isOrphanMemoryKey(key) || isMemoryEmpty(memory)) continue;
+    const matches = memory.connectionId
+      ? String(memory.connectionId) === String(target.connectionId)
+      : !!target.connectionName && inferMemoryConnectionName(memory) === target.connectionName;
+    if (!matches) continue;
+    const activity = memoryLastActivity(memory);
+    if (activity > bestActivity) {
+      bestActivity = activity;
+      bestKey = key;
+    }
+  }
+  return bestKey;
+};
+
+/**
+ * Removes orphan memories that can never be shown again: empty ones, ones
+ * older than MAX_ORPHAN_AGE_MS, and all but the MAX_ORPHAN_MEMORIES most
+ * recent. Returns the removed keys. Mutates `memories`.
+ */
+export const pruneOrphanMemories = (
+  memories: Record<string, AiSessionMemory>,
+  options: { keep?: Set<string>; now?: number; maxAgeMs?: number; maxOrphans?: number } = {},
+) => {
+  const now = options.now ?? Date.now();
+  const maxAgeMs = options.maxAgeMs ?? MAX_ORPHAN_AGE_MS;
+  const maxOrphans = options.maxOrphans ?? MAX_ORPHAN_MEMORIES;
+  const removed: string[] = [];
+  const survivors: Array<[string, number]> = [];
+  for (const [key, memory] of Object.entries(memories)) {
+    if (!isOrphanMemoryKey(key) || options.keep?.has(key)) continue;
+    const activity = memoryLastActivity(memory);
+    if (isMemoryEmpty(memory) || (activity > 0 && now - activity > maxAgeMs)) {
+      delete memories[key];
+      removed.push(key);
+      continue;
+    }
+    survivors.push([key, activity]);
+  }
+  survivors.sort((left, right) => right[1] - left[1]);
+  for (const [key] of survivors.slice(maxOrphans)) {
+    delete memories[key];
+    removed.push(key);
+  }
+  return removed;
 };

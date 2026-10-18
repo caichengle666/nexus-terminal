@@ -1,17 +1,23 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import { useI18n } from 'vue-i18n';
 import { useAiStore, type AiTaskStatus, type AiToolRun } from '../stores/ai.store';
 import { useConfirmDialog } from '../composables/useConfirmDialog';
 import nexusAiAvatar from '../assets/nexus-ai-avatar.jpg';
 import { MAX_IMPORT_FILE_BYTES } from '../stores/ai/ai.constants';
+import { describeAiError } from '../stores/ai/ai.errors';
+import { useKeyboardInset } from '../composables/useKeyboardInset';
 
-withDefaults(defineProps<{ mobileOverlay?: boolean }>(), {
+const props = withDefaults(defineProps<{ mobileOverlay?: boolean }>(), {
   mobileOverlay: false,
 });
 const emit = defineEmits<{ (event: 'close-mobile-overlay'): void }>();
 
 const aiStore = useAiStore();
+const { t } = useI18n();
+// Keeps the full-screen mobile overlay (and its input) above the on-screen keyboard.
+useKeyboardInset(() => props.mobileOverlay);
 const { showConfirmDialog } = useConfirmDialog();
 type DrawerPanel = 'context' | null;
 
@@ -61,12 +67,12 @@ const contextExpanded = ref(false);
 const promptSettingsExpanded = ref(false);
 const toolRenderLimit = ref(20);
 const importFileInput = ref<HTMLInputElement | null>(null);
-const modeOptions = [
-  { value: 'readOnly', label: '只读', description: '仅查看，不执行命令' },
-  { value: 'confirm', label: '确认', description: '每次执行前确认' },
-  { value: 'auto', label: '自动', description: '由 AI 自主执行' },
-] as const;
-const activeModeOption = computed(() => modeOptions.find(option => option.value === runMode.value) || modeOptions[1]);
+const modeOptions = computed(() => ([
+  { value: 'readOnly', label: t('aiAssistant.mode.readOnly'), description: t('aiAssistant.mode.readOnlyDesc') },
+  { value: 'confirm', label: t('aiAssistant.mode.confirm'), description: t('aiAssistant.mode.confirmDesc') },
+  { value: 'auto', label: t('aiAssistant.mode.auto'), description: t('aiAssistant.mode.autoDesc') },
+] as const));
+const activeModeOption = computed(() => modeOptions.value.find(option => option.value === runMode.value) || modeOptions.value[1]);
 const conversationMessages = computed(() => visibleMessages.value.filter(message => (
   message.role !== 'assistant' || !!message.content?.trim() || !message.tool_calls?.length
 )));
@@ -168,7 +174,7 @@ onBeforeUnmount(() => {
   if (copiedTimer !== null) window.clearTimeout(copiedTimer);
 });
 
-const sessionLabel = computed(() => activeSession.value?.connectionName || '没有活动终端');
+const sessionLabel = computed(() => activeSession.value?.connectionName || t('aiAssistant.noActiveTerminal'));
 const contextLimitBytes = computed(() => maxRequestKb.value * 1024);
 const contextUsagePercent = computed(() => contextLimitBytes.value > 0
   ? Math.min(100, Math.round((contextRequestBytes.value / contextLimitBytes.value) * 100))
@@ -210,44 +216,44 @@ const loadMoreToolRuns = () => {
   toolRenderLimit.value = Math.min(toolRenderLimit.value + 20, latestToolRuns.value.length);
 };
 
-const quickTasks = [
-  { label: '检查服务异常', prompt: '检查当前服务状态并定位异常' },
-  { label: '分析终端报错', prompt: '查看当前终端报错并给出修复方案' },
-  { label: '读取输出并继续', prompt: '读取最近输出，继续完成上一步任务' },
-];
+const quickTasks = computed(() => [
+  { label: t('aiAssistant.quick.checkService'), prompt: t('aiAssistant.quick.checkServicePrompt') },
+  { label: t('aiAssistant.quick.analyzeError'), prompt: t('aiAssistant.quick.analyzeErrorPrompt') },
+  { label: t('aiAssistant.quick.readAndContinue'), prompt: t('aiAssistant.quick.readAndContinuePrompt') },
+]);
 
 const formatToolName = (name: string) => {
-  if (name === 'get_terminal_output') return '读取终端输出';
-  if (name === 'wait_for_terminal_output') return '等待终端输出';
-  if (name === 'terminal_input') return '输入终端命令';
-  if (name === 'execute_command') return '后台执行命令';
-  if (name === 'send_terminal_key') return '发送终端按键';
-  if (name === 'read_remote_file') return '读取远程文件';
-  if (name === 'list_remote_directory') return '列出远程目录';
-  if (name === 'list_active_terminals') return '列出活动终端';
-  if (name === 'execute_command_batch') return '批量执行 VPS 命令';
-  if (name === 'propose_system_prompt_update') return '建议修改系统提示词';
+  if (name === 'get_terminal_output') return t('aiAssistant.tool.get_terminal_output');
+  if (name === 'wait_for_terminal_output') return t('aiAssistant.tool.wait_for_terminal_output');
+  if (name === 'terminal_input') return t('aiAssistant.tool.terminal_input');
+  if (name === 'execute_command') return t('aiAssistant.tool.execute_command');
+  if (name === 'send_terminal_key') return t('aiAssistant.tool.send_terminal_key');
+  if (name === 'read_remote_file') return t('aiAssistant.tool.read_remote_file');
+  if (name === 'list_remote_directory') return t('aiAssistant.tool.list_remote_directory');
+  if (name === 'list_active_terminals') return t('aiAssistant.tool.list_active_terminals');
+  if (name === 'execute_command_batch') return t('aiAssistant.tool.execute_command_batch');
+  if (name === 'propose_system_prompt_update') return t('aiAssistant.tool.propose_system_prompt_update');
   return name;
 };
 
 const formatToolStatus = (status: AiToolRun['status']) => {
-  if (status === 'running') return '运行中';
-  if (status === 'done') return '完成';
-  if (status === 'cancelled') return '已取消';
-  return '失败';
+  if (status === 'running') return t('aiAssistant.toolStatus.running');
+  if (status === 'done') return t('aiAssistant.toolStatus.done');
+  if (status === 'cancelled') return t('aiAssistant.toolStatus.cancelled');
+  return t('aiAssistant.toolStatus.error');
 };
 
 const formatTaskStatus = (status: AiTaskStatus) => {
-  if (status === 'thinking') return 'AI 思考中';
-  if (status === 'awaitingConfirmation') return '等待命令确认';
-  if (status === 'runningTool') return '调用工具中';
-  if (status === 'waitingOutput') return '等待终端输出';
-  if (status === 'compressing') return '压缩上下文';
-  if (status === 'done') return '已完成';
-  if (status === 'stopped') return '已停止';
-  if (status === 'interrupted') return '输出已截断';
-  if (status === 'error') return '出错';
-  return '空闲';
+  if (status === 'thinking') return t('aiAssistant.taskStatus.thinking');
+  if (status === 'awaitingConfirmation') return t('aiAssistant.taskStatus.awaitingConfirmation');
+  if (status === 'runningTool') return t('aiAssistant.taskStatus.runningTool');
+  if (status === 'waitingOutput') return t('aiAssistant.taskStatus.waitingOutput');
+  if (status === 'compressing') return t('aiAssistant.taskStatus.compressing');
+  if (status === 'done') return t('aiAssistant.taskStatus.done');
+  if (status === 'stopped') return t('aiAssistant.taskStatus.stopped');
+  if (status === 'interrupted') return t('aiAssistant.taskStatus.interrupted');
+  if (status === 'error') return t('aiAssistant.taskStatus.error');
+  return t('aiAssistant.taskStatus.idle');
 };
 
 const activityTextClass = (activity: { id: string; state: 'active' | 'done' | 'error' }) => {
@@ -274,30 +280,30 @@ const formatToolSummary = (run: AiToolRun) => {
     return text.length > 140 ? `${text.slice(0, 140)}...` : text;
   }
   if (run.name === 'get_terminal_output') {
-    return `读取最近 ${run.args.maxLines || 120} 行`;
+    return t('aiAssistant.toolSummary.readLines', { count: run.args.maxLines || 120 });
   }
   if (run.name === 'wait_for_terminal_output') {
     const seconds = Math.max(0.2, Number(run.args.timeoutMs || 15000) / 1000);
-    return `最长等待 ${seconds.toFixed(1)} 秒`;
+    return t('aiAssistant.toolSummary.maxWait', { seconds: seconds.toFixed(1) });
   }
   if (run.name === 'execute_command') {
     const command = typeof run.args.command === 'string' ? run.args.command : '';
     return command.length > 140 ? `${command.slice(0, 140)}...` : command;
   }
-  if (run.name === 'send_terminal_key') return String(run.args.key || '未指定按键');
-  if (run.name === 'read_remote_file') return String(run.args.path || '未指定路径');
-  if (run.name === 'list_remote_directory') return String(run.args.path || '未指定路径');
+  if (run.name === 'send_terminal_key') return String(run.args.key || t('aiAssistant.toolSummary.noKey'));
+  if (run.name === 'read_remote_file') return String(run.args.path || t('aiAssistant.toolSummary.noPath'));
+  if (run.name === 'list_remote_directory') return String(run.args.path || t('aiAssistant.toolSummary.noPath'));
   if (run.name === 'execute_command_batch') {
     const count = Array.isArray(run.args.targetSessionIds) ? run.args.targetSessionIds.length : 0;
-    return `${count} 台终端 · ${String(run.args.command || '').slice(0, 100)}`;
+    return t('aiAssistant.toolSummary.batch', { count, command: String(run.args.command || '').slice(0, 100) });
   }
-  if (run.name === 'propose_system_prompt_update') return String(run.args.reason || '等待用户审核');
-  if (run.name === 'list_active_terminals') return '读取当前已连接 SSH Tab';
+  if (run.name === 'propose_system_prompt_update') return String(run.args.reason || t('aiAssistant.toolSummary.awaitingReview'));
+  if (run.name === 'list_active_terminals') return t('aiAssistant.toolSummary.listTabs');
   return JSON.stringify(run.args);
 };
 
 const formatToolDuration = (run: AiToolRun) => {
-  if (!run.finishedAt) return '运行中';
+  if (!run.finishedAt) return t('aiAssistant.toolStatus.running');
   const durationMs = Math.max(0, run.finishedAt - run.startedAt);
   if (durationMs < 1000) return `${durationMs}ms`;
   return `${(durationMs / 1000).toFixed(1)}s`;
@@ -317,7 +323,7 @@ const getToolCommand = (run: AiToolRun) => {
 const formatToolResult = (run: AiToolRun) => {
   const value = run.result ?? run.error ?? '';
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-  return text.length > 2400 ? `${text.slice(0, 2400)}\n...<结果已截断>` : text || '无返回内容';
+  return text.length > 2400 ? `${text.slice(0, 2400)}\n...${t('aiAssistant.toolResultTruncated')}` : text || t('aiAssistant.toolResultEmpty');
 };
 
 const detectCommandRisk = (command: string) => {
@@ -351,9 +357,9 @@ const detectCommandRisk = (command: string) => {
 };
 
 const formatRiskLabel = (risk: string) => {
-  if (risk === 'danger') return '危险';
-  if (risk === 'confirm') return '需确认';
-  return '普通';
+  if (risk === 'danger') return t('aiAssistant.risk.danger');
+  if (risk === 'confirm') return t('aiAssistant.risk.confirm');
+  return t('aiAssistant.risk.normal');
 };
 
 const formatRiskClass = (risk: string) => {
@@ -363,10 +369,10 @@ const formatRiskClass = (risk: string) => {
 };
 
 const messageLabel = (role: string) => {
-  if (role === 'user') return '你';
+  if (role === 'user') return t('aiAssistant.role.user');
   if (role === 'assistant') return 'Nexus AI';
-  if (role === 'tool') return '终端工具';
-  if (role === 'system') return '系统';
+  if (role === 'tool') return t('aiAssistant.role.tool');
+  if (role === 'system') return t('aiAssistant.role.system');
   return role;
 };
 
@@ -443,7 +449,7 @@ const extractCommandBlocks = (content?: string | null) => {
 };
 
 const getMessageRenderCache = (message: object & { content?: string | null; tool_calls?: unknown[] }) => {
-  const source = message.content || (message.tool_calls?.length ? '正在调用终端工具...' : '');
+  const source = message.content || (message.tool_calls?.length ? t('aiAssistant.callingTools') : '');
   const cached = messageRenderCache.get(message);
   if (cached?.source === source) return cached;
   const next = {
@@ -461,7 +467,7 @@ const copyText = async (text: string, key = 'default') => {
   try {
     await navigator.clipboard?.writeText(text);
   } catch {
-    errorMessage.value = '复制失败，请手动选择文本复制。';
+    errorMessage.value = t('aiAssistant.copyFailed');
     return;
   }
   copiedKey.value = key;
@@ -476,7 +482,7 @@ const fillCommandInput = (command: string) => {
   const normalized = command.trim();
   if (!normalized) return;
   if (/\r|\n/.test(normalized)) {
-    errorMessage.value = '多行命令不能安全填入终端，请先复制后手动确认执行。';
+    errorMessage.value = t('aiAssistant.multilineNotAllowed');
     return;
   }
   const sender = activeSession.value?.terminalManager?.sendData;
@@ -484,7 +490,7 @@ const fillCommandInput = (command: string) => {
     sender(normalized);
     return;
   }
-  errorMessage.value = '当前没有可输入的活动终端。';
+  errorMessage.value = t('aiAssistant.noTerminalForInput');
 };
 
 const openDrawer = (panel: Exclude<DrawerPanel, null>) => {
@@ -506,29 +512,32 @@ const closeSettingsDrawer = () => {
 };
 
 
+const confirmAiCommand = async ({ command, reason, riskReason, riskLevel, connectionName, signal }: { command: string; reason: string; riskReason?: string; riskLevel: string; connectionName?: string; signal?: AbortSignal }) => showConfirmDialog({
+  title: riskLevel === 'risky' ? t('aiAssistant.confirm.riskyTitle') : t('aiAssistant.confirm.title'),
+  message: [
+    t('aiAssistant.confirm.target', { name: connectionName || sessionLabel.value }),
+    '',
+    command,
+    '',
+    t('aiAssistant.confirm.reason', { reason }),
+    riskReason ? t('aiAssistant.confirm.risk', { risk: riskReason }) : '',
+    '',
+    t('aiAssistant.confirm.note'),
+  ].filter(Boolean).join('\n'),
+  confirmText: t('aiAssistant.confirm.run'),
+  cancelText: t('aiAssistant.common.cancel'),
+  signal,
+});
+
 const sendMessage = () => {
   shouldAutoFollow.value = true;
   void scrollConversationToBottom();
-  return aiStore.sendMessage({
-    confirmCommand: async ({ command, reason, riskReason, riskLevel, connectionName }: { command: string; reason: string; riskReason?: string; riskLevel: string; connectionName?: string }) => showConfirmDialog({
-      title: riskLevel === 'risky' ? '确认 AI 执行风险命令' : '确认 AI 执行命令',
-      message: [
-        `目标终端：${connectionName || sessionLabel.value}`,
-        '',
-        command,
-        '',
-        `AI 理由：${reason}`,
-        riskReason ? `风险提示：${riskReason}` : '',
-        '',
-        '确认后才会发送到当前终端。',
-      ].filter(Boolean).join('\n'),
-      confirmText: '执行',
-      cancelText: '取消',
-    }),
-  });
+  return aiStore.sendMessage({ confirmCommand: confirmAiCommand });
 };
 
 const handleInputKeydown = (event: KeyboardEvent) => {
+  // Enter that confirms an IME composition (Chinese/Japanese input) must not send.
+  if (event.isComposing || event.keyCode === 229) return;
   if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
     return;
   }
@@ -540,10 +549,10 @@ const stopAi = async () => {
   const runSessionId = activeSessionId.value;
   aiStore.stopRun(runSessionId);
   const confirmed = await showConfirmDialog({
-    title: '是否同时中断终端命令',
-    message: 'AI 请求会立即停止。如果远程终端里已经有命令在运行，可以同时发送 Ctrl+C 尝试中断它。',
-    confirmText: '同时 Ctrl+C',
-    cancelText: '只停止 AI',
+    title: t('aiAssistant.stop.title'),
+    message: t('aiAssistant.stop.message'),
+    confirmText: t('aiAssistant.stop.alsoCtrlC'),
+    cancelText: t('aiAssistant.stop.onlyAi'),
   });
   if (confirmed) {
     aiStore.sendInterruptToTerminal(runSessionId);
@@ -553,10 +562,10 @@ const stopAi = async () => {
 
 const interruptTerminal = async () => {
   const confirmed = await showConfirmDialog({
-    title: '中断当前终端命令',
-    message: '将向当前 SSH 终端发送 Ctrl+C。它会尝试中断远程服务器里正在运行的命令，但不会停止 AI 本身。',
-    confirmText: '发送 Ctrl+C',
-    cancelText: '取消',
+    title: t('aiAssistant.interrupt.title'),
+    message: t('aiAssistant.interrupt.message'),
+    confirmText: t('aiAssistant.interrupt.send'),
+    cancelText: t('aiAssistant.common.cancel'),
   });
   if (confirmed) {
     aiStore.sendInterruptToTerminal();
@@ -568,19 +577,26 @@ const compactContext = async () => {
   const result = await aiStore.compactContextNow(true);
   if (result.compacted) {
     await showConfirmDialog({
-      title: '上下文压缩完成',
-      message: `已压缩 ${result.compactedCount || 0} 条历史消息，保留最近 ${result.retainedCount || 0} 条。请求大小从约 ${formatBytes(result.requestBytes)} 变为 ${formatBytes(result.finalRequestBytes)}，硬上限为 ${formatBytes(result.hardLimitBytes)}。摘要来源：${result.summaryMode === 'ai' ? 'AI' : '本地'}。`,
-      confirmText: '知道了',
-      cancelText: '关闭',
+      title: t('aiAssistant.compact.doneTitle'),
+      message: t('aiAssistant.compact.doneMessage', {
+        compacted: result.compactedCount || 0,
+        retained: result.retainedCount || 0,
+        before: formatBytes(result.requestBytes),
+        after: formatBytes(result.finalRequestBytes),
+        limit: formatBytes(result.hardLimitBytes),
+        source: result.summaryMode === 'ai' ? 'AI' : t('aiAssistant.compact.sourceLocal'),
+      }),
+      confirmText: t('aiAssistant.common.gotIt'),
+      cancelText: t('aiAssistant.common.close'),
     });
   } else if (result.reason !== 'underBudget') {
     await showConfirmDialog({
-      title: result.reason === 'empty' ? '暂无可压缩上下文' : '上下文未超过压缩阈值',
+      title: result.reason === 'empty' ? t('aiAssistant.compact.emptyTitle') : t('aiAssistant.compact.underTitle'),
       message: result.reason === 'empty'
-        ? '当前会话内容太少，还没有可以压缩成摘要的历史。'
-        : `当前 AI 请求约 ${Math.ceil(result.requestBytes / 1024)}KB，压缩阈值是 ${Math.floor(result.thresholdBytes / 1024)}KB。未超过阈值时不会强行压缩。`,
-      confirmText: '知道了',
-      cancelText: '关闭',
+        ? t('aiAssistant.compact.emptyMessage')
+        : t('aiAssistant.compact.underMessage', { size: Math.ceil(result.requestBytes / 1024), threshold: Math.floor(result.thresholdBytes / 1024) }),
+      confirmText: t('aiAssistant.common.gotIt'),
+      cancelText: t('aiAssistant.common.close'),
     });
   }
   drawerPanel.value = 'context';
@@ -591,7 +607,7 @@ const useQuickTask = (task: string) => {
 };
 
 const rereadTerminal = () => {
-  userInput.value = '读取当前终端最近输出，判断上一轮失败原因并继续处理';
+  userInput.value = t('aiAssistant.rereadPrompt');
   sendMessage();
 };
 
@@ -610,20 +626,13 @@ const switchReadOnly = () => {
   runMode.value = 'readOnly';
 };
 
-const continueLastResponse = () => aiStore.continueLastResponse({
-  confirmCommand: async ({ command, reason, riskReason, riskLevel, connectionName }: { command: string; reason: string; riskReason?: string; riskLevel: string; connectionName?: string }) => showConfirmDialog({
-    title: riskLevel === 'risky' ? '确认 AI 执行风险命令' : '确认 AI 执行命令',
-    message: [`目标终端：${connectionName || sessionLabel.value}`, '', command, '', `AI 理由：${reason}`, riskReason ? `风险提示：${riskReason}` : '', '', '确认后才会发送到当前终端。'].filter(Boolean).join('\n'),
-    confirmText: '执行',
-    cancelText: '取消',
-  }),
-});
+const continueLastResponse = () => aiStore.continueLastResponse({ confirmCommand: confirmAiCommand });
 
 const saveConfig = async () => {
   try {
     await aiStore.saveConfig();
   } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || error.message || 'AI 配置保存失败。';
+    errorMessage.value = describeAiError(error, t('aiAssistant.errors.saveConfig'));
   }
 };
 
@@ -636,7 +645,7 @@ const saveHistoryConfig = async () => {
   try {
     await aiStore.saveHistoryConfig();
   } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || error.message || '文件会话存储配置保存失败。';
+    errorMessage.value = describeAiError(error, t('aiAssistant.errors.saveHistoryConfig'));
   }
 };
 
@@ -646,10 +655,10 @@ const openCurrentHistoryDirectory = async () => {
     const result = await (window as any).electronAPI?.openPath?.(directory);
     if (!result?.ok && result?.error) throw new Error(result.error);
     if (!(window as any).electronAPI?.openPath) {
-      await showConfirmDialog({ title: '当前终端会话目录', message: directory, confirmText: '知道了', cancelText: '关闭' });
+      await showConfirmDialog({ title: t('aiAssistant.historyDirTitle'), message: directory, confirmText: t('aiAssistant.common.gotIt'), cancelText: t('aiAssistant.common.close') });
     }
   } catch (error: any) {
-    errorMessage.value = error.message || '打开会话目录失败。';
+    errorMessage.value = error.message || t('aiAssistant.errors.openHistoryDir');
   }
 };
 
@@ -657,7 +666,7 @@ const testConfig = async () => {
   try {
     await aiStore.testConfig();
   } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || error.message || 'AI 配置测试失败。';
+    errorMessage.value = describeAiError(error, t('aiAssistant.errors.testConfig'));
   }
 };
 
@@ -675,10 +684,10 @@ const downloadFile = (content: string, filename: string, type: string) => {
 };
 
 const confirmExportSafety = () => showConfirmDialog({
-  title: '导出 AI 会话',
-  message: '导出文件可能包含终端输出中的 IP、Token、密码或环境变量。程序不会导出 API Key、SSH 密码和私钥，但请妥善保管导出的文件。是否继续？',
-  confirmText: '继续导出',
-  cancelText: '取消',
+  title: t('aiAssistant.export.title'),
+  message: t('aiAssistant.export.message'),
+  confirmText: t('aiAssistant.export.continue'),
+  cancelText: t('aiAssistant.common.cancel'),
 });
 
 const exportJson = async () => {
@@ -691,30 +700,30 @@ const exportMarkdown = async () => {
   if (!await confirmExportSafety()) return;
   const data = aiStore.exportSessionData();
   const lines = [
-    '# Nexus Terminal AI 会话',
+    t('aiAssistant.md.title'),
     '',
-    `- 终端：${data.connectionName}`,
-    `- 导出时间：${data.exportedAt}`,
+    t('aiAssistant.md.terminal', { name: data.connectionName }),
+    t('aiAssistant.md.exportedAt', { time: data.exportedAt }),
     '',
-    '## 记忆摘要',
+    t('aiAssistant.md.summary'),
     '',
-    data.memory.summary || '暂无记忆摘要。',
+    data.memory.summary || t('aiAssistant.md.noSummary'),
     '',
-    '## 对话记录',
+    t('aiAssistant.md.messages'),
     '',
   ];
   data.memory.messages.forEach(message => {
-    const label = message.role === 'user' ? '用户' : message.role === 'assistant' ? 'AI' : message.role === 'tool' ? '工具' : '系统';
-    lines.push(`### ${label}`, '', message.content || (message.tool_calls ? `调用工具：${message.tool_calls.map(call => call.function.name).join('、')}` : ''), '');
+    const label = message.role === 'user' ? t('aiAssistant.md.roleUser') : message.role === 'assistant' ? 'AI' : message.role === 'tool' ? t('aiAssistant.md.roleTool') : t('aiAssistant.role.system');
+    lines.push(`### ${label}`, '', message.content || (message.tool_calls ? t('aiAssistant.md.calledTools', { tools: message.tool_calls.map(call => call.function.name).join(', ') }) : ''), '');
   });
-  lines.push('## 工具调用记录', '');
+  lines.push(t('aiAssistant.md.toolRuns'), '');
   data.memory.toolRuns.forEach(run => {
-    lines.push(`- ${formatToolName(run.name)}：${formatToolStatus(run.status)}，耗时 ${formatToolDuration(run)}`);
-    if (run.args) lines.push(`  - 参数：\`${JSON.stringify(run.args)}\``);
-    if (run.error) lines.push(`  - 失败：${run.error}`);
+    lines.push(t('aiAssistant.md.toolRunLine', { name: formatToolName(run.name), status: formatToolStatus(run.status), duration: formatToolDuration(run) }));
+    if (run.args) lines.push(t('aiAssistant.md.toolArgs', { args: `\`${JSON.stringify(run.args)}\`` }));
+    if (run.error) lines.push(t('aiAssistant.md.toolError', { error: run.error }));
   });
   if (data.memory.compression) {
-    lines.push('', '## 压缩记录', '', `- 处理消息：${data.memory.compression.compactedCount}`, `- 保留消息：${data.memory.compression.retainedCount}`, `- 摘要来源：${data.memory.compression.summaryMode}`);
+    lines.push('', t('aiAssistant.md.compression'), '', t('aiAssistant.md.compacted', { count: data.memory.compression.compactedCount }), t('aiAssistant.md.retained', { count: data.memory.compression.retainedCount }), t('aiAssistant.md.source', { source: data.memory.compression.summaryMode }));
   }
   downloadFile(lines.join('\n'), `nexus-ai-session-${data.exportedAt.slice(0, 10)}.md`, 'text/markdown;charset=utf-8');
 };
@@ -727,38 +736,38 @@ const importSessionFile = async (event: Event) => {
   input.value = '';
   if (!file) return;
   try {
-    if (file.size > MAX_IMPORT_FILE_BYTES) throw new Error('导入文件不能超过 5MB。');
+    if (file.size > MAX_IMPORT_FILE_BYTES) throw new Error(t('aiAssistant.import.tooLarge'));
     const data = JSON.parse(await file.text());
     const compatibility = aiStore.checkSessionImport(data);
     if (compatibility.nameMismatch) {
       const confirmedNameMismatch = await showConfirmDialog({
-        title: '终端名称不同',
-        message: `${compatibility.message} 是否确认导入？`,
-        confirmText: '确认导入',
-        cancelText: '取消',
+        title: t('aiAssistant.import.nameMismatchTitle'),
+        message: t('aiAssistant.import.nameMismatchMessage', { message: compatibility.message }),
+        confirmText: t('aiAssistant.import.confirm'),
+        cancelText: t('aiAssistant.common.cancel'),
       });
       if (!confirmedNameMismatch) return;
     }
     const confirmed = await showConfirmDialog({
-      title: '导入 AI 会话',
-      message: '导入会话将替换当前终端的 AI 对话、摘要和工具记录。导入的命令不会自动执行。是否继续？',
-      confirmText: '导入并替换',
-      cancelText: '取消',
+      title: t('aiAssistant.import.title'),
+      message: t('aiAssistant.import.message'),
+      confirmText: t('aiAssistant.import.replace'),
+      cancelText: t('aiAssistant.common.cancel'),
     });
     if (!confirmed) return;
     const result = aiStore.importSessionData(data, 'replace', !!compatibility.nameMismatch);
     await showConfirmDialog({
-      title: '会话导入完成',
-      message: `已导入 ${result.messageCount} 条消息和 ${result.toolRunCount} 条工具记录。`,
-      confirmText: '知道了',
-      cancelText: '关闭',
+      title: t('aiAssistant.import.doneTitle'),
+      message: t('aiAssistant.import.doneMessage', { messages: result.messageCount, tools: result.toolRunCount }),
+      confirmText: t('aiAssistant.common.gotIt'),
+      cancelText: t('aiAssistant.common.close'),
     });
   } catch (error: any) {
     await showConfirmDialog({
-      title: '会话导入失败',
-      message: error.message || '文件不是有效的 Nexus Terminal AI 会话。',
-      confirmText: '知道了',
-      cancelText: '关闭',
+      title: t('aiAssistant.import.failedTitle'),
+      message: error.message || t('aiAssistant.import.failedMessage'),
+      confirmText: t('aiAssistant.common.gotIt'),
+      cancelText: t('aiAssistant.common.close'),
     });
   }
 };
@@ -767,7 +776,7 @@ const testStreaming = async () => {
   try {
     await aiStore.testStreaming();
   } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || error.message || '流式输出测试失败。';
+    errorMessage.value = describeAiError(error, t('aiAssistant.errors.testStreaming'));
   }
 };
 
@@ -777,7 +786,7 @@ const acceptPromptProposal = async () => {
     promptSettingsExpanded.value = true;
     showConfig.value = true;
   } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || error.message || '系统提示词保存失败。';
+    errorMessage.value = describeAiError(error, t('aiAssistant.errors.savePrompt'));
   }
 };
 
@@ -789,25 +798,25 @@ const testToolCalling = async () => {
   try {
     await aiStore.testToolCalling();
   } catch (error: any) {
-    errorMessage.value = error.response?.data?.message || error.message || '工具调用测试失败。';
+    errorMessage.value = describeAiError(error, t('aiAssistant.errors.testTools'));
   }
 };
 
 const deleteHistory = async () => {
   if (isRunning.value) {
     await showConfirmDialog({
-      title: 'AI 正在运行',
-      message: '请先停止当前 AI 任务，再删除会话历史，避免正在运行的任务写回旧消息。',
-      confirmText: '知道了',
-      cancelText: '关闭',
+      title: t('aiAssistant.delete.runningTitle'),
+      message: t('aiAssistant.delete.runningMessage'),
+      confirmText: t('aiAssistant.common.gotIt'),
+      cancelText: t('aiAssistant.common.close'),
     });
     return;
   }
   const confirmed = await showConfirmDialog({
-    title: '删除当前 AI 历史会话',
-    message: `将删除当前终端「${sessionLabel.value}」的 AI 对话、记忆摘要和工具调用记录。这个操作不会删除 SSH 连接本身。`,
-    confirmText: '删除',
-    cancelText: '取消',
+    title: t('aiAssistant.delete.title'),
+    message: t('aiAssistant.delete.message', { name: sessionLabel.value }),
+    confirmText: t('aiAssistant.delete.confirm'),
+    cancelText: t('aiAssistant.common.cancel'),
   });
   if (confirmed) {
     aiStore.clearChat();
@@ -827,37 +836,37 @@ const deleteHistory = async () => {
           type="button"
           class="flex flex-shrink-0 items-center justify-center rounded hover:bg-hover"
           :class="mobileOverlay ? 'h-10 w-10' : 'h-8 w-8'"
-          title="返回终端"
-          aria-label="返回终端"
+          :title="t('aiAssistant.ui.backToTerminal')"
+          :aria-label="t('aiAssistant.ui.backToTerminal')"
           @click="emit('close-mobile-overlay')"
         >
           <i class="fas fa-arrow-left text-sm text-text-secondary" aria-hidden="true" />
         </button>
-        <div class="ai-header-title flex-shrink-0 text-sm font-semibold tracking-tight">AI 终端助手</div>
+        <div class="ai-header-title flex-shrink-0 text-sm font-semibold tracking-tight">{{ t('aiAssistant.ui.title') }}</div>
         <span class="ai-header-divider h-3 w-px flex-shrink-0 bg-border" />
         <div class="ai-header-session min-w-0 truncate text-xs text-text-secondary" :title="sessionLabel">{{ sessionLabel }}</div>
         <div class="ai-header-status flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">
           <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="isRunning ? 'animate-pulse bg-primary' : taskStatus === 'error' ? 'bg-error' : 'bg-success'" />
           <span class="truncate">{{ formatTaskStatus(taskStatus) }}</span>
         </div>
-        <div class="ai-header-model min-w-0 truncate text-[10px] text-text-secondary/60" :title="activeModelId || '未选择模型'">
-          模型 · {{ activeModelId || '未选择模型' }}
+        <div class="ai-header-model min-w-0 truncate text-[10px] text-text-secondary/60" :title="activeModelId || t('aiAssistant.ui.noModel')">
+          {{ t('aiAssistant.ui.modelLabel', { model: activeModelId || t('aiAssistant.ui.noModel') }) }}
         </div>
       </div>
       <div class="flex flex-shrink-0 items-center gap-1">
-        <button type="button" class="flex items-center justify-center rounded hover:bg-hover" :class="mobileOverlay ? 'h-10 w-10' : 'h-7 w-7'" title="AI 设置" aria-label="AI 设置" @click="openSettingsDrawer">
+        <button type="button" class="flex items-center justify-center rounded hover:bg-hover" :class="mobileOverlay ? 'h-10 w-10' : 'h-7 w-7'" :title="t('aiAssistant.ui.settings')" :aria-label="t('aiAssistant.ui.settings')" @click="openSettingsDrawer">
           <i class="fas fa-cog text-xs text-text-secondary" aria-hidden="true" />
         </button>
         <div ref="moreMenuRef" class="relative">
-          <button type="button" class="flex items-center justify-center rounded hover:bg-hover" :class="mobileOverlay ? 'h-10 w-10' : 'h-7 w-7'" title="更多操作" aria-label="更多操作" :aria-expanded="moreMenuOpen" @click="moreMenuOpen = !moreMenuOpen" @keydown.down.prevent="moreMenuOpen = true; focusFirstPopupItem(moreMenuRef)">
+          <button type="button" class="flex items-center justify-center rounded hover:bg-hover" :class="mobileOverlay ? 'h-10 w-10' : 'h-7 w-7'" :title="t('aiAssistant.ui.more')" :aria-label="t('aiAssistant.ui.more')" :aria-expanded="moreMenuOpen" @click="moreMenuOpen = !moreMenuOpen" @keydown.down.prevent="moreMenuOpen = true; focusFirstPopupItem(moreMenuRef)">
             <i class="fas fa-ellipsis-v text-xs text-text-secondary" aria-hidden="true" />
           </button>
           <div v-if="moreMenuOpen" role="menu" class="absolute right-0 top-full z-40 mt-1 w-44 overflow-hidden rounded border border-border bg-background py-1 text-xs shadow-xl" @keydown="handlePopupMenuKeydown">
-            <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="openDrawer('context'); moreMenuOpen = false">上下文与记忆</button>
-            <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="exportJson(); moreMenuOpen = false">导出会话</button>
-            <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="openImportDialog(); moreMenuOpen = false">导入会话</button>
+            <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="openDrawer('context'); moreMenuOpen = false">{{ t('aiAssistant.ui.contextMemory') }}</button>
+            <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="exportJson(); moreMenuOpen = false">{{ t('aiAssistant.ui.exportSession') }}</button>
+            <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="openImportDialog(); moreMenuOpen = false">{{ t('aiAssistant.ui.importSession') }}</button>
             <div class="my-1 border-t border-border" />
-            <button role="menuitem" class="block w-full px-3 py-2 text-left text-error hover:bg-error/10" @click="deleteHistory(); moreMenuOpen = false">删除历史</button>
+            <button role="menuitem" class="block w-full px-3 py-2 text-left text-error hover:bg-error/10" @click="deleteHistory(); moreMenuOpen = false">{{ t('aiAssistant.ui.deleteHistory') }}</button>
           </div>
         </div>
       </div>
@@ -867,11 +876,11 @@ const deleteHistory = async () => {
     <aside
       v-if="showConfig"
       class="ai-drawer ai-drawer-settings"
-      aria-label="AI 设置"
+      :aria-label="t('aiAssistant.ui.settings')"
     >
       <div class="ai-drawer-head">
-        <div class="ai-drawer-title">AI 设置</div>
-        <button type="button" class="ai-drawer-close" title="关闭设置" aria-label="关闭设置" @click="closeSettingsDrawer">
+        <div class="ai-drawer-title">{{ t('aiAssistant.ui.settings') }}</div>
+        <button type="button" class="ai-drawer-close" :title="t('aiAssistant.ui.closeSettings')" :aria-label="t('aiAssistant.ui.closeSettings')" @click="closeSettingsDrawer">
           <i class="fas fa-xmark" aria-hidden="true" />
         </button>
       </div>
@@ -883,19 +892,19 @@ const deleteHistory = async () => {
       <label class="block">
         <span class="mb-1 block text-text-secondary">API Key</span>
         <input v-model="config.apiKey" type="password" class="w-full rounded border border-border bg-input px-2 py-1" placeholder="sk-..." />
-        <span v-if="hasSavedApiKey" class="mt-1 block text-success">已保存加密密钥；留空不会覆盖。</span>
+        <span v-if="hasSavedApiKey" class="mt-1 block text-success">{{ t('aiAssistant.ui.keySaved') }}</span>
       </label>
       <label class="block">
         <span class="mb-1 block text-text-secondary">Model</span>
         <div class="flex gap-1.5">
-          <input v-model="config.model" class="min-w-0 flex-1 rounded border border-primary/40 bg-input px-2 py-1 text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25" placeholder="例如 gpt-4.1-mini" />
+          <input v-model="config.model" class="min-w-0 flex-1 rounded border border-primary/40 bg-input px-2 py-1 text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25" :placeholder="t('aiAssistant.ui.modelPlaceholder')" />
           <button
             type="button"
             class="flex-shrink-0 rounded border border-primary/50 px-2 py-1 text-primary transition hover:bg-primary/10 disabled:cursor-wait disabled:opacity-60"
             :disabled="isFetchingModels"
             @click="fetchModels"
           >
-            {{ isFetchingModels ? '获取中...' : '获取模型' }}
+            {{ isFetchingModels ? t('aiAssistant.ui.fetchingModels') : t('aiAssistant.ui.fetchModels') }}
           </button>
         </div>
         <div v-if="availableModels.length > 0" ref="modelMenuRef" class="relative mt-1.5">
@@ -907,7 +916,7 @@ const deleteHistory = async () => {
             @click="modelMenuOpen = !modelMenuOpen"
             @keydown.down.prevent="modelMenuOpen = true; focusFirstPopupItem(modelMenuRef)"
           >
-            <span class="truncate">从已获取模型中选择{{ config.model ? `：${config.model}` : '' }}</span>
+            <span class="truncate">{{ config.model ? t('aiAssistant.ui.pickModelCurrent', { model: config.model }) : t('aiAssistant.ui.pickModel') }}</span>
             <i class="fas ml-2 text-[10px] text-text-secondary" :class="modelMenuOpen ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
           </button>
           <div v-if="modelMenuOpen" role="listbox" class="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-auto rounded border border-border bg-background py-1 shadow-xl" @keydown="handlePopupMenuKeydown">
@@ -934,7 +943,7 @@ const deleteHistory = async () => {
           :aria-expanded="promptSettingsExpanded"
           @click="promptSettingsExpanded = !promptSettingsExpanded"
         >
-          <span class="font-medium">自定义系统提示词</span>
+          <span class="font-medium">{{ t('aiAssistant.ui.customPrompt') }}</span>
           <span class="flex items-center gap-2 text-[11px] text-text-secondary">
             {{ config.customSystemPrompt.length }} / 16384
             <i class="fas text-[10px]" :class="promptSettingsExpanded ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
@@ -946,68 +955,68 @@ const deleteHistory = async () => {
             maxlength="16384"
             rows="6"
             class="w-full resize-y rounded border border-primary/40 bg-input px-2 py-1.5 text-xs leading-relaxed text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/25"
-            placeholder="例如：优先使用当前系统的包管理器；修改服务前先读取状态；完成后验证结果。"
+            :placeholder="t('aiAssistant.ui.customPromptPlaceholder')"
           />
           <div class="mt-1 flex items-center justify-between gap-2 text-[10px] text-text-secondary">
-            <span>这里只设置操作偏好，不能覆盖终端锁定、危险命令确认和工具安全规则。</span>
-            <button v-if="config.customSystemPrompt" type="button" class="flex-shrink-0 text-error hover:underline" @click="config.customSystemPrompt = ''">清空</button>
+            <span>{{ t('aiAssistant.ui.customPromptHint') }}</span>
+            <button v-if="config.customSystemPrompt" type="button" class="flex-shrink-0 text-error hover:underline" @click="config.customSystemPrompt = ''">{{ t('aiAssistant.ui.clear') }}</button>
           </div>
         </div>
       </div>
       <div class="rounded border border-border/70 bg-header/20 p-2">
         <div class="mb-2 flex items-center justify-between gap-2">
-          <span class="font-medium text-foreground">文件会话记录</span>
+          <span class="font-medium text-foreground">{{ t('aiAssistant.ui.fileHistory') }}</span>
           <label class="flex items-center gap-1.5 text-text-secondary">
             <input v-model="historyConfig.enabled" type="checkbox" class="accent-primary" />
-            启用
+            {{ t('aiAssistant.ui.enable') }}
           </label>
         </div>
-        <p class="mb-2 text-[11px] leading-relaxed text-text-secondary">按连接 ID、名称、IP 和端口分目录保存 JSON；可选 Markdown 便于其他 AI 或人工查看。当前运行中的会话仍保留本地即时恢复。</p>
+        <p class="mb-2 text-[11px] leading-relaxed text-text-secondary">{{ t('aiAssistant.ui.fileHistoryHint') }}</p>
         <label class="block">
-          <span class="mb-1 block text-text-secondary">存储目录（留空使用程序数据目录）</span>
+          <span class="mb-1 block text-text-secondary">{{ t('aiAssistant.ui.storageDir') }}</span>
           <div class="flex gap-1.5">
-            <input v-model="historyConfig.storagePath" class="min-w-0 flex-1 rounded border border-border bg-input px-2 py-1" placeholder="自动使用程序数据目录" />
-            <button type="button" class="flex-shrink-0 rounded border border-border px-2 py-1 hover:bg-hover" @click="selectHistoryDirectory">选择目录</button>
+            <input v-model="historyConfig.storagePath" class="min-w-0 flex-1 rounded border border-border bg-input px-2 py-1" :placeholder="t('aiAssistant.ui.storageDirPlaceholder')" />
+            <button type="button" class="flex-shrink-0 rounded border border-border px-2 py-1 hover:bg-hover" @click="selectHistoryDirectory">{{ t('aiAssistant.ui.chooseDir') }}</button>
           </div>
-          <span v-if="historyConfig.effectiveStoragePath" class="mt-1 block break-all text-[10px] text-text-secondary">当前：{{ historyConfig.effectiveStoragePath }}</span>
+          <span v-if="historyConfig.effectiveStoragePath" class="mt-1 block break-all text-[10px] text-text-secondary">{{ t('aiAssistant.ui.currentPath', { path: historyConfig.effectiveStoragePath }) }}</span>
         </label>
         <div class="mt-2 grid grid-cols-2 gap-2">
           <label class="block">
-            <span class="mb-1 block text-text-secondary">总空间 MB</span>
+            <span class="mb-1 block text-text-secondary">{{ t('aiAssistant.ui.totalMb') }}</span>
             <input v-model.number="historyConfig.maxStorageMb" type="number" min="50" max="4096" class="w-full rounded border border-border bg-input px-2 py-1" />
           </label>
           <label class="block">
-            <span class="mb-1 block text-text-secondary">单会话 MB</span>
+            <span class="mb-1 block text-text-secondary">{{ t('aiAssistant.ui.sessionMb') }}</span>
             <input v-model.number="historyConfig.maxSessionMb" type="number" min="1" :max="Math.min(512, historyConfig.maxStorageMb || 50)" class="w-full rounded border border-border bg-input px-2 py-1" />
           </label>
         </div>
         <label class="mt-2 flex items-center gap-1.5 text-text-secondary">
           <input v-model="historyConfig.writeMarkdown" type="checkbox" class="accent-primary" />
-          同时生成 Markdown 阅读版
+          {{ t('aiAssistant.ui.writeMarkdown') }}
         </label>
-        <button class="mt-2 rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="saveHistoryConfig">保存文件记录设置</button>
+        <button class="mt-2 rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="saveHistoryConfig">{{ t('aiAssistant.ui.saveHistorySettings') }}</button>
         <div v-if="historyConfigMessage" class="mt-1 text-success">{{ historyConfigMessage }}</div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="testConfig">测试连接</button>
-        <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testStreaming">测试流式</button>
-        <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testToolCalling">测试工具</button>
+        <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="testConfig">{{ t('aiAssistant.ui.testConnection') }}</button>
+        <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testStreaming">{{ t('aiAssistant.ui.testStreaming') }}</button>
+        <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testToolCalling">{{ t('aiAssistant.ui.testTools') }}</button>
       </div>
       <div v-if="configMessage" class="text-success">{{ configMessage }}</div>
       </div>
       <div class="ai-drawer-foot">
-        <button type="button" class="ai-btn ai-btn-ghost" @click="closeSettingsDrawer">取消</button>
-        <button type="button" class="ai-btn ai-btn-primary" @click="saveConfig">保存设置</button>
+        <button type="button" class="ai-btn ai-btn-ghost" @click="closeSettingsDrawer">{{ t('aiAssistant.common.cancel') }}</button>
+        <button type="button" class="ai-btn ai-btn-primary" @click="saveConfig">{{ t('aiAssistant.ui.saveSettings') }}</button>
       </div>
     </aside>
 
     <div v-if="pendingPromptProposal" class="border-b border-primary/30 bg-primary/10 p-3 text-xs">
-      <div class="font-medium text-foreground">AI 建议更新系统提示词</div>
+      <div class="font-medium text-foreground">{{ t('aiAssistant.ui.proposalTitle') }}</div>
       <div class="mt-1 text-text-secondary">{{ pendingPromptProposal.reason }}</div>
       <pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded border border-border/60 bg-background/70 p-2 text-[11px] text-foreground">{{ pendingPromptProposal.prompt }}</pre>
       <div class="mt-2 flex gap-2">
-        <button type="button" class="rounded bg-primary px-3 py-1.5 text-white" @click="acceptPromptProposal">接受并保存</button>
-        <button type="button" class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="rejectPromptProposal">拒绝</button>
+        <button type="button" class="rounded bg-primary px-3 py-1.5 text-white" @click="acceptPromptProposal">{{ t('aiAssistant.ui.acceptSave') }}</button>
+        <button type="button" class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="rejectPromptProposal">{{ t('aiAssistant.ui.reject') }}</button>
       </div>
     </div>
 
@@ -1016,37 +1025,37 @@ const deleteHistory = async () => {
       <div v-if="historySyncWarning" class="mb-1 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning">{{ historySyncWarning }}</div>
       <button type="button" class="flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left text-text-secondary hover:bg-hover" :aria-expanded="contextExpanded" @click="contextExpanded = !contextExpanded">
         <span class="flex min-w-0 items-center gap-2">
-          <span class="truncate">上下文 {{ contextUsagePercent }}% · {{ formatBytes(contextRequestBytes) }} / {{ maxRequestKb }}KB</span>
-          <span class="ai-context-meter" title="上下文使用率"><span :style="{ width: `${contextUsagePercent}%` }" /></span>
+          <span class="truncate">{{ t('aiAssistant.ui.contextUsage', { percent: contextUsagePercent, used: formatBytes(contextRequestBytes), max: maxRequestKb }) }}</span>
+          <span class="ai-context-meter" :title="t('aiAssistant.ui.contextUsageTitle')"><span :style="{ width: `${contextUsagePercent}%` }" /></span>
         </span>
         <span class="flex min-w-0 items-center gap-2">
-          <span v-if="timelineItems.length > 0" class="hidden truncate text-[11px] text-text-secondary/80 sm:inline">最近：{{ timelineItems[0].title }}</span>
+          <span v-if="timelineItems.length > 0" class="hidden truncate text-[11px] text-text-secondary/80 sm:inline">{{ t('aiAssistant.ui.latest', { title: timelineItems[0].title }) }}</span>
           <i class="fas text-[10px]" :class="contextExpanded ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
         </span>
       </button>
       <div v-if="contextExpanded" class="mt-1 grid gap-2 rounded border border-border/60 bg-header/20 p-2 sm:grid-cols-3">
-        <label title="越低越早压缩上下文">
-          <span class="mb-1 flex justify-between gap-2"><span>自动压缩阈值</span><strong class="text-foreground">{{ compactTriggerPercent }}%</strong></span>
-          <input v-model.number="config.compactTriggerPercent" type="range" min="1" max="80" class="w-full accent-primary" aria-label="自动压缩阈值" />
+        <label :title="t('aiAssistant.ui.compactThresholdTitle')">
+          <span class="mb-1 flex justify-between gap-2"><span>{{ t('aiAssistant.ui.compactThreshold') }}</span><strong class="text-foreground">{{ compactTriggerPercent }}%</strong></span>
+          <input v-model.number="config.compactTriggerPercent" type="range" min="1" max="80" class="w-full accent-primary" :aria-label="t('aiAssistant.ui.compactThreshold')" />
         </label>
-        <label title="允许的最大 AI 请求大小">
-          <span class="mb-1 flex justify-between gap-2"><span>请求上限</span><strong class="text-foreground">{{ maxRequestKb }}KB</strong></span>
-          <input v-model.number="config.maxRequestKb" type="range" min="64" max="1024" step="16" class="w-full accent-primary" aria-label="AI 请求大小上限" />
+        <label :title="t('aiAssistant.ui.requestLimitTitle')">
+          <span class="mb-1 flex justify-between gap-2"><span>{{ t('aiAssistant.ui.requestLimit') }}</span><strong class="text-foreground">{{ maxRequestKb }}KB</strong></span>
+          <input v-model.number="config.maxRequestKb" type="range" min="64" max="1024" step="16" class="w-full accent-primary" :aria-label="t('aiAssistant.ui.requestLimitAria')" />
         </label>
-        <label title="同一轮任务最多自动压缩次数">
-          <span class="mb-1 flex justify-between gap-2"><span>本轮压缩次数</span><strong class="text-foreground">{{ maxAutoCompactsPerTask }} 次</strong></span>
-          <input v-model.number="config.maxAutoCompactsPerTask" type="range" min="1" max="5" step="1" class="w-full accent-primary" aria-label="每轮任务最多自动压缩次数" />
+        <label :title="t('aiAssistant.ui.compactsPerTaskTitle')">
+          <span class="mb-1 flex justify-between gap-2"><span>{{ t('aiAssistant.ui.compactsPerTask') }}</span><strong class="text-foreground">{{ t('aiAssistant.ui.times', { count: maxAutoCompactsPerTask }) }}</strong></span>
+          <input v-model.number="config.maxAutoCompactsPerTask" type="range" min="1" max="5" step="1" class="w-full accent-primary" :aria-label="t('aiAssistant.ui.compactsPerTaskAria')" />
         </label>
         <div class="flex items-center justify-between gap-2 sm:col-span-3">
-          <span v-if="compression" class="truncate text-[11px] text-text-secondary">上次：{{ formatBytes(compression.beforeBytes) }} → {{ formatBytes(compression.afterBytes) }} · 处理 {{ compression.compactedCount }} 条</span>
-          <span v-else class="text-[11px] text-text-secondary">尚未压缩</span>
-          <button class="flex-shrink-0 rounded border border-border px-2 py-1 text-foreground hover:bg-hover" @click.stop="compactContext">手动压缩</button>
+          <span v-if="compression" class="truncate text-[11px] text-text-secondary">{{ t('aiAssistant.ui.lastCompaction', { before: formatBytes(compression.beforeBytes), after: formatBytes(compression.afterBytes), count: compression.compactedCount }) }}</span>
+          <span v-else class="text-[11px] text-text-secondary">{{ t('aiAssistant.ui.notCompacted') }}</span>
+          <button class="flex-shrink-0 rounded border border-border px-2 py-1 text-foreground hover:bg-hover" @click.stop="compactContext">{{ t('aiAssistant.ui.compactNow') }}</button>
         </div>
       </div>
       <details v-if="latestToolRuns.length > 0" class="ai-tool-details group mt-1 rounded border border-border/50 bg-header/20 px-2 py-1">
         <summary class="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px]">
-          <span class="min-w-0 truncate text-text-secondary">工具调用 · 全部 {{ latestToolRuns.length }} 条</span>
-          <span class="flex-shrink-0 text-text-secondary">展开详情</span>
+          <span class="min-w-0 truncate text-text-secondary">{{ t('aiAssistant.ui.toolCallsAll', { count: latestToolRuns.length }) }}</span>
+          <span class="flex-shrink-0 text-text-secondary">{{ t('aiAssistant.ui.showDetails') }}</span>
         </summary>
         <div class="mt-1 max-h-64 space-y-1 overflow-y-auto border-t border-border/50 pt-1">
           <details v-for="run in renderedToolRuns" :key="run.id" class="rounded border border-border/40 bg-background/60 px-2 py-1.5 text-[11px]">
@@ -1056,15 +1065,15 @@ const deleteHistory = async () => {
             </summary>
             <div class="mt-0.5 truncate font-mono text-text-secondary">{{ formatToolSummary(run) }}</div>
             <div class="mt-2 border-t border-border/40 pt-2">
-              <div class="mb-1 flex items-center justify-between gap-2 text-text-secondary"><span>调用参数</span><button v-if="getToolCommand(run)" class="rounded border border-border px-1.5 py-0.5 hover:bg-hover" @click="copyText(getToolCommand(run), `tool-${run.id}`)">{{ copiedKey === `tool-${run.id}` ? '已复制' : '复制命令' }}</button></div>
+              <div class="mb-1 flex items-center justify-between gap-2 text-text-secondary"><span>{{ t('aiAssistant.ui.arguments') }}</span><button v-if="getToolCommand(run)" class="rounded border border-border px-1.5 py-0.5 hover:bg-hover" @click="copyText(getToolCommand(run), `tool-${run.id}`)">{{ copiedKey === `tool-${run.id}` ? t('aiAssistant.ui.copied') : t('aiAssistant.ui.copyCommand') }}</button></div>
               <pre class="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolArguments(run) }}</pre>
-              <div class="mb-1 mt-2 text-text-secondary">返回内容（已截断）</div>
+              <div class="mb-1 mt-2 text-text-secondary">{{ t('aiAssistant.ui.resultTruncated') }}</div>
               <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolResult(run) }}</pre>
-              <div v-if="run.error" class="mt-1 break-words text-error">失败：{{ run.error }}</div>
+              <div v-if="run.error" class="mt-1 break-words text-error">{{ t('aiAssistant.ui.failedWith', { error: run.error }) }}</div>
             </div>
           </details>
           <button v-if="hasMoreToolRuns" type="button" class="w-full rounded border border-border/60 px-2 py-1.5 text-center text-[11px] text-text-secondary hover:bg-hover hover:text-foreground" @click="loadMoreToolRuns">
-            加载更多（已显示 {{ renderedToolRuns.length }} / {{ latestToolRuns.length }}）
+            {{ t('aiAssistant.ui.loadMore', { shown: renderedToolRuns.length, total: latestToolRuns.length }) }}
           </button>
         </div>
       </details>
@@ -1098,16 +1107,21 @@ const deleteHistory = async () => {
               <i :class="messageIconClass(message.role)" aria-hidden="true" />
             </span>
             <span>{{ messageLabel(message.role) }}</span>
+            <span
+              v-if="message.stopped"
+              class="rounded border border-warning/50 bg-warning/10 px-1.5 py-0.5 text-[10px] font-normal text-warning"
+              :title="t('uxAi.stoppedTagTitle')"
+            >{{ t('uxAi.stoppedTag') }}</span>
             <button
               v-if="message.role === 'assistant' && message.content?.trim()"
               type="button"
               class="ml-auto flex h-6 items-center gap-1 rounded border border-border/60 px-1.5 text-[11px] text-text-secondary transition hover:bg-hover hover:text-foreground"
-              title="复制 AI 回复"
-              aria-label="复制 AI 回复"
+              :title="t('aiAssistant.ui.copyReply')"
+              :aria-label="t('aiAssistant.ui.copyReply')"
               @click.stop="copyText(message.content || '', `msg-${index}`)"
             >
               <i class="fas text-[11px]" :class="copiedKey === `msg-${index}` ? 'fa-check' : 'fa-copy'" aria-hidden="true" />
-              <span>{{ copiedKey === `msg-${index}` ? '已复制' : '复制' }}</span>
+              <span>{{ copiedKey === `msg-${index}` ? t('aiAssistant.ui.copied') : t('aiAssistant.ui.copy') }}</span>
             </button>
           </div>
           <div
@@ -1128,8 +1142,8 @@ const deleteHistory = async () => {
                   {{ formatRiskLabel(detectCommandRisk(command)) }}
                 </span>
                 <div class="flex flex-shrink-0 gap-1">
-                  <button class="rounded border border-border px-2 py-1 text-[11px] hover:bg-hover" @click="copyText(command, `cmd-${message.role}-${index}-${command}`)">{{ copiedKey === `cmd-${message.role}-${index}-${command}` ? '已复制' : '复制' }}</button>
-                  <button class="rounded border border-border px-2 py-1 text-[11px] hover:bg-hover" @click="fillCommandInput(command)">输入终端</button>
+                  <button class="rounded border border-border px-2 py-1 text-[11px] hover:bg-hover" @click="copyText(command, `cmd-${message.role}-${index}-${command}`)">{{ copiedKey === `cmd-${message.role}-${index}-${command}` ? t('aiAssistant.ui.copied') : t('aiAssistant.ui.copy') }}</button>
+                  <button class="rounded border border-border px-2 py-1 text-[11px] hover:bg-hover" @click="fillCommandInput(command)">{{ t('aiAssistant.ui.typeIntoTerminal') }}</button>
                 </div>
               </div>
               <pre class="overflow-auto whitespace-pre-wrap break-words rounded bg-black/20 p-2 font-mono text-xs leading-relaxed">{{ command }}</pre>
@@ -1141,7 +1155,7 @@ const deleteHistory = async () => {
       <div v-if="isRunning && activeActivities.length > 0" class="ai-activity mr-auto max-w-[88%] rounded border border-border/60 bg-header/25 px-3 py-2 text-xs text-text-secondary">
         <div class="mb-1 flex items-center gap-1.5 font-medium text-foreground">
           <img :src="nexusAiAvatar" alt="Nexus AI" class="h-5 w-5 rounded-full border border-primary/40 object-cover" />
-          <span>Nexus AI · 运行动态</span>
+          <span>{{ t('aiAssistant.ui.activity') }}</span>
         </div>
         <div class="space-y-1.5">
           <div
@@ -1164,21 +1178,21 @@ const deleteHistory = async () => {
 
       <div v-if="errorMessage" class="ai-error rounded border border-error/35 bg-error/8 p-2.5 text-error">
         <div class="flex items-center justify-between gap-2">
-          <span class="min-w-0 truncate text-sm font-semibold">{{ continuationAvailable ? 'AI 输出已截断' : 'AI 执行出错' }}：{{ errorMessage }}</span>
-          <span class="flex-shrink-0 text-[11px] text-error/70">需处理</span>
+          <span class="min-w-0 truncate text-sm font-semibold">{{ t('aiAssistant.ui.errorHeading', { title: continuationAvailable ? t('aiAssistant.ui.outputTruncated') : t('aiAssistant.ui.runError'), message: errorMessage }) }}</span>
+          <span class="flex-shrink-0 text-[11px] text-error/70">{{ t('aiAssistant.ui.needsAttention') }}</span>
         </div>
         <details class="mt-1 text-[11px]">
-          <summary class="cursor-pointer text-error/80">查看原因与建议</summary>
+          <summary class="cursor-pointer text-error/80">{{ t('aiAssistant.ui.whyAndWhat') }}</summary>
           <div class="mt-1 rounded border border-error/20 bg-background/50 px-2 py-1.5 text-text-secondary">
-            {{ continuationAvailable ? '已保存当前已收到的内容，可以从中断位置继续生成。' : '建议先重新读取终端确认状态；如果是上下文过大或历史污染，再清理上下文后重试。' }}
+            {{ continuationAvailable ? t('aiAssistant.ui.truncatedHint') : t('aiAssistant.ui.errorHint') }}
           </div>
         </details>
         <div class="mt-2 flex flex-wrap gap-2 text-xs">
-          <button v-if="continuationAvailable" class="rounded border border-primary/50 px-2 py-1 text-primary hover:bg-primary/10" @click="continueLastResponse">继续生成</button>
-          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10" @click="rereadTerminal">重新读取终端</button>
-          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10 disabled:opacity-50" :disabled="!lastUserPrompt" @click="retryLastPrompt">重试上一轮</button>
-          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10 disabled:opacity-50" :disabled="!lastUserPrompt" @click="compactAndRetry">清理上下文后重试</button>
-          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10" @click="switchReadOnly">切换只读模式</button>
+          <button v-if="continuationAvailable" class="rounded border border-primary/50 px-2 py-1 text-primary hover:bg-primary/10" @click="continueLastResponse">{{ t('aiAssistant.ui.continue') }}</button>
+          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10" @click="rereadTerminal">{{ t('aiAssistant.ui.reread') }}</button>
+          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10 disabled:opacity-50" :disabled="!lastUserPrompt" @click="retryLastPrompt">{{ t('aiAssistant.ui.retry') }}</button>
+          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10 disabled:opacity-50" :disabled="!lastUserPrompt" @click="compactAndRetry">{{ t('aiAssistant.ui.compactRetry') }}</button>
+          <button class="rounded border border-error/40 px-2 py-1 hover:bg-error/10" @click="switchReadOnly">{{ t('aiAssistant.ui.switchReadOnly') }}</button>
         </div>
       </div>
       </div>
@@ -1191,32 +1205,32 @@ const deleteHistory = async () => {
       <aside
         v-if="isDrawerOpen"
         class="ai-drawer ai-drawer-context"
-        aria-label="上下文与记忆"
+        :aria-label="t('aiAssistant.ui.contextMemory')"
       >
         <div class="ai-drawer-head">
-          <div class="ai-drawer-title">上下文与记忆</div>
-          <button type="button" class="ai-drawer-close" title="关闭" aria-label="关闭上下文与记忆" @click="closeDrawer">
+          <div class="ai-drawer-title">{{ t('aiAssistant.ui.contextMemory') }}</div>
+          <button type="button" class="ai-drawer-close" :title="t('aiAssistant.common.close')" :aria-label="t('aiAssistant.ui.closeContext')" @click="closeDrawer">
             <i class="fas fa-xmark" aria-hidden="true" />
           </button>
         </div>
 
         <div v-if="drawerPanel === 'context'" class="ai-drawer-body text-xs">
           <div class="mb-3 flex flex-wrap gap-2">
-            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportJson">导出 JSON</button>
-            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportMarkdown">导出 Markdown</button>
-            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="openImportDialog">导入 JSON</button>
-            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="openCurrentHistoryDirectory">打开当前终端目录</button>
+            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportJson">{{ t('aiAssistant.ui.exportJson') }}</button>
+            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportMarkdown">{{ t('aiAssistant.ui.exportMarkdown') }}</button>
+            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="openImportDialog">{{ t('aiAssistant.ui.importJson') }}</button>
+            <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="openCurrentHistoryDirectory">{{ t('aiAssistant.ui.openHistoryDir') }}</button>
           </div>
           <div v-if="hasMemorySummary" class="ai-memory-card">
-            <div class="ai-memory-title">记忆摘要</div>
+            <div class="ai-memory-title">{{ t('aiAssistant.ui.memorySummary') }}</div>
             <pre class="max-h-[55vh] overflow-auto whitespace-pre-wrap break-words font-sans leading-relaxed">{{ memorySummary }}</pre>
           </div>
           <div v-else class="rounded border border-dashed border-border p-3 text-text-secondary">
-            当前会话还没有记忆摘要。
+            {{ t('aiAssistant.ui.noMemorySummary') }}
           </div>
           <div v-if="compression" class="ai-memory-card">
-            <div class="ai-memory-title">最近一次压缩</div>
-            <p class="text-text-secondary">{{ formatBytes(compression.beforeBytes) }} → {{ formatBytes(compression.afterBytes) }} · 压缩 {{ compression.compactedCount }} 条、保留最近 {{ compression.retainedCount }} 条 · 摘要来源：{{ compression.summaryMode === 'ai' ? 'AI' : '本地' }}</p>
+            <div class="ai-memory-title">{{ t('aiAssistant.ui.latestCompaction') }}</div>
+            <p class="text-text-secondary">{{ t('aiAssistant.ui.latestCompactionDetail', { before: formatBytes(compression.beforeBytes), after: formatBytes(compression.afterBytes), compacted: compression.compactedCount, retained: compression.retainedCount, source: compression.summaryMode === 'ai' ? 'AI' : t('aiAssistant.compact.sourceLocal') }) }}</p>
           </div>
         </div>
       </aside>
@@ -1228,7 +1242,7 @@ const deleteHistory = async () => {
           ref="textareaInput"
           v-model="userInput"
           class="h-16 min-w-0 flex-1 resize-none rounded border border-border bg-input px-2.5 py-2 text-sm text-foreground outline-none transition placeholder:text-text-secondary/70 focus:border-primary focus:ring-2 focus:ring-primary/25"
-          :placeholder="isRunning ? '输入补充要求，发送后将在当前步骤结束时应用' : '例如：查看当前报错，直接输入排查命令并修复'"
+          :placeholder="isRunning ? t('aiAssistant.ui.guidancePlaceholder') : t('aiAssistant.ui.inputPlaceholder')"
           @keydown="handleInputKeydown"
         />
         <button
@@ -1237,14 +1251,14 @@ const deleteHistory = async () => {
           :disabled="!canSend"
           @click="sendMessage"
         >
-          发送
+          {{ t('aiAssistant.ui.send') }}
         </button>
         <div v-else class="flex w-20 flex-shrink-0 flex-col gap-1.5">
-          <button class="min-h-0 flex-1 rounded bg-primary px-2 text-xs font-medium text-white disabled:opacity-50" :disabled="!canQueueGuidance" @click="sendMessage">追加引导</button>
-          <button class="min-h-0 flex-1 rounded bg-error px-2 text-xs font-medium text-white" @click="stopAi">停止 AI</button>
+          <button class="min-h-0 flex-1 rounded bg-primary px-2 text-xs font-medium text-white disabled:opacity-50" :disabled="!canQueueGuidance" @click="sendMessage">{{ t('aiAssistant.ui.addGuidance') }}</button>
+          <button class="min-h-0 flex-1 rounded bg-error px-2 text-xs font-medium text-white" @click="stopAi">{{ t('aiAssistant.ui.stopAi') }}</button>
         </div>
       </div>
-      <div v-if="visibleMessages.length === 0 && !isRunning" class="mb-2 flex max-h-16 flex-wrap gap-1.5 overflow-y-auto" aria-label="任务示例">
+      <div v-if="visibleMessages.length === 0 && !isRunning" class="mb-2 flex max-h-16 flex-wrap gap-1.5 overflow-y-auto" :aria-label="t('aiAssistant.ui.examples')">
         <button
           v-for="task in quickTasks"
           :key="task.label"
@@ -1257,9 +1271,9 @@ const deleteHistory = async () => {
       </div>
       <div class="flex items-center justify-end gap-2 text-xs">
         <div class="flex flex-shrink-0 items-center gap-2">
-          <label class="flex items-center gap-1.5 text-text-secondary" title="允许 AI 使用后台命令、批量命令和远程文件读取工具">
+          <label class="flex items-center gap-1.5 text-text-secondary" :title="t('aiAssistant.ui.backgroundToolsTitle')">
             <input v-model="config.enableBackgroundTools" type="checkbox" class="accent-primary" :disabled="isRunning" />
-            <span>后台工具</span>
+            <span>{{ t('aiAssistant.ui.backgroundTools') }}</span>
           </label>
           <div ref="modeMenuRef" class="relative">
           <button
@@ -1270,7 +1284,7 @@ const deleteHistory = async () => {
             @click="modeMenuOpen = !modeMenuOpen"
             @keydown.down.prevent="modeMenuOpen = true; focusFirstPopupItem(modeMenuRef)"
           >
-            <span class="text-text-secondary">模式</span>
+            <span class="text-text-secondary">{{ t('aiAssistant.ui.mode') }}</span>
             <span class="font-medium">{{ activeModeOption.label }}</span>
             <i class="fas text-[10px] text-text-secondary" :class="modeMenuOpen ? 'fa-chevron-down' : 'fa-chevron-up'" aria-hidden="true" />
           </button>
@@ -1301,15 +1315,15 @@ const deleteHistory = async () => {
           <button
             class="flex h-7 w-7 items-center justify-center rounded border border-error/40 text-error hover:bg-error/10 disabled:opacity-40"
             :disabled="!hasActiveTerminal"
-            title="向终端发送 Ctrl+C"
-            aria-label="向终端发送 Ctrl+C"
+            :title="t('aiAssistant.ui.sendCtrlC')"
+            :aria-label="t('aiAssistant.ui.sendCtrlC')"
             @click="interruptTerminal"
           >
             <i class="fas fa-stop text-[10px]" aria-hidden="true" />
           </button>
         </div>
       </div>
-      <div class="mt-1 text-[11px] text-text-secondary">{{ isRunning ? 'Enter 追加引导 · 当前步骤结束后生效' : 'Enter 发送 · Shift+Enter 换行' }}</div>
+      <div class="mt-1 text-[11px] text-text-secondary">{{ isRunning ? t('aiAssistant.ui.hintRunning') : t('aiAssistant.ui.hintIdle') }}</div>
     </div>
   </div>
 </template>

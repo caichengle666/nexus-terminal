@@ -37,8 +37,13 @@ import {
   shrinkModelMessagesToBudget,
 } from './ai/ai.compression';
 import {
+  connectionMemoryKey,
   createEmptyMemory,
+  findOrphanMemoryKey,
+  GLOBAL_MEMORY_KEY,
+  isConnectionMemoryKey,
   loadStoredMemories,
+  pruneOrphanMemories,
   mergeSummarySections,
   normalizeMemoryForStorage,
   persistMemories,
@@ -69,6 +74,7 @@ import type {
   AiTaskStatus,
   AiToolCall,
   AiToolRun,
+  CommandPreview,
   CompactContextOptions,
   SendMessageOptions,
   TerminalInputArgs,
@@ -76,6 +82,11 @@ import type {
 import type { SessionState } from './session/types';
 import { decodeRawContent } from './session/utils';
 import { useUiNotificationsStore } from './uiNotifications.store';
+import { describeAiError, isRetryableAiError, isStreamUnsupportedError } from './ai/ai.errors';
+import i18n from '../i18n';
+import type { ComposerTranslation } from 'vue-i18n';
+
+const t: ComposerTranslation = i18n.global.t;
 
 export type { AiTaskStatus, AiToolRun } from './ai/ai.types';
 
@@ -157,7 +168,7 @@ export const useAiStore = defineStore('ai', () => {
   const storeActiveSessionId = computed(() => sessionStore.activeSessionId || '');
   const activeSession = computed(() => sessionStore.activeSession);
   const activeSessionId = computed(() => storeActiveSessionId.value || activeSession.value?.sessionId || '');
-  const activeMemoryKey = computed(() => activeSessionId.value || 'global');
+  const activeSessionKey = computed(() => activeSessionId.value || 'global');
   const getRuntimeBySessionId = (sessionId?: string) => {
     const key = sessionId || 'global';
     if (!sessionRuntimes.value[key]) {
@@ -184,18 +195,12 @@ export const useAiStore = defineStore('ai', () => {
     }
     return sessionRuntimes.value[key];
   };
-  const currentMemory = computed(() => {
-    const key = activeMemoryKey.value;
-    if (!sessionMemories.value[key]) {
-      sessionMemories.value[key] = createEmptyMemory();
-    }
-    return sessionMemories.value[key];
-  });
-  const currentRuntime = computed(() => getRuntimeBySessionId(activeMemoryKey.value));
+  const currentMemory = computed(() => getMemoryBySessionId(activeSessionKey.value));
+  const currentRuntime = computed(() => getRuntimeBySessionId(activeSessionKey.value));
   const userInput = computed({
-    get: () => sessionInputs.value[activeMemoryKey.value] || '',
+    get: () => sessionInputs.value[activeSessionKey.value] || '',
     set: (value: string) => {
-      sessionInputs.value[activeMemoryKey.value] = value;
+      sessionInputs.value[activeSessionKey.value] = value;
     },
   });
   const messages = computed(() => currentMemory.value.messages);
@@ -241,11 +246,6 @@ export const useAiStore = defineStore('ai', () => {
     if (runtime.activityEvents.length > 6) runtime.activityEvents.shift();
   };
 
-  const isRetryableAiError = (error: any) => {
-    const status = error?.response?.status;
-    return !status || status === 408 || status === 409 || status === 429 || status >= 500;
-  };
-
   const requestStreamedChat = async (context: AiRunContext, payload: Record<string, any>, signal?: AbortSignal) => {
     const response = await fetch('/api/v1/ai/chat', {
       method: 'POST',
@@ -258,13 +258,16 @@ export const useAiStore = defineStore('ai', () => {
     if (!response.ok) {
       const body = await response.text();
       let message = body;
+      let code: string | undefined;
       try {
-        message = JSON.parse(body)?.message || body;
+        const parsed = JSON.parse(body);
+        message = parsed?.message || body;
+        code = typeof parsed?.code === 'string' ? parsed.code : undefined;
       } catch {
         // Keep the provider response as the error message when it is not JSON.
       }
-      const error: any = new Error(message || `AI 请求失败（${response.status}）。`);
-      error.response = { status: response.status, data: { message } };
+      const error: any = new Error(message || t('uxAi.errors.requestFailedStatus', { status: response.status }));
+      error.response = { status: response.status, data: { message, code } };
       throw error;
     }
 
@@ -352,17 +355,23 @@ export const useAiStore = defineStore('ai', () => {
       if (streamUpdateTimer) clearTimeout(streamUpdateTimer);
       flushPartialMessage();
       if (!completed && !finishReason) {
-        const error: any = new Error('AI 流式输出中途断开。');
+        const error: any = new Error(t('aiAssistant.store.streamDisconnected'));
         error.partial = true;
         throw error;
       }
     } catch (error: any) {
       if (streamUpdateTimer) clearTimeout(streamUpdateTimer);
       flushPartialMessage();
+      const isLast = context.memory.messages[context.memory.messages.length - 1] === partialMessage;
       if ((partialMessage.content || partialMessage.tool_calls?.length) && !context.runtime.stopRequested) {
         error.partial = true;
         error.partialMessage = partialMessage;
-      } else if (context.memory.messages[context.memory.messages.length - 1] === partialMessage) {
+      } else if (context.runtime.stopRequested && isLast && partialMessage.content?.trim()) {
+        // The user stopped the run: keep the text they already saw. Half-streamed
+        // tool calls are dropped so they can never be executed or replayed.
+        delete partialMessage.tool_calls;
+        partialMessage.stopped = true;
+      } else if (isLast) {
         context.memory.messages.pop();
       }
       throw error;
@@ -375,9 +384,9 @@ export const useAiStore = defineStore('ai', () => {
     try {
       return await requestStreamedChat(context, payload, signal);
     } catch (error: any) {
-      const status = error?.response?.status;
-      const streamUnsupported = [400, 404, 405, 415, 422].includes(status);
-      if (error?.partial || !streamUnsupported) throw error;
+      // Only fall back to a non-stream request when the provider really rejected
+      // streaming; auth / quota / bad-request errors would just fail again.
+      if (error?.partial || !isStreamUnsupportedError(error)) throw error;
       const { stream: _stream, ...normalPayload } = payload;
       const response = await apiClient.post('/ai/chat', normalPayload, { signal, timeout: 130000 });
       return {
@@ -455,12 +464,12 @@ export const useAiStore = defineStore('ai', () => {
       const response = await apiClient.get('/ai/history/config');
       historyConfig.value = { ...historyConfig.value, ...(response.data || {}) };
     } catch (error) {
-      historySyncWarning.value = '无法读取文件会话存储配置，将继续使用本地临时历史。';
+      historySyncWarning.value = t('aiAssistant.store.historyConfigLoadFailed');
       console.warn('[AI Terminal] Failed to load history config:', error);
     } finally {
       historyConfigLoaded = true;
       if (historyConfig.value.enabled) {
-        Object.keys(sessionMemories.value).forEach(sessionId => pendingHistorySessionIds.add(sessionId));
+        Object.keys(sessionMemories.value).forEach(memoryKey => pendingHistorySessionIds.add(memoryKey));
         if (pendingHistorySessionIds.size > 0 && !historyPersistTimer) {
           historyPersistTimer = setTimeout(() => {
             historyPersistTimer = null;
@@ -479,14 +488,14 @@ export const useAiStore = defineStore('ai', () => {
     if (memoryPersistTimer) return;
     memoryPersistTimer = setTimeout(() => {
       memoryPersistTimer = null;
-      const result = persistMemories(next, activeMemoryKey.value);
+      const result = persistMemories(next, resolveMemoryKey(activeSessionKey.value));
       storageWarning.value = result.ok
-        ? result.droppedSessionCount > 0 ? `本地存储空间有限，已移除 ${result.droppedSessionCount} 个最旧 AI 会话。` : ''
-        : 'AI 历史保存失败，本地存储空间可能已满。请先导出会话后删除旧历史。';
+        ? result.droppedSessionCount > 0 ? t('aiAssistant.store.storageDropped', { count: result.droppedSessionCount }) : ''
+        : t('aiAssistant.store.storageSaveFailed');
     }, 300);
 
     if (!historyConfigLoaded || !historyConfig.value.enabled) return;
-    Object.keys(next).forEach(sessionId => pendingHistorySessionIds.add(sessionId));
+    Object.keys(next).forEach(memoryKey => pendingHistorySessionIds.add(memoryKey));
     if (historyPersistTimer) return;
     historyPersistTimer = setTimeout(() => {
       historyPersistTimer = null;
@@ -495,15 +504,103 @@ export const useAiStore = defineStore('ai', () => {
   }, { deep: true });
 
   void loadConfig();
-  sessionMemories.value = loadStoredMemories();
+  {
+    const loaded = loadStoredMemories();
+    // Old builds keyed memories by the random per-page-load session ID. Drop
+    // the ones that can never be adopted again so they stop piling up.
+    pruneOrphanMemories(loaded);
+    sessionMemories.value = loaded;
+  }
+
+  // sessionId -> memory key. Memories are keyed per connection (and per
+  // simultaneous tab of the same connection) so they survive a page reload,
+  // where every session gets a fresh random ID.
+  const memoryKeysBySessionId = new Map<string, string>();
+
+  const isSessionHoldingKey = (sessionId: string) => (
+    sessionStore.sessions.has(sessionId) || !!sessionRuntimes.value[sessionId]?.isRunning
+  );
+
+  const assignMemoryKey = (session: SessionState) => {
+    const existing = memoryKeysBySessionId.get(session.sessionId);
+    if (existing) return existing;
+    const connectionId = String(session.connectionId || '');
+    if (!connectionId) return session.sessionId;
+    const taken = new Set<string>();
+    memoryKeysBySessionId.forEach((key, sessionId) => {
+      if (sessionId !== session.sessionId && isSessionHoldingKey(sessionId)) taken.add(key);
+    });
+    let slot = 0;
+    while (taken.has(connectionMemoryKey(connectionId, slot))) slot += 1;
+    const key = connectionMemoryKey(connectionId, slot);
+    memoryKeysBySessionId.set(session.sessionId, key);
+
+    if (!sessionMemories.value[key]) {
+      // Adopt the most recent orphan (legacy session-keyed memory) of this
+      // connection. Name matching is only used for legacy entries without a
+      // stored connectionId, and only when the name is unambiguous.
+      const name = session.connectionName?.trim() || '';
+      const nameIsUnique = !!name && connectionsStore.connections
+        .filter(item => (item.name || item.host || '').trim() === name).length <= 1;
+      // A session resumed with its old ID (SSH suspend/resume) owns the legacy
+      // entry stored under that ID; otherwise pick by connection.
+      const ownLegacy = sessionMemories.value[session.sessionId];
+      const orphanKey = ownLegacy && !isConnectionMemoryKey(session.sessionId)
+        ? session.sessionId
+        : findOrphanMemoryKey(sessionMemories.value, {
+          connectionId,
+          connectionName: nameIsUnique ? name : undefined,
+        });
+      if (orphanKey) {
+        const adopted = sessionMemories.value[orphanKey];
+        delete sessionMemories.value[orphanKey];
+        sessionMemories.value[key] = { ...adopted, connectionId };
+      }
+    }
+    return key;
+  };
+
+  const resolveMemoryKey = (sessionId?: string) => {
+    if (!sessionId || sessionId === GLOBAL_MEMORY_KEY) return GLOBAL_MEMORY_KEY;
+    const mapped = memoryKeysBySessionId.get(sessionId);
+    if (mapped) return mapped;
+    const session = findSessionById(sessionId);
+    if (session) return assignMemoryKey(session);
+    return sessionId;
+  };
+
+  const findSessionIdForMemoryKey = (memoryKey: string) => {
+    for (const [sessionId, key] of memoryKeysBySessionId) {
+      if (key === memoryKey && sessionStore.sessions.has(sessionId)) return sessionId;
+    }
+    return isConnectionMemoryKey(memoryKey) ? '' : memoryKey;
+  };
 
   const getMemoryBySessionId = (sessionId?: string) => {
-    const key = sessionId || 'global';
+    const key = resolveMemoryKey(sessionId);
     if (!sessionMemories.value[key]) {
       sessionMemories.value[key] = createEmptyMemory();
     }
-    return sessionMemories.value[key];
+    const memory = sessionMemories.value[key];
+    if (!memory.connectionId && isConnectionMemoryKey(key)) {
+      const session = findSessionById(sessionId);
+      if (session?.connectionId) memory.connectionId = String(session.connectionId);
+    }
+    return memory;
   };
+
+  // Assign memory keys in tab creation order so, after a reload, the first tab
+  // of a connection gets its first conversation back. Release keys of closed
+  // tabs (unless an AI run is still writing to them) so a reopened tab of the
+  // same connection continues where it left off.
+  watch(() => sessionStore.sessions, (sessions) => {
+    Array.from(sessions.values())
+      .sort((left, right) => (left.createdAt || 0) - (right.createdAt || 0))
+      .forEach(session => assignMemoryKey(session));
+    for (const sessionId of Array.from(memoryKeysBySessionId.keys())) {
+      if (!isSessionHoldingKey(sessionId)) memoryKeysBySessionId.delete(sessionId);
+    }
+  }, { immediate: true });
 
   const findSessionById = (sessionId?: string): SessionState | null => {
     if (!sessionId) return null;
@@ -532,8 +629,8 @@ export const useAiStore = defineStore('ai', () => {
     historyConfig.value = { ...historyConfig.value, ...(response.data || {}) };
     historyConfigLoaded = true;
     historyConfigMessage.value = historyConfig.value.enabled
-      ? `已保存，会话将写入 ${historyConfig.value.effectiveStoragePath || historyConfig.value.storagePath}`
-      : '已关闭文件会话存储。';
+      ? t('aiAssistant.store.historySaved', { path: historyConfig.value.effectiveStoragePath || historyConfig.value.storagePath })
+      : t('aiAssistant.store.historyDisabled');
   };
 
   const flushSessionHistory = async (onlySessionId?: string) => {
@@ -542,10 +639,12 @@ export const useAiStore = defineStore('ai', () => {
     if (sessionIds.length === 0) return;
     historyWriteInProgress = true;
     try {
-      for (const sessionId of sessionIds) {
-        const session = getTargetSession(sessionId);
+      for (const pendingKey of sessionIds) {
+        // Pending entries are memory keys; a caller may also pass a session ID.
+        const sessionId = sessionMemories.value[pendingKey] ? findSessionIdForMemoryKey(pendingKey) : pendingKey;
+        const session = sessionId ? getTargetSession(sessionId) : null;
         if (!session?.connectionId) {
-          pendingHistorySessionIds.delete(sessionId);
+          pendingHistorySessionIds.delete(pendingKey);
           continue;
         }
         try {
@@ -553,13 +652,13 @@ export const useAiStore = defineStore('ai', () => {
             session: exportSessionData(sessionId),
             connectionId: session.connectionId,
           });
-          pendingHistorySessionIds.delete(sessionId);
+          pendingHistorySessionIds.delete(pendingKey);
           const removed = Number(response.data?.removedSessionCount || 0);
           if (removed > 0) {
-            historySyncWarning.value = `文件会话存储达到上限，已清理 ${removed} 个最旧归档会话。`;
+            historySyncWarning.value = t('aiAssistant.store.historyPruned', { count: removed });
           }
         } catch (error: any) {
-          historySyncWarning.value = error?.response?.data?.message || error?.message || '写入 AI 会话文件失败。';
+          historySyncWarning.value = error?.response?.data?.message || error?.message || t('aiAssistant.store.historyWriteFailed');
           console.warn('[AI Terminal] Failed to persist session history:', error);
         }
       }
@@ -575,9 +674,9 @@ export const useAiStore = defineStore('ai', () => {
   };
 
   const getCurrentHistoryDirectory = async () => {
-    const sessionId = activeMemoryKey.value;
+    const sessionId = activeSessionKey.value;
     const session = getTargetSession(sessionId);
-    if (!session?.connectionId) throw new Error('当前终端连接信息不完整，无法定位会话目录。');
+    if (!session?.connectionId) throw new Error(t('aiAssistant.store.historyDirMissingConnection'));
     const response = await apiClient.post('/ai/history/directory', {
       session: exportSessionData(sessionId),
       connectionId: session.connectionId,
@@ -798,6 +897,31 @@ export const useAiStore = defineStore('ai', () => {
     };
   };
 
+  // Waits for the user's confirmation, but resolves as rejected as soon as the
+  // run is stopped (the dialog itself is dismissed through the same signal).
+  const requestConfirmation = (
+    context: AiRunContext,
+    confirm: NonNullable<SendMessageOptions['confirmCommand']>,
+    preview: Omit<CommandPreview, 'signal'>,
+  ): Promise<boolean> => {
+    const signal = context.runtime.abortController?.signal;
+    if (signal?.aborted || context.runtime.stopRequested) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (value: boolean) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onAbort);
+        resolve(value);
+      };
+      const onAbort = () => finish(false);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      Promise.resolve()
+        .then(() => confirm({ ...preview, signal }))
+        .then(value => finish(!!value && !context.runtime.stopRequested), () => finish(false));
+    });
+  };
+
   const registerCommandAttempt = (runtime: AiRuntimeState, command: string) => {
     const normalized = normalizeCommand(command);
     const count = (runtime.commandCounts[normalized] || 0) + 1;
@@ -1013,10 +1137,10 @@ export const useAiStore = defineStore('ai', () => {
     }
     if (needsConfirmation && options?.confirmCommand) {
       context.runtime.taskStatus = 'awaitingConfirmation';
-      addActivity(context.runtime, '等待你确认终端命令');
-      const confirmed = await options.confirmCommand({
+      addActivity(context.runtime, t('aiAssistant.store.activity.awaitTerminalCommand'));
+      const confirmed = await requestConfirmation(context, options.confirmCommand, {
         command: executedCommand || command,
-        reason: String(args.reason || 'AI 需要执行这一步来继续处理当前任务。'),
+        reason: String(args.reason || t('aiAssistant.store.defaultCommandReason')),
         riskReason: assessment.reason,
         riskLevel: risk ? 'risky' : 'normal',
         sessionId: session?.sessionId || args.sessionId || activeSessionId.value,
@@ -1061,7 +1185,7 @@ export const useAiStore = defineStore('ai', () => {
     let terminalResult: Record<string, any>;
     if (waitMs > 0) {
       context.runtime.taskStatus = 'waitingOutput';
-      addActivity(context.runtime, '命令已发送，正在等待终端输出');
+      addActivity(context.runtime, t('aiAssistant.store.activity.commandSentWaiting'));
       terminalResult = await waitForTerminalOutput(session.sessionId, waitMs, context, DEFAULT_TERMINAL_READ_LINES, true, baseline.cursor);
     } else {
       const initialOutput = readTerminalOutput(session.sessionId, DEFAULT_TERMINAL_READ_LINES, true, baseline.cursor);
@@ -1109,7 +1233,7 @@ export const useAiStore = defineStore('ai', () => {
     const maxLines = Math.max(1, Math.min(Number(args.maxLines) || DEFAULT_TERMINAL_READ_LINES, MAX_TERMINAL_READ_LINES));
     const sinceLastInput = args.sinceLastInput !== false;
     context.runtime.taskStatus = 'waitingOutput';
-    addActivity(context.runtime, '正在等待可见终端输出', `最长等待 ${(timeoutMs / 1000).toFixed(1)} 秒`);
+    addActivity(context.runtime, t('aiAssistant.store.activity.waitingVisibleOutput'), t('aiAssistant.store.activity.maxWaitSeconds', { seconds: (timeoutMs / 1000).toFixed(1) }));
     return waitForTerminalOutput(session.sessionId, timeoutMs, context, maxLines, sinceLastInput, args.afterCursor);
   };
 
@@ -1152,12 +1276,12 @@ export const useAiStore = defineStore('ai', () => {
       }
       const submittedLine = simulated.executed.map(line => line.trim()).filter(Boolean).join('\n');
       context.runtime.taskStatus = 'awaitingConfirmation';
-      addActivity(context.runtime, `等待你确认终端按键 ${selectedKey.label}`);
-      const confirmed = await options.confirmCommand({
+      addActivity(context.runtime, t('aiAssistant.store.activity.awaitTerminalKey', { key: selectedKey.label }));
+      const confirmed = await requestConfirmation(context, options.confirmCommand, {
         command: submittedLine
-          ? `[终端按键] ${selectedKey.label}（将提交已输入的命令）\n${submittedLine}`
-          : `[终端按键] ${selectedKey.label}`,
-        reason: String(args.reason || `AI 需要向当前终端发送 ${selectedKey.label}。`),
+          ? `${t('aiAssistant.store.keyPreviewSubmit', { key: selectedKey.label })}\n${submittedLine}`
+          : t('aiAssistant.store.keyPreview', { key: selectedKey.label }),
+        reason: String(args.reason || t('aiAssistant.store.defaultKeyReason', { key: selectedKey.label })),
         riskReason: assessment.reason,
         riskLevel: assessment.risk ? 'risky' : 'normal',
         sessionId: session.sessionId,
@@ -1228,10 +1352,10 @@ export const useAiStore = defineStore('ai', () => {
     }
     if (needsConfirmation && options?.confirmCommand) {
       context.runtime.taskStatus = 'awaitingConfirmation';
-      addActivity(context.runtime, '等待你确认结构化命令');
-      const confirmed = await options.confirmCommand({
+      addActivity(context.runtime, t('aiAssistant.store.activity.awaitStructuredCommand'));
+      const confirmed = await requestConfirmation(context, options.confirmCommand, {
         command,
-        reason: String(args.reason || 'AI 需要执行这一步来继续处理当前任务。'),
+        reason: String(args.reason || t('aiAssistant.store.defaultCommandReason')),
         riskReason: assessment.reason,
         riskLevel: risk ? 'risky' : 'normal',
         sessionId: session.sessionId,
@@ -1244,7 +1368,7 @@ export const useAiStore = defineStore('ai', () => {
     }
 
     context.runtime.taskStatus = 'waitingOutput';
-    addActivity(context.runtime, '正在后台执行命令', `${session.connectionName} · ${command}`);
+    addActivity(context.runtime, t('aiAssistant.store.activity.runningBackground'), `${session.connectionName} · ${command}`);
     const timeoutMs = Math.max(1000, Math.min(Number(args.timeoutMs) || 30000, 180000));
     return requestStructuredCommand(session, command, timeoutMs, context);
   };
@@ -1289,11 +1413,11 @@ export const useAiStore = defineStore('ai', () => {
     // Multi-host operations always require confirmation, in every run mode.
     const risk = assessCommand(command, runMode.value).risk;
     context.runtime.taskStatus = 'awaitingConfirmation';
-    addActivity(context.runtime, `等待确认批量命令（${targets.length} 台）`);
-    const confirmed = await options.confirmCommand({
+    addActivity(context.runtime, t('aiAssistant.store.activity.awaitBatch', { count: targets.length }));
+    const confirmed = await requestConfirmation(context, options.confirmCommand, {
       command,
-      reason: String(args.reason || 'AI 需要在多个已连接 VPS 上执行同一条命令。'),
-      riskReason: risk?.reason || `将同时影响 ${targets.length} 个终端`,
+      reason: String(args.reason || t('aiAssistant.store.defaultBatchReason')),
+      riskReason: risk?.reason || t('aiAssistant.store.batchRisk', { count: targets.length }),
       riskLevel: 'risky',
       sessionId: context.sessionId,
       connectionName: targets.map(session => session.connectionName).join('、'),
@@ -1308,7 +1432,7 @@ export const useAiStore = defineStore('ai', () => {
     context.runtime.taskStatus = 'waitingOutput';
     for (let index = 0; index < targets.length && !context.runtime.stopRequested; index += 4) {
       const group = targets.slice(index, index + 4);
-      addActivity(context.runtime, `正在批量执行 ${index + 1}-${index + group.length}/${targets.length}`);
+      addActivity(context.runtime, t('aiAssistant.store.activity.runningBatch', { from: index + 1, to: index + group.length, total: targets.length }));
       const groupResults = await Promise.all(group.map(async session => ({
         sessionId: session.sessionId,
         connectionName: session.connectionName,
@@ -1330,8 +1454,8 @@ export const useAiStore = defineStore('ai', () => {
   const sendInterruptToTerminal = (sessionId?: string) => {
     const session = getTargetSession(sessionId);
     if (!session?.terminalManager?.sendData) {
-      const runtime = getRuntimeBySessionId(sessionId || activeMemoryKey.value);
-      runtime.errorMessage = '当前没有可中断的活动终端。';
+      const runtime = getRuntimeBySessionId(sessionId || activeSessionKey.value);
+      runtime.errorMessage = t('aiAssistant.store.noTerminalToInterrupt');
       return false;
     }
 
@@ -1362,7 +1486,7 @@ export const useAiStore = defineStore('ai', () => {
       if (toolCall.function.name === 'terminal_input' && (typeof parsedArgs.text !== 'string' || !parsedArgs.text.trim())) {
         toolRun.status = 'error';
         toolRun.error = 'AI 返回的终端输入参数不完整，已阻止执行。';
-        addActivity(context.runtime, '工具参数不完整，已阻止执行', toolRun.error, 'error');
+        addActivity(context.runtime, t('aiAssistant.store.activity.toolArgsIncomplete'), toolRun.error, 'error');
         return {
           ok: false,
           error: toolRun.error,
@@ -1376,21 +1500,21 @@ export const useAiStore = defineStore('ai', () => {
 
       context.runtime.taskStatus = 'runningTool';
       const activityTitle: Record<string, string> = {
-        get_terminal_output: '正在读取当前终端输出',
-        wait_for_terminal_output: '正在等待当前终端输出',
-        terminal_input: '正在准备发送终端输入',
-        execute_command: '正在准备执行结构化命令',
-        send_terminal_key: '正在准备发送终端按键',
-        read_remote_file: '正在读取远程文件',
-        list_remote_directory: '正在读取远程目录',
-        list_active_terminals: '正在读取活动终端列表',
-        execute_command_batch: '正在准备批量 VPS 命令',
-        propose_system_prompt_update: 'AI 正在提出系统提示词优化建议',
+        get_terminal_output: t('aiAssistant.store.toolActivity.get_terminal_output'),
+        wait_for_terminal_output: t('aiAssistant.store.toolActivity.wait_for_terminal_output'),
+        terminal_input: t('aiAssistant.store.toolActivity.terminal_input'),
+        execute_command: t('aiAssistant.store.toolActivity.execute_command'),
+        send_terminal_key: t('aiAssistant.store.toolActivity.send_terminal_key'),
+        read_remote_file: t('aiAssistant.store.toolActivity.read_remote_file'),
+        list_remote_directory: t('aiAssistant.store.toolActivity.list_remote_directory'),
+        list_active_terminals: t('aiAssistant.store.toolActivity.list_active_terminals'),
+        execute_command_batch: t('aiAssistant.store.toolActivity.execute_command_batch'),
+        propose_system_prompt_update: t('aiAssistant.store.toolActivity.propose_system_prompt_update'),
       };
       addActivity(
         context.runtime,
-        activityTitle[toolCall.function.name] || `正在调用工具 ${toolCall.function.name}`,
-        toolCall.function.name === 'get_terminal_output' ? `读取最近 ${args.maxLines || 120} 行` : undefined,
+        activityTitle[toolCall.function.name] || t('aiAssistant.store.toolActivity.generic', { name: toolCall.function.name }),
+        toolCall.function.name === 'get_terminal_output' ? t('aiAssistant.store.toolActivity.readLines', { count: args.maxLines || 120 }) : undefined,
       );
       let result: unknown;
       if (toolCall.function.name === 'get_terminal_output') {
@@ -1422,7 +1546,7 @@ export const useAiStore = defineStore('ai', () => {
         } else {
           context.runtime.pendingPromptProposal = {
             prompt,
-            reason: reason.slice(0, 1000) || 'AI 认为这项偏好可以提高后续终端操作准确性。',
+            reason: reason.slice(0, 1000) || t('aiAssistant.store.defaultProposalReason'),
             createdAt: Date.now(),
           };
           result = {
@@ -1446,10 +1570,10 @@ export const useAiStore = defineStore('ai', () => {
         const readOnlyTerminalTool = toolCall.function.name === 'get_terminal_output'
           || toolCall.function.name === 'wait_for_terminal_output';
         const activityMessage = toolCall.function.name === 'propose_system_prompt_update'
-          ? '系统提示词建议已生成，等待用户审核'
+          ? t('aiAssistant.store.activity.proposalReady')
           : readOnlyTerminalTool
-            ? '终端输出已读取，正在分析'
-            : '命令已发送，正在读取结果';
+            ? t('aiAssistant.store.activity.outputReadAnalyzing')
+            : t('aiAssistant.store.activity.commandSentReading');
         addActivity(
           context.runtime,
           activityMessage,
@@ -1457,13 +1581,13 @@ export const useAiStore = defineStore('ai', () => {
           'done',
         );
       } else if (toolRun.status === 'error') {
-        addActivity(context.runtime, '工具调用失败', toolRun.error, 'error');
+        addActivity(context.runtime, t('aiAssistant.store.activity.toolFailed'), toolRun.error, 'error');
       }
       return result;
     } catch (error: any) {
       toolRun.status = 'error';
       toolRun.error = error.message || String(error);
-      addActivity(context.runtime, '工具调用失败', toolRun.error, 'error');
+      addActivity(context.runtime, t('aiAssistant.store.activity.toolFailed'), toolRun.error, 'error');
       return { ok: false, error: toolRun.error };
     } finally {
       toolRun.finishedAt = Date.now();
@@ -1591,8 +1715,8 @@ export const useAiStore = defineStore('ai', () => {
       }
       return false;
     } catch (error) {
-      const message = (error as any)?.response?.data?.message || (error as any)?.message || 'AI 摘要生成失败。';
-      runtime.errorMessage = `AI 智能摘要失败：${message}`;
+      const message = describeAiError(error, t('aiAssistant.store.summaryFailedFallback'));
+      runtime.errorMessage = t('aiAssistant.store.summaryFailed', { message });
       console.warn('[ai.store] AI 摘要生成失败,保留本地摘要。', error);
       return false;
     }
@@ -1603,7 +1727,7 @@ export const useAiStore = defineStore('ai', () => {
     getMemory: getMemoryBySessionId,
     getRuntime: getRuntimeBySessionId,
     summarizeWithAi,
-    activeMemoryKey: activeMemoryKey.value,
+    activeMemoryKey: activeSessionKey.value,
     compactTriggerBytes: compactTriggerBytes.value,
     maxRequestBytes: maxRequestBytes.value,
   });
@@ -1622,7 +1746,7 @@ export const useAiStore = defineStore('ai', () => {
       pruneToolMessages(memory.messages).messages,
       TAIL_CONTEXT_BUDGET_CHARS,
     ).tailMessages;
-    const recentMessages = tailMessages.map(message => ({
+    const recentMessages = tailMessages.map(({ stopped: _stopped, ...message }) => ({
       ...message,
       content: typeof message.content === 'string'
         ? truncateForModel(message.content)
@@ -1684,7 +1808,7 @@ export const useAiStore = defineStore('ai', () => {
 
     const finalBytes = estimateJsonBytes(payload);
     if (finalBytes > maxRequestBytes.value) {
-      throw new Error(`AI 请求仍超过 ${Math.ceil(maxRequestBytes.value / 1024)}KB 上限（当前约 ${Math.ceil(finalBytes / 1024)}KB），已阻止发送。请先压缩上下文或删除历史会话。`);
+      throw new Error(t('aiAssistant.store.requestTooLarge', { limit: Math.ceil(maxRequestBytes.value / 1024), size: Math.ceil(finalBytes / 1024) }));
     }
 
     if (context?.memory.compression) context.memory.compression.afterBytes = finalBytes;
@@ -1695,7 +1819,7 @@ export const useAiStore = defineStore('ai', () => {
   const ensureConfigured = () => {
     if (!config.value.apiBaseUrl || (!config.value.apiKey && !hasSavedApiKey.value) || !config.value.model) {
       showConfig.value = true;
-      throw new Error('请先配置 AI API Base URL、API Key 和 Model。');
+      throw new Error(t('aiAssistant.store.configMissing'));
     }
   };
 
@@ -1711,7 +1835,7 @@ export const useAiStore = defineStore('ai', () => {
     if (hasSavedApiKey.value) {
       config.value.apiKey = '';
     }
-    configMessage.value = 'AI 配置已保存。';
+    configMessage.value = t('aiAssistant.store.configSaved');
   };
 
   const acceptPromptProposal = async () => {
@@ -1720,7 +1844,7 @@ export const useAiStore = defineStore('ai', () => {
     config.value.customSystemPrompt = proposal.prompt;
     await saveConfig();
     currentRuntime.value.pendingPromptProposal = undefined;
-    configMessage.value = 'AI 建议的系统提示词已确认并保存。';
+    configMessage.value = t('aiAssistant.store.proposalSaved');
     return true;
   };
 
@@ -1741,7 +1865,7 @@ export const useAiStore = defineStore('ai', () => {
     if (hasSavedApiKey.value) {
       config.value.apiKey = '';
     }
-    configMessage.value = 'AI 配置测试通过。';
+    configMessage.value = t('aiAssistant.store.configTestPassed');
   };
 
   const testStreaming = async () => {
@@ -1751,7 +1875,7 @@ export const useAiStore = defineStore('ai', () => {
       apiKey: config.value.apiKey,
       model: config.value.model,
     });
-    configMessage.value = response.data?.message || '流式输出测试通过。';
+    configMessage.value = t('aiAssistant.store.streamTestPassed');
   };
 
   const testToolCalling = async () => {
@@ -1761,7 +1885,7 @@ export const useAiStore = defineStore('ai', () => {
       apiKey: config.value.apiKey,
       model: config.value.model,
     });
-    configMessage.value = response.data?.message || '工具调用测试通过。';
+    configMessage.value = t('aiAssistant.store.toolTestPassed');
   };
 
   const fetchModels = async () => {
@@ -1774,11 +1898,11 @@ export const useAiStore = defineStore('ai', () => {
       });
       availableModels.value = Array.isArray(response.data?.models) ? response.data.models : [];
       modelFetchMessage.value = availableModels.value.length > 0
-        ? `已获取 ${availableModels.value.length} 个模型。`
-        : '服务商没有返回可用模型。';
+        ? t('aiAssistant.store.modelsFetched', { count: availableModels.value.length })
+        : t('aiAssistant.store.noModels');
     } catch (error: any) {
       availableModels.value = [];
-      modelFetchMessage.value = error.response?.data?.message || error.message || '获取模型列表失败。';
+      modelFetchMessage.value = describeAiError(error, t('aiAssistant.store.modelsFetchFailed'));
     } finally {
       isFetchingModels.value = false;
     }
@@ -1797,9 +1921,9 @@ export const useAiStore = defineStore('ai', () => {
     }
 
     if (reason === 'beforeRequest') {
-      addActivity(context.runtime, '正在检查上下文体积');
+      addActivity(context.runtime, t('aiAssistant.store.activity.checkingContext'));
     } else {
-      addActivity(context.runtime, '工具结果后检查上下文体积');
+      addActivity(context.runtime, t('aiAssistant.store.activity.checkingContextAfterTool'));
     }
 
     const result = await compactContext({
@@ -1813,8 +1937,13 @@ export const useAiStore = defineStore('ai', () => {
       context.runtime.autoCompactCount += 1;
       addActivity(
         context.runtime,
-        reason === 'afterTool' ? '工具结果后已压缩上下文' : '发送前已压缩上下文',
-        `体积 ${Math.ceil((result.requestBytes || 0) / 1024)}KB → ${Math.ceil((result.finalRequestBytes || 0) / 1024)}KB · 本轮 ${context.runtime.autoCompactCount}/${maxAutoCompactsPerTask.value}`,
+        reason === 'afterTool' ? t('aiAssistant.store.activity.compactedAfterTool') : t('aiAssistant.store.activity.compactedBeforeSend'),
+        t('aiAssistant.store.activity.compactedDetail', {
+          before: Math.ceil((result.requestBytes || 0) / 1024),
+          after: Math.ceil((result.finalRequestBytes || 0) / 1024),
+          count: context.runtime.autoCompactCount,
+          max: maxAutoCompactsPerTask.value,
+        }),
         'done',
       );
     }
@@ -1832,11 +1961,11 @@ export const useAiStore = defineStore('ai', () => {
       if (context.runtime.pendingGuidance.length > 0) {
         const guidance = context.runtime.pendingGuidance.splice(0);
         guidance.forEach(content => context.memory.messages.push({ role: 'user', content }));
-        addActivity(context.runtime, `已应用 ${guidance.length} 条追加引导`, undefined, 'done');
+        addActivity(context.runtime, t('aiAssistant.store.activity.guidanceApplied', { count: guidance.length }), undefined, 'done');
       }
       const controller = context.runtime.abortController;
       context.runtime.taskStatus = 'thinking';
-      addActivity(context.runtime, '正在请求 AI 决定下一步操作');
+      addActivity(context.runtime, t('aiAssistant.store.activity.askingNextStep'));
       const continuationMessages: AiChatMessage[] = continuation
         ? [{
           role: 'user',
@@ -1861,14 +1990,14 @@ export const useAiStore = defineStore('ai', () => {
               }
             }
             context.runtime.continuationAvailable = true;
-            context.runtime.errorMessage = 'AI 流式输出中途断开，已保存当前已收到的内容。';
+            context.runtime.errorMessage = t('aiAssistant.store.streamInterruptedSaved');
             context.runtime.taskStatus = 'interrupted';
-            addActivity(context.runtime, 'AI 流式输出中断，可继续生成', '已保存当前已收到的内容', 'error');
+            addActivity(context.runtime, t('aiAssistant.store.activity.streamInterrupted'), t('aiAssistant.store.activity.receivedKept'), 'error');
             return;
           }
           if (context.runtime.stopRequested || !isRetryableAiError(error) || attempt === 2) throw error;
           const retryNumber = attempt + 1;
-          addActivity(context.runtime, `AI 请求中断，正在自动重试（${retryNumber}/2）`, error.message || '网络连接中断');
+          addActivity(context.runtime, t('aiAssistant.store.activity.retrying', { count: retryNumber, max: 2 }), describeAiError(error, t('aiAssistant.store.networkInterrupted')));
           await sleep(700 * retryNumber);
         }
       }
@@ -1877,7 +2006,7 @@ export const useAiStore = defineStore('ai', () => {
 
       const assistantMessage = response?.message as AiChatMessage | undefined;
       if (!assistantMessage) {
-        throw new Error('AI 返回格式无效。');
+        throw new Error(t('aiAssistant.store.invalidResponse'));
       }
       if (typeof response?.model === 'string' && response.model.trim()) {
         context.runtime.modelId = response.model.trim();
@@ -1903,12 +2032,12 @@ export const useAiStore = defineStore('ai', () => {
       continuation = false;
       if (wasTruncated) {
         context.runtime.continuationAvailable = true;
-        context.runtime.errorMessage = 'AI 输出达到模型上限，内容被截断。';
+        context.runtime.errorMessage = t('aiAssistant.store.outputTruncated');
         context.runtime.taskStatus = 'interrupted';
         addActivity(
           context.runtime,
-          toolCalls.length > 0 ? '工具调用参数未完整返回，已阻止执行' : 'AI 输出被截断，可继续生成',
-          '已保存当前已收到的内容，请继续生成后再执行后续操作',
+          toolCalls.length > 0 ? t('aiAssistant.store.activity.toolArgsTruncated') : t('aiAssistant.store.activity.outputTruncated'),
+          t('aiAssistant.store.activity.continueBeforeNext'),
           'error',
         );
         return;
@@ -1936,6 +2065,15 @@ export const useAiStore = defineStore('ai', () => {
     }
   };
 
+  // Marks the end of a stopped run. A reply that was streaming when the user
+  // stopped is kept (flagged `stopped`, shown with a tag); otherwise a short
+  // notice is added.
+  const markRunStopped = (context: AiRunContext) => {
+    const last = context.memory.messages[context.memory.messages.length - 1];
+    if (last?.role === 'assistant' && last.stopped) return;
+    context.memory.messages.push({ role: 'assistant', content: t('uxAi.stoppedNotice') });
+  };
+
   const sendMessage = async (options?: SendMessageOptions) => {
     const content = userInput.value.trim();
     const lockedSession = getTargetSession(activeSessionId.value);
@@ -1945,7 +2083,7 @@ export const useAiStore = defineStore('ai', () => {
     if (runtime.isRunning) {
       runtime.pendingGuidance.push(content);
       userInput.value = '';
-      addActivity(runtime, '已收到追加引导', '将在当前步骤结束后交给 AI');
+      addActivity(runtime, t('aiAssistant.store.activity.guidanceQueued'), t('aiAssistant.store.activity.guidanceQueuedDetail'));
       return;
     }
 
@@ -1958,6 +2096,7 @@ export const useAiStore = defineStore('ai', () => {
       runtime,
     };
     context.memory.messages.push({ role: 'user', content });
+    context.memory.updatedAt = Date.now();
     runtime.isRunning = true;
     runtime.stopRequested = false;
     runtime.abortController = new AbortController();
@@ -1968,25 +2107,25 @@ export const useAiStore = defineStore('ai', () => {
     const aiTaskId = uiNotificationsStore.addTaskNotification({
       id: `ai-task:${runSessionId}:${Date.now()}`,
       kind: 'ai',
-      title: 'AI 助手任务',
-      message: 'AI 正在处理你的请求',
+      title: t('aiAssistant.store.task.title'),
+      message: t('aiAssistant.store.task.running'),
       status: 'running',
     });
     aiTaskIdsBySessionId.set(runSessionId, aiTaskId);
-    addActivity(runtime, '正在理解你的请求');
+    addActivity(runtime, t('aiAssistant.store.activity.understanding'));
 
     try {
       await runAgentLoop(context, options);
       if (runtime.stopRequested) {
-        context.memory.messages.push({ role: 'assistant', content: '已停止本轮 AI 操作。' });
+        markRunStopped(context);
         runtime.taskStatus = 'stopped';
       }
     } catch (error: any) {
       if (error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || runtime.stopRequested) {
-        context.memory.messages.push({ role: 'assistant', content: '已停止本轮 AI 操作。' });
+        markRunStopped(context);
         runtime.taskStatus = 'stopped';
       } else {
-        runtime.errorMessage = error.response?.data?.message || error.message || 'AI 请求失败。';
+        runtime.errorMessage = describeAiError(error, t('aiAssistant.store.requestFailed'));
         runtime.taskStatus = 'error';
       }
     } finally {
@@ -2000,12 +2139,13 @@ export const useAiStore = defineStore('ai', () => {
       uiNotificationsStore.updateTaskNotification(aiTaskId, {
         status: finalStatus,
         message: finalStatus === 'success'
-          ? 'AI 任务已完成'
+          ? t('aiAssistant.store.task.done')
           : finalStatus === 'cancelled'
-            ? 'AI 任务已停止'
-            : runtime.errorMessage || 'AI 任务未完成',
+            ? t('aiAssistant.store.task.stopped')
+            : runtime.errorMessage || t('aiAssistant.store.task.unfinished'),
       });
       aiTaskIdsBySessionId.delete(runSessionId);
+      context.memory.updatedAt = Date.now();
       if (runtime.pendingGuidance.length > 0) {
         sessionInputs.value[runSessionId] = runtime.pendingGuidance.join('\n');
         runtime.pendingGuidance = [];
@@ -2041,19 +2181,19 @@ export const useAiStore = defineStore('ai', () => {
     const aiTaskId = uiNotificationsStore.addTaskNotification({
       id: `ai-task:${runSessionId}:${Date.now()}`,
       kind: 'ai',
-      title: 'AI 助手任务',
-      message: 'AI 正在继续处理请求',
+      title: t('aiAssistant.store.task.title'),
+      message: t('aiAssistant.store.task.continuing'),
       status: 'running',
     });
     aiTaskIdsBySessionId.set(runSessionId, aiTaskId);
-    addActivity(runtime, '正在从中断位置继续生成');
+    addActivity(runtime, t('aiAssistant.store.activity.continuing'));
     try {
       await runAgentLoop(context, options, true);
     } catch (error: any) {
       if (error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || runtime.stopRequested) {
         runtime.taskStatus = 'stopped';
       } else {
-        runtime.errorMessage = error.response?.data?.message || error.message || '继续生成失败。';
+        runtime.errorMessage = describeAiError(error, t('aiAssistant.store.continueFailed'));
         runtime.taskStatus = 'error';
       }
     } finally {
@@ -2065,12 +2205,13 @@ export const useAiStore = defineStore('ai', () => {
       uiNotificationsStore.updateTaskNotification(aiTaskId, {
         status: finalStatus,
         message: finalStatus === 'success'
-          ? 'AI 任务已完成'
+          ? t('aiAssistant.store.task.done')
           : finalStatus === 'cancelled'
-            ? 'AI 任务已停止'
-            : runtime.errorMessage || 'AI 任务未完成',
+            ? t('aiAssistant.store.task.stopped')
+            : runtime.errorMessage || t('aiAssistant.store.task.unfinished'),
       });
       aiTaskIdsBySessionId.delete(runSessionId);
+      context.memory.updatedAt = Date.now();
       if (runtime.pendingGuidance.length > 0) {
         sessionInputs.value[runSessionId] = runtime.pendingGuidance.join('\n');
         runtime.pendingGuidance = [];
@@ -2086,7 +2227,7 @@ export const useAiStore = defineStore('ai', () => {
   };
 
   const stopRun = (sessionId?: string) => {
-    const runtime = getRuntimeBySessionId(sessionId || activeMemoryKey.value);
+    const runtime = getRuntimeBySessionId(sessionId || activeSessionKey.value);
     if (!runtime.isRunning) return;
     runtime.stopRequested = true;
     runtime.abortController?.abort();
@@ -2098,7 +2239,7 @@ export const useAiStore = defineStore('ai', () => {
       const runtime = sessionRuntimes.value[tab.sessionId];
       if (!runtime?.isRunning) return;
       stopRun(tab.sessionId);
-      runtime.errorMessage = '终端连接已断开，AI 任务已停止。';
+      runtime.errorMessage = t('aiAssistant.store.terminalDisconnected');
       runtime.taskStatus = 'error';
     });
   }, { deep: true });
@@ -2120,7 +2261,7 @@ export const useAiStore = defineStore('ai', () => {
     const connection = session
       ? connectionsStore.connections.find(item => String(item.id) === String(session.connectionId))
       : undefined;
-    if (!session || !connection?.host) throw new Error('当前终端连接信息不完整，无法导出 AI 会话。');
+    if (!session || !connection?.host) throw new Error(t('aiAssistant.store.exportMissingConnection'));
     return {
       name: session.connectionName.trim(),
       host: String(connection.host).trim().toLowerCase(),
@@ -2131,33 +2272,33 @@ export const useAiStore = defineStore('ai', () => {
   const checkSessionImport = (data: unknown) => {
     const payload = data as Partial<AiSessionExport>;
     if (payload.format !== 'nexus-terminal-ai-session' || payload.version !== 3 || !payload.connection) {
-      throw new Error('不是新版 Nexus Terminal AI 会话文件，或文件版本不受支持。');
+      throw new Error(t('aiAssistant.store.import.notNewFormat'));
     }
-    const current = getConnectionIdentity(activeMemoryKey.value);
+    const current = getConnectionIdentity(activeSessionKey.value);
     const imported = {
       name: String(payload.connection.name || '').trim(),
       host: String(payload.connection.host || '').trim().toLowerCase(),
       port: String(payload.connection.port || ''),
     };
-    if (!imported.host || !imported.port) throw new Error('会话文件缺少终端地址或端口。');
+    if (!imported.host || !imported.port) throw new Error(t('aiAssistant.store.import.missingHost'));
     if (current.host !== imported.host || current.port !== imported.port) {
       return {
         compatible: false,
         nameMismatch: false,
-        message: `会话目标是 ${imported.host}:${imported.port}，当前终端是 ${current.host}:${current.port}，为避免串台已拒绝导入。`,
+        message: t('aiAssistant.store.import.hostMismatch', { imported: `${imported.host}:${imported.port}`, current: `${current.host}:${current.port}` }),
       };
     }
     if (current.name !== imported.name) {
       return {
         compatible: true,
         nameMismatch: true,
-        message: `名称不同：导出会话为「${imported.name}」，当前终端为「${current.name}」，但 IP 和端口一致。`,
+        message: t('aiAssistant.store.import.nameMismatch', { imported: imported.name, current: current.name }),
       };
     }
     return { compatible: true, nameMismatch: false, message: '' };
   };
 
-  const exportSessionData = (sessionId = activeMemoryKey.value): AiSessionExport => {
+  const exportSessionData = (sessionId = activeSessionKey.value): AiSessionExport => {
     const memory = getMemoryBySessionId(sessionId);
     const session = getTargetSession(sessionId);
     const connection = getConnectionIdentity(sessionId);
@@ -2165,41 +2306,42 @@ export const useAiStore = defineStore('ai', () => {
       format: 'nexus-terminal-ai-session',
       version: 3,
       exportedAt: new Date().toISOString(),
-      sessionId,
-      connectionName: session?.connectionName || '未命名终端',
+      // Stable across reloads, so the history file is not duplicated per page load.
+      sessionId: resolveMemoryKey(sessionId),
+      connectionName: session?.connectionName || t('aiAssistant.store.unnamedTerminal'),
       connection,
       memory: normalizeMemoryForStorage(JSON.parse(JSON.stringify(memory)) as AiSessionMemory),
     };
   };
 
   const importSessionData = (data: unknown, mode: 'replace' | 'merge' = 'replace', allowNameMismatch = false) => {
-    if (currentRuntime.value.isRunning) throw new Error('AI 正在运行，请先停止当前任务后再导入会话。');
-    if (!data || typeof data !== 'object') throw new Error('导入文件格式无效。');
+    if (currentRuntime.value.isRunning) throw new Error(t('aiAssistant.store.import.running'));
+    if (!data || typeof data !== 'object') throw new Error(t('aiAssistant.store.import.invalidFile'));
     const payload = data as Partial<AiSessionExport>;
     if (payload.format !== 'nexus-terminal-ai-session' || payload.version !== 3 || !payload.memory || !payload.connection) {
-      throw new Error('不是 Nexus Terminal AI 会话文件，或文件版本不受支持。');
+      throw new Error(t('aiAssistant.store.import.notSessionFile'));
     }
     const compatibility = checkSessionImport(payload);
-    if (!compatibility.compatible || (compatibility.nameMismatch && !allowNameMismatch)) throw new Error(compatibility.message || '会话与当前终端不匹配。');
+    if (!compatibility.compatible || (compatibility.nameMismatch && !allowNameMismatch)) throw new Error(compatibility.message || t('aiAssistant.store.import.mismatch'));
     if (!Array.isArray(payload.memory.messages) || !Array.isArray(payload.memory.toolRuns)) {
-      throw new Error('会话文件缺少有效的消息或工具记录。');
+      throw new Error(t('aiAssistant.store.import.missingRecords'));
     }
     if (payload.memory.messages.length > 120 || payload.memory.toolRuns.length > 80) {
-      throw new Error('会话文件包含过多记录，请先在原客户端压缩或导出较小的会话。');
+      throw new Error(t('aiAssistant.store.import.tooMany'));
     }
     const validRoles = new Set(['system', 'user', 'assistant', 'tool']);
     for (const message of payload.memory.messages) {
       if (!message || typeof message !== 'object' || !validRoles.has(message.role)) {
-        throw new Error('会话文件包含无效的消息角色。');
+        throw new Error(t('aiAssistant.store.import.invalidRole'));
       }
       if (message.content !== undefined && message.content !== null && typeof message.content !== 'string') {
-        throw new Error('会话文件包含无效的消息内容。');
+        throw new Error(t('aiAssistant.store.import.invalidContent'));
       }
       if (message.tool_calls && (!Array.isArray(message.tool_calls) || message.tool_calls.some(call => (
         !call || typeof call.id !== 'string' || call.type !== 'function'
         || !call.function || typeof call.function.name !== 'string' || typeof call.function.arguments !== 'string'
       )))) {
-        throw new Error('会话文件包含无效的工具调用结构。');
+        throw new Error(t('aiAssistant.store.import.invalidToolCall'));
       }
     }
     const validToolStatuses = new Set(['running', 'done', 'error', 'cancelled']);
@@ -2207,7 +2349,7 @@ export const useAiStore = defineStore('ai', () => {
       if (!run || typeof run !== 'object' || typeof run.id !== 'string' || typeof run.name !== 'string'
         || !validToolStatuses.has(run.status) || !run.args || typeof run.args !== 'object'
         || typeof run.startedAt !== 'number' || !Number.isFinite(run.startedAt)) {
-        throw new Error('会话文件包含无效的工具记录。');
+        throw new Error(t('aiAssistant.store.import.invalidToolRun'));
       }
     }
     const imported = normalizeMemoryForStorage(payload.memory);
@@ -2225,7 +2367,11 @@ export const useAiStore = defineStore('ai', () => {
       current.summaryUpdatedAt = imported.summaryUpdatedAt || current.summaryUpdatedAt;
       current.compression = imported.compression || current.compression;
     } else {
-      sessionMemories.value[activeMemoryKey.value] = imported;
+      sessionMemories.value[resolveMemoryKey(activeSessionKey.value)] = {
+        ...imported,
+        connectionId: activeSession.value?.connectionId ? String(activeSession.value.connectionId) : undefined,
+        updatedAt: Date.now(),
+      };
     }
     return {
       messageCount: imported.messages.length,
@@ -2238,7 +2384,7 @@ export const useAiStore = defineStore('ai', () => {
       force,
       title: '手动压缩摘要',
       awaitAiSummary: true,
-      sessionId: activeMemoryKey.value,
+      sessionId: activeSessionKey.value,
       runtime: currentRuntime.value,
     });
     if (currentRuntime.value.taskStatus === 'compressing') {

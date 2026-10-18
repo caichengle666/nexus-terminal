@@ -14,6 +14,8 @@ export type AiChatMessage = {
   content?: string | null;
   tool_calls?: AiToolCall[];
   tool_call_id?: string;
+  /** UI-only: the user stopped the run while this reply was streaming. Never sent to the model. */
+  stopped?: boolean;
 };
 
 export type TerminalInputArgs = {
@@ -76,6 +78,8 @@ export type CommandPreview = {
   riskLevel: 'normal' | 'risky';
   sessionId: string;
   connectionName?: string;
+  /** Aborted when the AI run is stopped; the confirmation must then resolve as rejected. */
+  signal?: AbortSignal;
 };
 
 export type AiCompactResult = {
@@ -111,6 +115,9 @@ export type AiSessionMemory = {
   summaryUpdatedAt?: number;
   lastCompactedAt?: number;
   compression?: AiCompressionStats;
+  /** Connection this memory belongs to (memories are keyed per connection, see ai.memory.ts). */
+  connectionId?: string;
+  updatedAt?: number;
 };
 
 export type AiSessionExport = {
