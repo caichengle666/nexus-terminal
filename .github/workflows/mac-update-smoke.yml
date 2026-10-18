@@ -1,0 +1,33 @@
+name: macOS Update Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to test (e.g. v0.9.22.45)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    runs-on: macos-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Download, verify and mount the DMG
+        env:
+          TAG: ${{ inputs.tag }}
+          ARCH: ${{ matrix.arch }}
+        run: node electron-app/scripts/mac-update-smoke.js "$TAG" "$ARCH"
