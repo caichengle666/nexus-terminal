@@ -263,7 +263,10 @@ export function createWebSocketConnectionManager(
                             sftpFullReconnectAttempts = 0;
                             sftpStableResetTimeoutId = null;
                         }, 120000);
-                    } else if (message.type === 'sftp_unavailable' || message.type === 'sftp_error') {
+                    } else if (message.type === 'sftp_unavailable'
+                        || (message.type === 'sftp_error' && !message.payload?.requestId && !message.requestId)) {
+                        // 只有通道级错误（无 requestId）才表示 SFTP 不可用；
+                        // 带 requestId 的 sftp_error 只是单个操作失败，不能把整个文件管理器标记为未就绪。
                         isSftpReady.value = false;
                         clearSftpStableReset();
                     } else if (message.type === 'sftp_reconnect_required') {

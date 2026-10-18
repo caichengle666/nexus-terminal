@@ -460,6 +460,7 @@
     "title": "File Editor"
   },
   "fileManager": {
+    "showMore": "Showing {shown} of {total} items. Click or keep scrolling to load more",
     "modalTitle": "File Manager",
     "currentPath": "Current Path",
     "loading": "Loading directory...",

@@ -26,6 +26,7 @@ import { useUiNotificationsStore } from '../stores/uiNotifications.store';
 
 type SftpManagerInstance = ReturnType<typeof createSftpActionsManager>;
 const FILE_MANAGER_REFRESH_INTERVAL_MS = 30000;
+const FILE_MANAGER_AUTO_REFRESH_MAX_ENTRIES = 3000;
 
 
 // --- Props ---
@@ -363,6 +364,36 @@ const filteredFileList = computed(() => {
         item.filename.toLowerCase().includes(lowerCaseQuery)
     );
 });
+
+// --- 渐进渲染：超大目录一次性渲染上万行 <tr> 会让页面卡死 ---
+const FILE_LIST_RENDER_BATCH = 500;
+const fileListRenderLimit = ref(FILE_LIST_RENDER_BATCH);
+const visibleFileList = computed(() => {
+    const list = filteredFileList.value;
+    return list.length > fileListRenderLimit.value ? list.slice(0, fileListRenderLimit.value) : list;
+});
+const hiddenFileCount = computed(() => Math.max(0, filteredFileList.value.length - visibleFileList.value.length));
+const resetFileListRenderLimit = () => {
+    fileListRenderLimit.value = FILE_LIST_RENDER_BATCH;
+};
+const showMoreFiles = () => {
+    if (hiddenFileCount.value > 0) fileListRenderLimit.value += FILE_LIST_RENDER_BATCH;
+};
+const handleFileListScroll = (event: Event) => {
+    const el = event.target as HTMLElement | null;
+    if (!el || hiddenFileCount.value === 0) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) showMoreFiles();
+};
+
+// 缓存日期格式化器：每行调用 toLocaleString() 在大目录下非常慢
+const mtimeFormatter = new Intl.DateTimeFormat(undefined, {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+});
+const formatMtime = (mtime: number): string => {
+    if (!Number.isFinite(mtime)) return '';
+    try { return mtimeFormatter.format(mtime); } catch { return ''; }
+};
 
 const handleSort = (key: keyof FileListItem | 'type' | 'size' | 'mtime') => {
     if (sortKey.value === key) {
@@ -1078,20 +1109,32 @@ const {
 watch(() => currentSftpManager.value?.currentPath.value, () => {
     selectedIndex.value = -1;
     clearSelection();
+    resetFileListRenderLimit();
+    fileListContainerRef.value?.scrollTo?.({ top: 0 });
 });
 watch(searchQuery, () => {
+    resetFileListRenderLimit();
     selectedIndex.value = -1;
     clearSelection(); // 清空选择
 });
 watch(sortKey, () => {
+    resetFileListRenderLimit();
     selectedIndex.value = -1;
     clearSelection(); // 清空选择
 });
 watch(sortDirection, () => {
+    resetFileListRenderLimit();
     selectedIndex.value = -1;
     clearSelection(); // 清空选择
 });
 
+
+// 键盘导航接近已渲染末尾时，自动多渲染一批，保证选中行可见
+watch(selectedIndex, (index) => {
+    if (index >= fileListRenderLimit.value - 10 && hiddenFileCount.value > 0) {
+        fileListRenderLimit.value = index + FILE_LIST_RENDER_BATCH;
+    }
+});
 
 // --- 保存设置的函数 ---
 const saveLayoutSettings = () => {
@@ -1109,6 +1152,8 @@ const refreshCurrentDirectoryIfActive = () => {
   const manager = currentSftpManager.value;
   if (!manager || document.hidden || props.sessionId !== sessionStore.activeSessionId) return;
   if (!props.wsDeps.isConnected.value || manager.isLoading.value) return;
+  // 超大目录不做后台自动刷新，避免每 30 秒重新拉取并重排上万条记录；用户可手动刷新
+  if ((manager.fileList.value?.length ?? 0) > FILE_MANAGER_AUTO_REFRESH_MAX_ENTRIES) return;
   manager.loadDirectory(manager.currentPath.value, true);
 };
 
@@ -1927,6 +1972,7 @@ const handleOpenEditorClick = () => {
       @click="fileListContainerRef?.focus()"
       @keydown="handleKeydown"
       @wheel="handleWheel"
+      @scroll.passive="handleFileListScroll"
       @contextmenu.prevent="showContextMenu($event)"
       tabindex="0"
       :style="{ '--row-size-multiplier': rowSizeMultiplier }"
@@ -2047,7 +2093,7 @@ const handleOpenEditorClick = () => {
               <td v-if="!props.isMobile" class="border-b border-border align-middle"></td>
             </tr>
             <!-- File Entries -->
-            <tr v-for="(item, index) in filteredFileList"
+            <tr v-for="(item, index) in visibleFileList"
                 :key="item.filename"
                 :draggable="item.filename !== '..'" @dragstart="handleDragStart(item)" @dragend="handleDragEnd"
                 @click="handleItemClick($event, item, props.isMobile && isMultiSelectMode)"
@@ -2099,7 +2145,14 @@ const handleOpenEditorClick = () => {
               ]" :style="{ padding: `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))`, fontSize: `calc(0.72rem * max(0.85, var(--row-size-multiplier) * 0.5 + 0.5))` }">{{ formatMode(item.attrs.mode) }}</td>
               <td v-if="!props.isMobile" class="border-b border-border truncate align-middle" :class="[
                 selectedItems.has(item.filename) || (index + (currentSftpManager?.currentPath.value !== '/' ? 1 : 0) === selectedIndex) ? 'text-white' : 'text-text-secondary'
-              ]" :style="{ padding: `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))`, fontSize: `calc(0.72rem * max(0.85, var(--row-size-multiplier) * 0.5 + 0.5))` }">{{ new Date(item.attrs.mtime).toLocaleString() }}</td> 
+              ]" :style="{ padding: `calc(0.4rem * var(--row-size-multiplier)) calc(0.8rem * var(--row-size-multiplier))`, fontSize: `calc(0.72rem * max(0.85, var(--row-size-multiplier) * 0.5 + 0.5))` }">{{ formatMtime(item.attrs.mtime) }}</td> 
+            </tr>
+            <tr v-if="hiddenFileCount > 0">
+              <td :colspan="props.isMobile ? 2 : 5" class="text-center border-b border-border align-middle py-2">
+                <button type="button" class="text-primary hover:underline text-xs" @click.stop="showMoreFiles">
+                  {{ t('fileManager.showMore', { shown: visibleFileList.length, total: filteredFileList.length }) }}
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>

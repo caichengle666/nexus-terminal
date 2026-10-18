@@ -1,4 +1,4 @@
-import { ref, reactive, computed, type Ref, type ComputedRef } from 'vue';
+import { ref, reactive, computed, markRaw, type Ref, type ComputedRef } from 'vue';
 import type { FileListItem, FileAttributes, EditorFileContent, SftpReadFileSuccessPayload, SftpReadFileRequestPayload } from '../types/sftp.types';
 import type { WebSocketMessage, MessagePayload, MessageHandler } from '../types/websocket.types';
 
@@ -76,6 +76,11 @@ export interface FileTreeNode {
     childrenLoaded: boolean; // 标记子节点是否已加载
     // 可以添加其他需要的状态，例如 isLoadingChildren
 }
+
+const isSameFileAttrs = (a: FileAttributes, b: FileAttributes): boolean =>
+    a.size === b.size && a.mtime === b.mtime && a.mode === b.mode
+    && a.uid === b.uid && a.gid === b.gid
+    && a.isDirectory === b.isDirectory && a.isFile === b.isFile && a.isSymbolicLink === b.isSymbolicLink;
 
 /**
  * 创建并管理单个 SFTP 会话的操作。
@@ -717,7 +722,6 @@ export function createSftpActionsManager(
 
         // --- Merge Logic ---
         const existingChildren = targetNode.children || [];
-        const newChildrenMap = new Map(fileListPayload.map(item => [item.filename, item]));
         const mergedChildren: FileTreeNode[] = [];
         const existingChildrenMap = new Map(existingChildren.map(node => [node.filename, node]));
 
@@ -728,13 +732,17 @@ export function createSftpActionsManager(
             if (existingNode && existingNode.childrenLoaded && existingNode.attrs.isDirectory) {
                 // Keep the existing node if it's a directory and its children are already loaded
                 mergedChildren.push(existingNode);
-                console.log(`[SFTP ${instanceSessionId}] Merging: Kept existing loaded node ${path}/${existingNode.filename}`);
+            } else if (existingNode && existingNode.childrenLoaded && !newItemData.attrs.isDirectory
+                && !existingNode.attrs.isDirectory && isSameFileAttrs(existingNode.attrs, newItemData.attrs)) {
+                // 未变化的文件直接复用旧节点，避免后台刷新时整表重建、重新渲染
+                mergedChildren.push(existingNode);
             } else {
                 // Otherwise, create/update node based on new data
                  const newNode: FileTreeNode = reactive({ // Ensure new nodes are reactive
                     filename: newItemData.filename,
                     longname: newItemData.longname,
-                    attrs: newItemData.attrs,
+                    // attrs 只做整体替换，不需要深层响应式；markRaw 可大幅减少大目录的代理开销
+                    attrs: markRaw(newItemData.attrs),
                     // Preserve children if existingNode was a placeholder but somehow had children (edge case)
                     children: (existingNode && !existingNode.childrenLoaded && existingNode.children)
                               ? existingNode.children
@@ -744,11 +752,7 @@ export function createSftpActionsManager(
                                    : !newItemData.attrs.isDirectory,
                 });
                 mergedChildren.push(newNode);
-                 if(existingNode && !existingNode.childrenLoaded) {
-                     console.log(`[SFTP ${instanceSessionId}] Merging: Updated placeholder node ${path}/${newNode.filename}`);
-                 } else if (!existingNode) {
-                     console.log(`[SFTP ${instanceSessionId}] Merging: Added new node ${path}/${newNode.filename}`);
-                 }
+                // 注意：不要在这里逐项 console.log —— 上万条目录项会让浏览器主线程卡死数秒
             }
         }
 

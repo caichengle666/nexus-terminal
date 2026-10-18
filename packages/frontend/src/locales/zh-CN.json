@@ -461,6 +461,7 @@
     "title": "文件编辑器"
   },
   "fileManager": {
+    "showMore": "已显示 {shown} / {total} 项，点击或继续滚动加载更多",
     "modalTitle": "文件管理器",
     "currentPath": "当前路径",
     "loading": "正在加载目录...",

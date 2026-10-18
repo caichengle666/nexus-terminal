@@ -435,6 +435,7 @@
     "title": "File Editor"
   },
   "fileManager": {
+    "showMore": "{total} 件中 {shown} 件を表示中。クリックまたはスクロールでさらに読み込みます",
     "modalTitle": "File Manager",
     "currentPath": "Current Path",
     "loading": "Loading directory...",

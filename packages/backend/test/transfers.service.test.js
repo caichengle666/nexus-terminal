@@ -392,3 +392,66 @@ test('status polling waits for the current request before scheduling another one
   assert.ok(countAfterStop >= 2);
   assert.equal(requestCount, countAfterStop);
 });
+
+test('slow directory read keeps a channel that still answers a probe', async () => {
+  const sentMessages = [];
+  let channelEndCount = 0;
+  const sftp = new EventEmitter();
+  sftp.readdir = () => {}; // never answers
+  sftp.realpath = (_path, callback) => setImmediate(() => callback(null, '/home/test'));
+  sftp.end = () => { channelEndCount += 1; };
+  const state = {
+    dbConnectionId: 1,
+    ws: { readyState: 1, send(message) { sentMessages.push(JSON.parse(message)); } },
+    sshClient: {},
+    sftp,
+  };
+  const service = new SftpService(new Map([['session-1', state]]), { metadataTimeoutMs: 20, recoveryDelaysMs: [] });
+
+  await service.readdir('session-1', '/huge-nfs-dir', 'request-1');
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  assert.equal(state.sftp, sftp);
+  assert.equal(channelEndCount, 0);
+  assert.equal(sentMessages.filter(message => message.type === 'sftp:readdir:error').length, 1);
+  assert.equal(sentMessages.filter(message => message.type === 'sftp_unavailable').length, 0);
+  service.cleanupSftpSession('session-1');
+});
+
+test('initialize on an already-ready session re-announces sftp_ready', async () => {
+  const sentMessages = [];
+  const sftp = new EventEmitter();
+  sftp.end = () => {};
+  const state = {
+    dbConnectionId: 7,
+    ws: { readyState: 1, send(message) { sentMessages.push(JSON.parse(message)); } },
+    sshClient: { sftp() { throw new Error('must not open a second channel'); } },
+    sftp,
+  };
+  const service = new SftpService(new Map([['session-1', state]]));
+  await service.initializeSftpSession('session-1');
+  assert.equal(state.sftp, sftp);
+  assert.deepEqual(sentMessages.map(message => message.type), ['sftp_ready']);
+});
+
+test('a single failed health probe does not reset the channel', async () => {
+  let realpathCalls = 0;
+  const sftp = new EventEmitter();
+  sftp.end = () => {};
+  sftp.realpath = (_path, callback) => {
+    realpathCalls += 1;
+    if (realpathCalls === 1) return; // first probe hangs
+    setImmediate(() => callback(null, '/'));
+  };
+  const state = { dbConnectionId: 1, ws: { readyState: 1, send() {} }, sshClient: {}, sftp };
+  const service = new SftpService(new Map([['session-1', state]]), {
+    healthIntervalMs: 10,
+    healthTimeoutMs: 15,
+    recoveryDelaysMs: [],
+  });
+  service.startHealthMonitoring('session-1');
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(state.sftp, sftp);
+  assert.ok(realpathCalls >= 2);
+  service.cleanupSftpSession('session-1');
+});

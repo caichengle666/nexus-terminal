@@ -63,7 +63,9 @@ const UPLOAD_FINALIZE_TIMEOUT_MS = 20000;
 const SFTP_INITIALIZATION_TIMEOUT_MS = 15000;
 const SFTP_METADATA_TIMEOUT_MS = 60000;
 const SFTP_HEALTH_INTERVAL_MS = 30000;
-const SFTP_HEALTH_TIMEOUT_MS = 8000;
+const SFTP_HEALTH_TIMEOUT_MS = 15000;
+const SFTP_HEALTH_MAX_FAILURES = 2;
+const SFTP_TIMEOUT_PROBE_MS = 10000;
 const SFTP_RECOVERY_DELAYS_MS = [0, 2000, 5000];
 const SFTP_COPY_INACTIVITY_TIMEOUT_MS = 120000;
 const SFTP_COMMAND_START_TIMEOUT_MS = 30000;
@@ -105,6 +107,8 @@ export class SftpService {
     private pendingDirectoryReads = new Map<string, Promise<SftpDirEntry[]>>();
     private recoveryPromises = new Map<string, Promise<void>>();
     private recoveryTokens = new Map<string, symbol>();
+    private healthFailures = new Map<string, number>();
+    private timeoutProbes = new Set<string>();
     private readonly initializationTimeoutMs: number;
     private readonly metadataTimeoutMs: number;
     private readonly healthIntervalMs: number;
@@ -137,6 +141,7 @@ export class SftpService {
         if (!state || state.sftp !== sftpInstance) return;
 
         state.sftp = undefined;
+        this.stopHealthMonitoring(sessionId);
         try {
             sftpInstance.end();
         } catch (error) {
@@ -182,9 +187,10 @@ export class SftpService {
             };
             const timeoutId = setTimeout(() => {
                 const timeoutError = new Error(`${operationName} 请求超时 (${timeoutMs}ms)`);
-                this.invalidateSftpSession(sessionId, sftpInstance, `${operationName} 超时，SFTP 通道已重置`);
-                if (recoverOnTimeout) void this.recoverSftpSession(sessionId, timeoutError.message);
                 finish(timeoutError);
+                // 单个操作慢（例如超大目录、NFS 挂载）不代表通道已死。
+                // 先用轻量探测确认通道确实无响应，再重置，避免误杀其它进行中的传输。
+                if (recoverOnTimeout) void this.probeAfterTimeout(sessionId, sftpInstance, timeoutError.message);
             }, timeoutMs);
 
             try {
@@ -193,6 +199,27 @@ export class SftpService {
                 finish(error instanceof Error ? error : new Error(String(error)));
             }
         });
+    }
+
+    /** 操作超时后探测通道是否仍可用；只有探测也失败时才重置并恢复 SFTP 通道 */
+    private async probeAfterTimeout(sessionId: string, sftpInstance: SFTPWrapper, reason: string): Promise<void> {
+        if (this.timeoutProbes.has(sessionId)) return;
+        const state = this.clientStates.get(sessionId);
+        if (!state || state.sftp !== sftpInstance || state.isCleaningUp) return;
+        this.timeoutProbes.add(sessionId);
+        try {
+            await this.runMetadataOperation<string>(sessionId, `probe-${Date.now()}`, 'SFTP 超时探测', (sftp, callback) => {
+                sftp.realpath('.', callback);
+            }, SFTP_TIMEOUT_PROBE_MS, false, false);
+            console.warn(`[SFTP ${sessionId}] 操作超时但通道探测正常，保留当前通道。原因: ${reason}`);
+        } catch (error: any) {
+            if (state.sftp === sftpInstance) {
+                this.invalidateSftpSession(sessionId, sftpInstance, `SFTP 通道无响应，正在恢复 (${reason})`);
+                void this.recoverSftpSession(sessionId, reason);
+            }
+        } finally {
+            this.timeoutProbes.delete(sessionId);
+        }
     }
 
     private stopHealthMonitoring(sessionId: string): void {
@@ -228,9 +255,18 @@ export class SftpService {
             await this.runMetadataOperation<string>(sessionId, `health-${Date.now()}`, 'SFTP 健康检测', (sftp, callback) => {
                 sftp.realpath('.', callback);
             }, this.healthTimeoutMs, false, false);
+            this.healthFailures.delete(sessionId);
             return true;
         } catch (error: any) {
-            console.warn(`[SFTP ${sessionId}] 健康检测失败，准备恢复通道: ${error.message}`);
+            const failures = (this.healthFailures.get(sessionId) ?? 0) + 1;
+            if (failures < SFTP_HEALTH_MAX_FAILURES && state.sftp === sftpInstance) {
+                // 单次失败可能只是链路瞬时拥塞，记录后继续监测
+                this.healthFailures.set(sessionId, failures);
+                console.warn(`[SFTP ${sessionId}] 健康检测失败 (${failures}/${SFTP_HEALTH_MAX_FAILURES})，稍后重试: ${error.message}`);
+                return true;
+            }
+            this.healthFailures.delete(sessionId);
+            console.warn(`[SFTP ${sessionId}] 健康检测连续失败，准备恢复通道: ${error.message}`);
             this.invalidateSftpSession(sessionId, sftpInstance, 'SFTP 健康检测失败，正在恢复通道');
             void this.recoverSftpSession(sessionId, error.message);
             return false;
@@ -291,7 +327,14 @@ export class SftpService {
     async initializeSftpSession(sessionId: string): Promise<void> {
         const state = this.clientStates.get(sessionId);
         if (!state?.sshClient) throw new Error(`会话 ${sessionId} 的 SSH 连接不可用`);
-        if (state.sftp) return;
+        if (state.sftp) {
+            // 通道已就绪：前端可能因为某个操作级错误把状态置为未就绪，
+            // 必须重新告知 sftp_ready，否则前端会一直卡在“SFTP 未就绪”。
+            if (state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({ type: 'sftp_ready', payload: { connectionId: state.dbConnectionId } }));
+            }
+            return;
+        }
         const pendingInitialization = this.initializationPromises.get(sessionId);
         if (pendingInitialization) return pendingInitialization;
 
@@ -350,6 +393,7 @@ export class SftpService {
                     sftpInstance.on('end', () => markUnavailable('SFTP 会话已结束'));
                     sftpInstance.on('close', () => markUnavailable('SFTP 会话已关闭'));
                     sftpInstance.on('error', (sftpErr: Error) => markUnavailable('SFTP 会话错误', sftpErr));
+                    this.healthFailures.delete(sessionId);
                     this.startHealthMonitoring(sessionId);
                     finish();
                 }
@@ -378,6 +422,8 @@ export class SftpService {
         this.stopHealthMonitoring(sessionId);
         this.recoveryTokens.delete(sessionId);
         this.activeSessionActivities.delete(sessionId);
+        this.healthFailures.delete(sessionId);
+        this.timeoutProbes.delete(sessionId);
         const state = this.clientStates.get(sessionId);
         if (state?.sftp) {
             console.log(`[SFTP] 正在清理 ${sessionId} 的 SFTP 会话...`);
