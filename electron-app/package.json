@@ -96,6 +96,8 @@
       ],
       "icon": "build/icon.png",
       "category": "public.app-category.developer-tools",
+      "bundleShortVersion": "0.9.22",
+      "bundleVersion": "0.9.22.45",
       "artifactName": "${productName}-0.9.22.45-macOS-${arch}.${ext}"
     },
     "nsis": {

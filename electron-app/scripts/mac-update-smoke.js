@@ -70,11 +70,13 @@ const context = {
     const plist = path.join(app, 'Contents', 'Info.plist');
     const read = key => execFileSync('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, plist]).toString().trim();
     const shortVersion = read('CFBundleShortVersionString');
+    const bundleVersion = read('CFBundleVersion');
     const executable = read('CFBundleExecutable');
-    console.log(`app ${apps[0]} version ${shortVersion}, executable ${executable}`);
-    annotate('notice', `${arch} DMG has ${apps[0]} version ${shortVersion}`);
-    if (!version.startsWith(shortVersion) && shortVersion !== version) {
-      throw new Error(`app version ${shortVersion} does not match release ${version}`);
+    console.log(`app ${apps[0]} version ${shortVersion} (${bundleVersion}), executable ${executable}`);
+    annotate('notice', `${arch} DMG has ${apps[0]} version ${shortVersion} (build ${bundleVersion})`);
+    if (bundleVersion !== version) throw new Error(`CFBundleVersion ${bundleVersion} does not match release ${version}`);
+    if (!/^\d+\.\d+\.\d+$/.test(shortVersion) || !version.startsWith(`${shortVersion}.`)) {
+      annotate('warning', `${arch} CFBundleShortVersionString is ${shortVersion}; Finder/About will show that instead of ${version}`);
     }
     const binary = path.join(app, 'Contents', 'MacOS', executable);
     const fileInfo = execFileSync('file', [binary]).toString().trim();
