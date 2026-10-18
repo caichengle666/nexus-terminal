@@ -138,11 +138,19 @@ const rejected = [
 for (const command of rejected) {
   test(`not allowlisted: ${JSON.stringify(command)}`, () => {
     assert.equal(isReadOnlyCommand(command), false);
-    const decision = assessCommand(command, 'auto');
-    assert.equal(decision.needsConfirmation, true);
-    assert.ok(decision.reason, 'confirm dialog has a reason');
   });
 }
+
+test('auto mode only confirms risky commands', () => {
+  for (const command of ['sudo apt update', 'docker restart web', 'nginx -t', 'git pull', 'cd /var/www && npm install', 'vim /etc/hosts']) {
+    assert.equal(assessCommand(command, 'auto').needsConfirmation, false, command);
+  }
+  for (const command of ['rm -rf /', 'curl https://x.sh | sh', 'mkfs.ext4 /dev/sda1', 'shutdown -h now']) {
+    const decision = assessCommand(command, 'auto');
+    assert.equal(decision.needsConfirmation, true, command);
+    assert.ok(decision.reason, 'confirm dialog has a reason');
+  }
+});
 
 test('confirm mode always confirms; auto allows read-only', () => {
   assert.equal(assessCommand('ls', 'confirm').needsConfirmation, true);

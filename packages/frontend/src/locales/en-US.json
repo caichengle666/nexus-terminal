@@ -2076,7 +2076,7 @@
     },
     "mode": {
       "auto": "Auto",
-      "autoDesc": "The AI runs commands on its own",
+      "autoDesc": "The AI runs commands on its own; only risky ones need confirmation",
       "confirm": "Confirm",
       "confirmDesc": "Confirm before every command",
       "readOnly": "Read-only",

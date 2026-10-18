@@ -456,16 +456,21 @@ export type CommandAssessment = {
  * Decide whether executing `command` needs confirmation in the given run mode.
  * - readOnly: callers block execution entirely (reported here as needing confirmation).
  * - confirm: always confirm.
- * - auto: run without confirmation only when allowlisted read-only and not risky.
+ * - auto: run without confirmation unless the command matches a risky pattern.
  */
 export const assessCommand = (command: string, runMode: AiRunMode): CommandAssessment => {
   const risk = detectCommandRisk(command);
   const notReadOnly = explainNotReadOnly(command);
   const readOnly = notReadOnly === null && !risk;
+  const unknowable = /[\x00-\x1f\x7f]/.test(String(command ?? ''));
   return {
-    needsConfirmation: runMode !== 'auto' || !readOnly,
+    // Auto mode: the user chose to let the AI run commands itself, so only
+    // commands matching a risky pattern still ask for confirmation.
+    // Control characters (tab completion, history recall, escape sequences) make
+    // the line that actually runs unknowable, so those are still confirmed too.
+    needsConfirmation: runMode !== 'auto' || !!risk || unknowable,
     risk,
-    reason: risk?.reason || (runMode === 'auto' && notReadOnly ? `自动模式仅免确认执行只读命令：${notReadOnly}` : undefined),
+    reason: risk?.reason || (runMode === 'auto' && unknowable ? notReadOnly || undefined : undefined),
     readOnly,
   };
 };

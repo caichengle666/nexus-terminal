@@ -2076,7 +2076,7 @@
     },
     "mode": {
       "auto": "自动",
-      "autoDesc": "由 AI 自主执行",
+      "autoDesc": "由 AI 自主执行，仅危险命令需确认",
       "confirm": "确认",
       "confirmDesc": "每次执行前确认",
       "readOnly": "只读",
