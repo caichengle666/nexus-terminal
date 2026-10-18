@@ -534,7 +534,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="relative flex h-full w-full overflow-hidden">
     <!-- Left Sidebar Buttons -->
-    <div class="flex flex-col bg-sidebar py-1 z-10 flex-shrink-0 border-r border-border" v-if="isRootRenderer && sidebarPanes.left.length > 0">
+    <div class="workspace-sidebar-strip is-left flex flex-col bg-sidebar py-1 z-10 flex-shrink-0 border-r border-border" v-if="isRootRenderer && sidebarPanes.left.length > 0">
         <button
             v-for="pane in sidebarPanes.left"
             :key="`left-${pane}`"
@@ -586,8 +586,12 @@ onBeforeUnmount(() => {
                    <div
                         class="terminal-pane-container relative flex-grow overflow-hidden"
                         :class="{ 'has-global-terminal-background': hasTerminalBackgroundContent, 'bg-background': !hasTerminalBackgroundContent }"
+                        :style="{ '--nx-terminal-theme-bg': currentTerminalTheme.background || '#000000' }"
                     >
-                        <!-- Shared Background Layers -->
+                        <!-- Shared Background Layers
+                             层级 (自下而上): 背景图片 z0 → 自定义 HTML z1 → 暗化蒙版 z2 → 终端实例 z3。
+                             蒙版位于图片和 HTML 之上，因此对两者同时生效；同时存在图片与 HTML 时，
+                             HTML 层以半透明方式叠加，避免完全遮住背景图片。 -->
                         <div
                             v-if="hasTerminalBackgroundContent"
                             class="shared-terminal-background-layers"
@@ -598,23 +602,24 @@ onBeforeUnmount(() => {
                                 class="terminal-background-image-layer"
                                 :style="terminalBackgroundImageStyle"
                             ></div>
-                            <!-- Color Overlay -->
-                            <div
-                                v-if="terminalBackgroundImage"
-                                class="terminal-background-overlay-layer"
-                               :style="{
-                                   position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
-                                   backgroundColor: `rgba(0, 0, 0, ${currentTerminalBackgroundOverlayOpacity})`,
-                                   zIndex: 1, pointerEvents: 'none'
-                               }"
-                           ></div>
                            <!-- Custom HTML -->
                            <div
                                ref="customHtmlLayerRef"
                                v-if="terminalCustomHTML"
                                class="terminal-custom-html-layer"
-                               style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2;"
+                               :class="{ 'is-over-image': Boolean(terminalBackgroundImage) }"
+                               style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;"
                                v-html="terminalCustomHTML"
+                           ></div>
+                            <!-- Dim Overlay (applies to both image and HTML) -->
+                            <div
+                                v-if="currentTerminalBackgroundOverlayOpacity > 0"
+                                class="terminal-background-overlay-layer"
+                               :style="{
+                                   position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
+                                   backgroundColor: `rgba(0, 0, 0, ${currentTerminalBackgroundOverlayOpacity})`,
+                                   zIndex: 2, pointerEvents: 'none'
+                               }"
                            ></div>
                        </div>
 
@@ -712,7 +717,7 @@ onBeforeUnmount(() => {
 
     <!-- Left Sidebar Panel -->
     <div ref="leftSidebarPanelRef"
-         :class="['fixed top-0 bottom-0 left-0 max-w-[80vw] bg-background z-[110] transition-transform duration-300 ease-in-out flex flex-col overflow-hidden border-r border-border',
+         :class="['workspace-sidebar-drawer fixed top-0 bottom-0 left-0 max-w-[80vw] bg-background z-[110] transition-transform duration-300 ease-in-out flex flex-col overflow-hidden border-r border-border',
                   {'translate-x-0': !!activeLeftSidebarPane, '-translate-x-full': !activeLeftSidebarPane}]"
          :style="{ width: getSidebarPaneWidth(activeLeftSidebarPane) }">
         <div ref="leftResizeHandleRef" class="absolute top-0 bottom-0 w-2 cursor-col-resize z-[120] bg-transparent transition-colors duration-200 ease-in-out hover:bg-primary-light right-[-4px]"></div>
@@ -744,7 +749,7 @@ onBeforeUnmount(() => {
 
     <!-- Right Sidebar Panel -->
      <div ref="rightSidebarPanelRef"
-          :class="['fixed top-0 bottom-0 right-0 max-w-[80vw] bg-background z-[110] transition-transform duration-300 ease-in-out flex flex-col overflow-hidden border-l border-border',
+          :class="['workspace-sidebar-drawer fixed top-0 bottom-0 right-0 max-w-[80vw] bg-background z-[110] transition-transform duration-300 ease-in-out flex flex-col overflow-hidden border-l border-border',
                    {'translate-x-0': !!activeRightSidebarPane, 'translate-x-full': !activeRightSidebarPane}]"
           :style="{ width: getSidebarPaneWidth(activeRightSidebarPane) }">
         <div ref="rightResizeHandleRef" class="absolute top-0 bottom-0 w-2 cursor-col-resize z-[120] bg-transparent transition-colors duration-200 ease-in-out hover:bg-primary-light left-[-4px]"></div>
@@ -774,7 +779,7 @@ onBeforeUnmount(() => {
     </div>
 
      <!-- Right Sidebar Buttons -->
-    <div class="flex flex-col bg-sidebar py-1 z-10 flex-shrink-0 border-l border-border" v-if="isRootRenderer && sidebarPanes.right.length > 0">
+    <div class="workspace-sidebar-strip is-right flex flex-col bg-sidebar py-1 z-10 flex-shrink-0 border-l border-border" v-if="isRootRenderer && sidebarPanes.right.length > 0">
          <button
              v-for="pane in sidebarPanes.right"
             :key="`right-${pane}`"
@@ -867,6 +872,11 @@ onBeforeUnmount(() => {
 
 .splitpanes.layout-locked .splitpanes__splitter:hover {
   background-color: var(--border-color) !important; /* Override hover effect */
+}
+
+/* 同时设置了背景图片与自定义 HTML 时，HTML 半透明叠加在图片上，避免图片被完全遮住 */
+.terminal-custom-html-layer.is-over-image {
+  opacity: 0.6;
 }
 
 .terminal-pane-container.has-global-terminal-background .terminal-outer-wrapper.terminal-transparent {

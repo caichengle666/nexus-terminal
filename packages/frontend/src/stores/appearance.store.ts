@@ -769,13 +769,25 @@ export const useAppearanceStore = defineStore('appearance', () => {
      * 将 UI 主题 (CSS 变量) 应用到文档根元素。
      * @param theme 要应用的 UI 主题对象。
      */
+    const appliedUiThemeKeys = new Set<string>();
     function applyUiTheme(theme: Record<string, string>) {
         const root = document.documentElement;
-        // 先移除可能存在的旧变量（可选，但更干净）
-        // Object.keys(defaultUiTheme).forEach(key => root.style.removeProperty(key));
+        // 移除上一个主题设置过、但新主题中不存在的变量 (例如从毛玻璃主题切回实色主题时的 --glass-* / --ui-effect)
+        for (const key of appliedUiThemeKeys) {
+            if (!(key in theme)) root.style.removeProperty(key);
+        }
+        appliedUiThemeKeys.clear();
         // 应用新变量
         for (const [key, value] of Object.entries(theme)) {
             root.style.setProperty(key, value);
+            appliedUiThemeKeys.add(key);
+        }
+        // 界面特效标记：主题包含 '--ui-effect': 'glass' 时启用毛玻璃样式 (html[data-ui-effect="glass"])
+        const uiEffect = (theme['--ui-effect'] || '').trim();
+        if (uiEffect) {
+            root.dataset.uiEffect = uiEffect;
+        } else {
+            delete root.dataset.uiEffect;
         }
         const electronApi = (window as typeof window & {
             electronAPI?: { updateFloatingNotificationBellTheme?: (bellTheme: Record<string, string>) => void };
@@ -783,7 +795,8 @@ export const useAppearanceStore = defineStore('appearance', () => {
         if (electronApi?.updateFloatingNotificationBellTheme) {
             const computed = getComputedStyle(root);
             electronApi.updateFloatingNotificationBellTheme({
-                background: computed.getPropertyValue('--app-bg-color').trim(),
+                // 毛玻璃主题的 --app-bg-color 是半透明的，悬浮铃铛窗口改用更实的玻璃底色
+                background: (uiEffect === 'glass' && computed.getPropertyValue('--glass-surface-strong').trim()) || computed.getPropertyValue('--app-bg-color').trim(),
                 foreground: computed.getPropertyValue('--text-color').trim(),
                 border: computed.getPropertyValue('--border-color').trim(),
                 accent: computed.getPropertyValue('--link-active-color').trim(),
@@ -840,8 +853,8 @@ export const useAppearanceStore = defineStore('appearance', () => {
                 }
             });
         } else {
-            // 如果没有设置背景图片，则清除背景
-            body.style.backgroundImage = 'none';
+            // 如果没有设置背景图片，则清除内联背景，交由样式表决定 (毛玻璃主题会提供默认渐变背景)
+            body.style.removeProperty('background-image');
             console.log(`[AppearanceStore applyPageBackground] Cleared background image.`);
         }
          // 注意：直接设置 body 透明度会影响所有子元素，通常不建议。

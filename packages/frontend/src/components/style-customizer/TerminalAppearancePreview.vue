@@ -80,15 +80,17 @@ const terminalStyle = computed<CSSProperties>(() => ({
       class="relative h-[150px] overflow-hidden bg-cover bg-center bg-no-repeat md:h-[180px]"
       :style="{ backgroundColor: resolvedTheme.background, backgroundImage: resolvedBackgroundImage }"
     >
-      <div
-        v-if="hasBackgroundImage"
-        class="absolute inset-0 z-[1]"
-        :style="{ backgroundColor: `rgba(0, 0, 0, ${overlayOpacity})` }"
-      ></div>
+      <!-- 与 LayoutRenderer 一致：图片 → 自定义 HTML (有图片时半透明) → 暗化蒙版 → 终端文字 -->
       <div
         v-if="hasCustomHtml"
-        class="pointer-events-none absolute inset-0 z-[2] overflow-hidden"
+        class="pointer-events-none absolute inset-0 z-[1] overflow-hidden"
+        :class="{ 'opacity-60': hasBackgroundImage }"
         v-html="customHtml"
+      ></div>
+      <div
+        v-if="hasBackgroundContent && overlayOpacity > 0"
+        class="absolute inset-0 z-[2]"
+        :style="{ backgroundColor: `rgba(0, 0, 0, ${overlayOpacity})` }"
       ></div>
       <div class="absolute inset-0 z-[3] select-none overflow-hidden p-4 leading-relaxed" :style="terminalStyle">
         <div><span :style="{ color: resolvedTheme.green }">root@nexus-terminal</span>:<span :style="{ color: resolvedTheme.blue }">~</span># systemctl status ssh</div>

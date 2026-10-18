@@ -130,6 +130,7 @@
     "darkModeApplied": "黑暗模式已应用",
     "darkModeApplyFailed": "应用黑暗模式失败: {message}",
     "terminalBgOverlayOpacity": "终端背景蒙版透明度:",
+    "terminalBgImageAndHtmlHint": "同时设置了背景图片和自定义 HTML 时，HTML 会半透明叠加在图片上；蒙版会同时作用于图片和 HTML。",
     "terminalBgOverlayOpacityDesc": "控制背景图片上方黑色蒙版的透明度。0为完全透明，1为完全不透明。",
     "errorInvalidOpacityValue": "无效的透明度值，必须在0到1之间",
     "terminalBgOverlayOpacitySaved": "终端背景蒙版透明度已保存",

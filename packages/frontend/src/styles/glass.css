@@ -1,0 +1,328 @@
+/*
+ * 毛玻璃 (Glass) 界面效果
+ *
+ * 仅在 UI 主题包含 '--ui-effect': 'glass' 时生效 —— appearance.store 的 applyUiTheme
+ * 会据此给 <html> 加上 data-ui-effect="glass"。其它主题完全不受影响。
+ *
+ * 设计原则：
+ *  1. 页面背景只有一层：body。未设置页面背景图时使用主题变量 --glass-backdrop 的渐变，
+ *     设置了页面背景图时 (body 内联 background-image) 直接透出图片。
+ *  2. 应用外壳 (#app-container / main / 布局容器 / splitpanes) 全部透明。
+ *  3. 只有“区域”才是玻璃面板：顶部导航、工作区标签栏、叶子布局面板、侧栏按钮条、侧边栏抽屉、
+ *     页面卡片；弹出层 (弹窗、下拉、右键菜单、Element Plus 弹层) 使用更实的玻璃。
+ *  4. 玻璃底色与 backdrop-filter 画在 ::before 伪元素 (z-index: -1) 上，而不是元素本身：
+ *     元素本身带 backdrop-filter 会成为 position: fixed 子元素的包含块，导致面板内的
+ *     右键菜单 / 弹窗被错误定位或裁剪；同理也不给区域加 isolation / z-index，
+ *     以免把面板内弹层的 z-index 困在面板的层叠上下文里。
+ *  5. 区域内部的 bg-background 变透明、bg-header* 变为极淡的提亮层，避免多层半透明叠加发灰，
+ *     也避免 backdrop-filter 嵌套。
+ *
+ * 主题变量 (见 default-themes.ts 中 glass-dark / glass-light):
+ *   --glass-backdrop --glass-base-color --glass-surface --glass-surface-strong --glass-inner
+ *   --glass-field --glass-border --glass-highlight --glass-shadow --glass-blur --glass-saturate
+ *   --glass-terminal-alpha
+ */
+
+html[data-ui-effect="glass"] {
+  --glass-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 160%));
+  --glass-radius: 12px;
+}
+
+/* ---------- 1. 背景 ---------- */
+html[data-ui-effect="glass"] body {
+  background-color: var(--glass-base-color, #0b1220);
+  /* 页面背景图通过 body 内联样式设置，优先级高于这里的默认渐变 */
+  background-image: var(--glass-backdrop, linear-gradient(160deg, #0b1220 0%, #0d1526 45%, #0a0f1c 100%));
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* ---------- 2. 外壳透明 ---------- */
+html[data-ui-effect="glass"] #app,
+html[data-ui-effect="glass"] #app-container,
+html[data-ui-effect="glass"] #app-container > main,
+html[data-ui-effect="glass"] .workspace-view,
+html[data-ui-effect="glass"] .main-content-area,
+html[data-ui-effect="glass"] .layout-renderer-wrapper,
+html[data-ui-effect="glass"] .splitpanes,
+html[data-ui-effect="glass"] .splitpanes.default-theme .splitpanes__pane {
+  background-color: transparent !important;
+}
+
+/* 默认：bg-background 透明，bg-header* 变为极淡提亮层；只有下面列出的区域 / 弹层才有玻璃底 */
+html[data-ui-effect="glass"] .bg-background {
+  background-color: transparent;
+}
+html[data-ui-effect="glass"] :is(.bg-header, [class*="bg-header/"]) {
+  background-color: var(--glass-inner);
+}
+
+/* 分割条：透明，悬停时显示强调色 */
+html[data-ui-effect="glass"] .splitpanes.default-theme .splitpanes__splitter {
+  background-color: transparent !important;
+  border-color: transparent !important;
+}
+html[data-ui-effect="glass"] .splitpanes.default-theme .splitpanes__splitter:hover {
+  background-color: color-mix(in srgb, var(--link-active-color) 55%, transparent) !important;
+}
+
+/* ---------- 3. 玻璃区域 ---------- */
+html[data-ui-effect="glass"] body :is(
+  header.electron-titlebar,
+  .workspace-view > :first-child,
+  .splitpanes__pane:not(:has(.splitpanes__pane)),
+  .workspace-sidebar-strip,
+  .workspace-sidebar-drawer,
+  .glass-card
+) {
+  background-color: transparent !important;
+  border-color: var(--glass-border) !important;
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+}
+html[data-ui-effect="glass"] body :is(
+  .workspace-view > :first-child,
+  .splitpanes__pane:not(:has(.splitpanes__pane)),
+  .workspace-sidebar-strip,
+  .glass-card
+) {
+  position: relative;
+}
+html[data-ui-effect="glass"] body :is(
+  header.electron-titlebar,
+  .workspace-view > :first-child,
+  .splitpanes__pane:not(:has(.splitpanes__pane)),
+  .workspace-sidebar-strip,
+  .workspace-sidebar-drawer,
+  .glass-card
+)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background-color: var(--glass-surface);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+
+/* 顶部导航：贴边，只保留底部细线和内高光 */
+html[data-ui-effect="glass"] body header.electron-titlebar {
+  box-shadow: inset 0 -1px 0 var(--glass-border), inset 0 1px 0 var(--glass-highlight);
+  border-bottom-color: transparent !important;
+}
+
+/* 工作区：面板之间留缝、圆角，形成悬浮的玻璃卡片 */
+html[data-ui-effect="glass"] .workspace-view {
+  padding-bottom: 6px;
+}
+html[data-ui-effect="glass"] body .splitpanes__pane:not(:has(.splitpanes__pane)) {
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius);
+  overflow: hidden;
+}
+html[data-ui-effect="glass"] .layout-renderer-wrapper .splitpanes--vertical > .splitpanes__splitter {
+  width: 6px !important;
+  min-width: 6px !important;
+  margin: 0 !important;
+}
+html[data-ui-effect="glass"] .layout-renderer-wrapper .splitpanes__splitter::before {
+  background-color: transparent !important;
+}
+html[data-ui-effect="glass"] .layout-renderer-wrapper .splitpanes--horizontal > .splitpanes__splitter {
+  height: 6px !important;
+  min-height: 6px !important;
+  margin: 0 !important;
+}
+html[data-ui-effect="glass"] body .workspace-sidebar-strip {
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius);
+  margin: 0 6px 0 8px;
+}
+html[data-ui-effect="glass"] body .workspace-sidebar-strip.is-right {
+  margin: 0 8px 0 6px;
+}
+
+/* 区域内部：不再叠加底色 */
+html[data-ui-effect="glass"] :is(
+  header.electron-titlebar,
+  .workspace-view > :first-child,
+  .splitpanes__pane:not(:has(.splitpanes__pane)),
+  .workspace-sidebar-strip,
+  .workspace-sidebar-drawer,
+  .glass-card
+) .bg-background:not(.terminal-pane-container):not(.fixed):not(.absolute) {
+  background-color: transparent !important;
+}
+
+/* ---------- 4. 页面卡片 (仪表盘 / 设置 / 管理页) ---------- */
+html[data-ui-effect="glass"] #app-container > main :is(.rounded-lg, .rounded-xl).border:is(.shadow, .shadow-sm, .shadow-md):not(.workspace-view *):not(.fixed *):not(.fixed) {
+  position: relative;
+  background-color: transparent;
+  border-color: var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+  border-radius: var(--glass-radius);
+}
+html[data-ui-effect="glass"] #app-container > main :is(.rounded-lg, .rounded-xl).border:is(.shadow, .shadow-sm, .shadow-md):not(.workspace-view *):not(.fixed *):not(.fixed)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background-color: var(--glass-surface);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+/* 卡片里的卡片：只做极淡提亮，不再模糊 */
+html[data-ui-effect="glass"] #app-container > main :is(.rounded-lg, .rounded-xl).border:is(.shadow, .shadow-sm, .shadow-md) :is(.rounded-lg, .rounded-xl).border:is(.shadow, .shadow-sm, .shadow-md) {
+  background-color: var(--glass-inner);
+  box-shadow: none;
+}
+html[data-ui-effect="glass"] #app-container > main :is(.rounded-lg, .rounded-xl).border:is(.shadow, .shadow-sm, .shadow-md) :is(.rounded-lg, .rounded-xl).border:is(.shadow, .shadow-sm, .shadow-md)::before {
+  content: none;
+}
+/* 设置页等顶部的吸顶标签栏 */
+html[data-ui-effect="glass"] #app-container > main .sticky.bg-background {
+  background-color: transparent;
+}
+
+/* ---------- 5. 弹出层：弹窗 / 下拉 / 右键菜单 / Element Plus ---------- */
+html[data-ui-effect="glass"] body :is(
+  .glass-float,
+  .fixed.inset-0 > :is(.bg-background, .bg-header),
+  .bg-background:is(.shadow-lg, .shadow-xl, .shadow-2xl),
+  :is(.absolute, .fixed):is(.bg-background, .bg-header)[class*="shadow"],
+  .file-manager-context-menu
+) {
+  background-color: transparent !important;
+  border-color: var(--glass-border) !important;
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 18px 50px rgba(0, 0, 0, 0.35) !important;
+}
+html[data-ui-effect="glass"] body :is(
+  .glass-float,
+  .fixed.inset-0 > :is(.bg-background, .bg-header),
+  .bg-background:is(.shadow-lg, .shadow-xl, .shadow-2xl)
+):not(.absolute):not(.fixed):not(.sticky) {
+  position: relative;
+}
+html[data-ui-effect="glass"] body :is(
+  .glass-float,
+  .fixed.inset-0 > :is(.bg-background, .bg-header),
+  .bg-background:is(.shadow-lg, .shadow-xl, .shadow-2xl),
+  :is(.absolute, .fixed):is(.bg-background, .bg-header)[class*="shadow"],
+  .file-manager-context-menu
+)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background-color: var(--glass-surface-strong);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+html[data-ui-effect="glass"] :is(.el-popper, .el-dialog, .el-message-box) {
+  background-color: var(--glass-surface-strong) !important;
+  border-color: var(--glass-border) !important;
+}
+html[data-ui-effect="glass"] .el-popper .el-popper__arrow::before {
+  background: var(--glass-surface-strong) !important;
+  border-color: var(--glass-border) !important;
+}
+/* 弹层内部不叠加底色 */
+html[data-ui-effect="glass"] :is(
+  .glass-float,
+  .fixed.inset-0 > :is(.bg-background, .bg-header),
+  .bg-background:is(.shadow-lg, .shadow-xl, .shadow-2xl),
+  .file-manager-context-menu
+) .bg-background:not(.fixed):not(.absolute) {
+  background-color: transparent !important;
+}
+
+/* 遮罩：轻微模糊背后的界面 (遮罩本身铺满视口，不影响内部 fixed 元素定位) */
+html[data-ui-effect="glass"] .fixed.inset-0.bg-overlay {
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
+  backdrop-filter: blur(6px) saturate(120%);
+}
+
+/* ---------- 6. 表单控件 ---------- */
+html[data-ui-effect="glass"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), select, textarea):not(.xterm-helper-textarea):not(.inputarea) {
+  background-color: var(--glass-field) !important;
+  border-color: var(--glass-border);
+  color: var(--text-color);
+}
+html[data-ui-effect="glass"] select option {
+  background-color: var(--glass-base-color);
+  color: var(--text-color);
+}
+html[data-ui-effect="glass"] :is(.el-input__wrapper, .el-select__wrapper, .el-textarea__inner) {
+  background-color: var(--glass-field) !important;
+}
+
+/* 吸顶表头需要较实的底色，否则滚动内容会穿透 */
+html[data-ui-effect="glass"] :is(thead.sticky, thead .sticky, th.sticky, .sticky.top-0):is(.bg-background, .bg-header, [class*="bg-header/"]) {
+  background-color: var(--glass-surface-strong) !important;
+}
+
+/* 滚动条 */
+html[data-ui-effect="glass"] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+html[data-ui-effect="glass"] ::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--text-color) 24%, transparent);
+  border-color: transparent;
+  background-clip: padding-box;
+}
+
+/* ---------- 7. 终端 ---------- */
+/* 没有终端背景图 / 自定义 HTML 时：终端区域使用更深的半透明底色 (取自当前终端主题背景色)，保证文字可读 */
+html[data-ui-effect="glass"] body .terminal-pane-container:not(.has-global-terminal-background) {
+  background-color: color-mix(in srgb, var(--nx-terminal-theme-bg, #0a0e16) var(--glass-terminal-alpha, 76%), transparent) !important;
+}
+html[data-ui-effect="glass"] .terminal-pane-container:not(.has-global-terminal-background) .terminal-outer-wrapper,
+html[data-ui-effect="glass"] .terminal-pane-container:not(.has-global-terminal-background) .terminal-inner-container .xterm,
+html[data-ui-effect="glass"] .terminal-pane-container:not(.has-global-terminal-background) .terminal-inner-container .xterm-viewport,
+html[data-ui-effect="glass"] .terminal-pane-container:not(.has-global-terminal-background) .terminal-inner-container .xterm-screen,
+html[data-ui-effect="glass"] .terminal-pane-container:not(.has-global-terminal-background) .terminal-inner-container .xterm-scrollable-element {
+  background-color: transparent !important;
+}
+/* 承载终端的面板只保留模糊，底色完全由终端色调提供，避免两层半透明叠加 */
+html[data-ui-effect="glass"] body .splitpanes__pane:not(:has(.splitpanes__pane)):has(.terminal-pane-container)::before {
+  background-color: transparent;
+}
+
+/* ---------- 8. 无障碍：用户要求减少透明度时退回实色 ---------- */
+@media (prefers-reduced-transparency: reduce) {
+  html[data-ui-effect="glass"] body :is(
+    header.electron-titlebar,
+    .workspace-view > :first-child,
+    .splitpanes__pane:not(:has(.splitpanes__pane)),
+    .workspace-sidebar-strip,
+    .workspace-sidebar-drawer,
+    .glass-card
+  )::before,
+  html[data-ui-effect="glass"] #app-container > main :is(.rounded-lg, .rounded-xl).border:is(.shadow, .shadow-sm, .shadow-md)::before {
+    background-color: var(--glass-base-color);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  html[data-ui-effect="glass"] body :is(
+    .glass-float,
+    .fixed.inset-0 > :is(.bg-background, .bg-header),
+    .bg-background:is(.shadow-lg, .shadow-xl, .shadow-2xl),
+    :is(.absolute, .fixed):is(.bg-background, .bg-header)[class*="shadow"],
+    .file-manager-context-menu
+  )::before {
+    background-color: var(--glass-base-color);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  html[data-ui-effect="glass"] body .terminal-pane-container:not(.has-global-terminal-background) {
+    background-color: var(--nx-terminal-theme-bg, #0a0e16) !important;
+  }
+}

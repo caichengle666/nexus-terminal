@@ -131,6 +131,7 @@
     "darkModeApplied": "Dark mode applied",
     "darkModeApplyFailed": "Failed to apply dark mode: {message}",
     "terminalBgOverlayOpacity": "Terminal Background Overlay Opacity:",
+    "terminalBgImageAndHtmlHint": "When both a background image and custom HTML are set, the HTML is layered semi-transparently over the image; the overlay dims both.",
     "terminalBgOverlayOpacityDesc": "Controls the opacity of the black overlay on top of the background image. 0 is fully transparent, 1 is fully opaque.",
     "errorInvalidOpacityValue": "Invalid opacity value. Must be between 0 and 1.",
     "terminalBgOverlayOpacitySaved": "Terminal background overlay opacity saved.",

@@ -114,6 +114,7 @@
     "darkModeApplied": "ダークモードを適用しました",
     "darkModeApplyFailed": "ダークモードの適用に失敗しました: {message}",
     "terminalBgOverlayOpacity": "ターミナル背景オーバーレイの不透明度:",
+    "terminalBgImageAndHtmlHint": "背景画像とカスタム HTML を両方設定した場合、HTML は画像の上に半透明で重なり、オーバーレイは両方に適用されます。",
     "terminalBgOverlayOpacityDesc": "背景画像の上に重ねる黒いオーバーレイの不透明度です。0 は完全に透明、1 は完全に不透明です。",
     "errorInvalidOpacityValue": "不透明度が無効です。0 から 1 の間で指定してください。",
     "terminalBgOverlayOpacitySaved": "ターミナル背景オーバーレイの不透明度を保存しました。",

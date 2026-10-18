@@ -273,7 +273,7 @@ const createCustomUiTheme = () => {
     key: `custom-${Date.now()}`,
     name,
     description: t('styleCustomizer.customThemeDescription', '由用户创建的自定义界面主题'),
-    mode: /#(?:0{2,}|[0-3][0-9a-f]{5})/i.test(editableUiTheme.value['--app-bg-color'] || '') ? 'dark' : 'light',
+    mode: /#(?:0{2,}|[0-3][0-9a-f]{5})/i.test(editableUiTheme.value['--glass-base-color'] || editableUiTheme.value['--app-bg-color'] || '') ? 'dark' : 'light',
     theme: JSON.parse(JSON.stringify(editableUiTheme.value)),
   };
   customUiThemes.value.push(theme);
@@ -296,7 +296,8 @@ const isPresetActive = (preset: UiThemePreset) => {
 };
 
 const getPresetSwatches = (preset: UiThemePreset) => [
-  preset.theme['--app-bg-color'],
+  // 毛玻璃主题的背景色是半透明的，色块改用其底色展示
+  preset.theme['--glass-base-color'] || preset.theme['--app-bg-color'],
   preset.theme['--header-bg-color'],
   preset.theme['--link-active-color'],
   preset.theme['--button-bg-color'],

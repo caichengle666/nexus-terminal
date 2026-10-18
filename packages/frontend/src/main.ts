@@ -12,6 +12,7 @@ import '@fortawesome/fontawesome-free/css/all.min.css';
 import 'splitpanes/dist/splitpanes.css';
 import ElementPlus from 'element-plus';
 import 'element-plus/dist/index.css';
+import './styles/glass.css'; // 毛玻璃主题样式，仅在 html[data-ui-effect="glass"] 下生效
 
 
 const updateBootStatus = (message: string) => {

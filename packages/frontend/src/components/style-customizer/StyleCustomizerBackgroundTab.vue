@@ -541,6 +541,9 @@ onUnmounted(cancelTerminalStylePreview);
             <span class="text-sm text-foreground min-w-[3em] text-right">{{ editableTerminalBackgroundOverlayOpacity.toFixed(2) }}</span>
         </div>
      </div>
+     <p v-if="previewTerminalBackgroundImage && previewTerminalCustomHTML" class="mt-3 mb-0 text-xs text-text-secondary leading-relaxed">
+        <i class="fas fa-info-circle mr-1" aria-hidden="true"></i>{{ t('styleCustomizer.terminalBgImageAndHtmlHint') }}
+     </p>
      <!-- Old custom HTML textarea is removed from here -->
     </div>
     <div v-else class="p-4 text-center text-text-secondary italic border border-dashed border-border/50 rounded-md">
