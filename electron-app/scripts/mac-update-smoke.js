@@ -18,6 +18,9 @@ if (!tag || !['arm64', 'x64'].includes(arch)) {
 const version = tag.replace(/^v/, '');
 const base = `https://github.com/caichengle666/nexus-terminal/releases/download/${tag}/`;
 const filename = `Nexus.Terminal-${version}-macOS-${arch}.dmg`;
+const annotate = (level, message) => {
+  if (process.env.GITHUB_ACTIONS) console.log(`::${level}::${String(message).replace(/\r?\n/g, ' | ')}`);
+};
 const context = {
   agent: null,
   isCancelled: () => false,
@@ -49,11 +52,16 @@ const context = {
 
   const signature = await verifyUpdateSignature(target, 'darwin');
   console.log(`Gatekeeper: ${signature.status} — ${signature.detail}`);
+  annotate('notice', `${arch} SHA-256 OK; Gatekeeper ${signature.status}: ${signature.detail}`);
   if (signature.status === 'invalid') throw new Error('updater would refuse this DMG (invalid signature)');
 
   const mount = path.join(dir, 'mnt');
   fs.mkdirSync(mount);
-  execFileSync('hdiutil', ['attach', target, '-nobrowse', '-readonly', '-mountpoint', mount], { stdio: 'inherit' });
+  try {
+    execFileSync('hdiutil', ['attach', target, '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mount], { stdio: 'pipe' });
+  } catch (error) {
+    throw new Error(`hdiutil attach failed: ${(error.stderr || error.stdout || error.message).toString().trim()}`);
+  }
   try {
     const apps = fs.readdirSync(mount).filter(name => name.endsWith('.app'));
     console.log(`DMG contents: ${fs.readdirSync(mount).join(', ')}`);
@@ -64,6 +72,7 @@ const context = {
     const shortVersion = read('CFBundleShortVersionString');
     const executable = read('CFBundleExecutable');
     console.log(`app ${apps[0]} version ${shortVersion}, executable ${executable}`);
+    annotate('notice', `${arch} DMG has ${apps[0]} version ${shortVersion}`);
     if (!version.startsWith(shortVersion) && shortVersion !== version) {
       throw new Error(`app version ${shortVersion} does not match release ${version}`);
     }
@@ -83,7 +92,9 @@ const context = {
     execFileSync('hdiutil', ['detach', mount, '-force'], { stdio: 'inherit' });
   }
   console.log('macOS update smoke test passed');
+  annotate('notice', `${arch} macOS update smoke test passed`);
 })().catch(error => {
   console.error(`FAILED: ${error.message}`);
+  annotate('error', `${arch}: ${error.message}`);
   process.exit(1);
 });
