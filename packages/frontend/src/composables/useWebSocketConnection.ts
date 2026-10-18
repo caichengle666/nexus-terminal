@@ -105,6 +105,8 @@ export function createWebSocketConnectionManager(
         if (reconnectAttempts >= maxReconnectAttempts) {
             statusMessage.value = getStatusText('reconnectFailed');
             connectionStatus.value = 'error'; // 标记为错误状态
+            // 通知终端层：自动重连已放弃，需要用户手动 (Enter) 重连
+            dispatchMessage('internal:reconnect-status', { phase: 'exhausted', max: maxReconnectAttempts }, { type: 'internal:reconnect-status' });
             return;
         }
 
@@ -113,6 +115,11 @@ export function createWebSocketConnectionManager(
         const delay = Math.min(Math.pow(2, reconnectAttempts), 30) * 1000;
         statusMessage.value = getStatusText('reconnecting', { attempt: reconnectAttempts, delay: delay / 1000 });
         connectionStatus.value = 'connecting'; // 更新状态为正在连接
+        dispatchMessage(
+            'internal:reconnect-status',
+            { phase: 'auto-retry', attempt: reconnectAttempts, max: maxReconnectAttempts, delay: delay / 1000 },
+            { type: 'internal:reconnect-status' }
+        );
 
         if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId); // 清除旧的定时器
 
@@ -229,7 +236,7 @@ export function createWebSocketConnectionManager(
                     } else if (message.type === 'ssh:disconnected') {
                         if (connectionStatus.value !== 'disconnected') {
                             connectionStatus.value = 'disconnected';
-                            statusMessage.value = getStatusText('disconnected', { reason: message.payload || '未知原因' });
+                            statusMessage.value = getStatusText('disconnected', { reason: message.payload || t('uxTerminal.status.unknownReason') });
                             isSftpReady.value = false; // SSH 断开，SFTP 也应不可用
                         }
                     } else if (message.type === 'ssh:hostkey:mismatch') {
@@ -251,7 +258,7 @@ export function createWebSocketConnectionManager(
                     } else if (message.type === 'ssh:error' || message.type === 'error') {
                         if (connectionStatus.value !== 'disconnected' && connectionStatus.value !== 'error') {
                             connectionStatus.value = 'error';
-                            let errorMsg = message.payload || '未知错误';
+                            let errorMsg = message.payload || t('uxTerminal.unknownError');
                             if (typeof errorMsg === 'object' && errorMsg.message) errorMsg = errorMsg.message;
                             statusMessage.value = getStatusText('error', { message: errorMsg });
                             isSftpReady.value = false;
@@ -275,7 +282,7 @@ export function createWebSocketConnectionManager(
                         isSftpReady.value = false;
                         clearSftpStableReset();
                         if (!intentionalDisconnect && !reconnectInProgress && !sftpReconnectRequested) {
-                            const reason = typeof message.payload?.message === 'string' ? message.payload.message : 'SFTP 健康检测失败';
+                            const reason = typeof message.payload?.message === 'string' ? message.payload.message : t('uxTerminal.status.sftpHealthCheckFailed');
                             if (sftpFullReconnectAttempts >= maxSftpFullReconnectAttempts) {
                                 connectionStatus.value = 'error';
                                 statusMessage.value = reason;
@@ -313,10 +320,8 @@ export function createWebSocketConnectionManager(
                 dispatchMessage('internal:error', event, { type: 'internal:error' });
                 isSftpReady.value = false;
                 ws.value = null; // 清理实例
-                // 如果不是主动断开，尝试重连
-                if (!intentionalDisconnect) {
-                    scheduleReconnect();
-                }
+                // 不在此处安排重连：浏览器在 error 之后总会触发 close (1006)，
+                // 由 onclose 统一调度，避免每次失败重连计数 +2、提前放弃。
             };
 
             ws.value.onclose = (event) => {
@@ -360,7 +365,7 @@ export function createWebSocketConnectionManager(
         if (ws.value) {
             if (connectionStatus.value !== 'disconnected') {
                  connectionStatus.value = 'disconnected';
-                 statusMessage.value = getStatusText('disconnected', { reason: '手动断开' });
+                 statusMessage.value = getStatusText('disconnected', { reason: t('uxTerminal.status.manualDisconnect') });
             }
              ws.value.close(1000, '客户端主动断开'); // 使用标准代码和原因
              ws.value = null;
@@ -397,7 +402,7 @@ export function createWebSocketConnectionManager(
 
         const shouldRequestBackendDisconnect = connectionStatus.value === 'connected';
         connectionStatus.value = 'disconnected';
-        statusMessage.value = getStatusText('disconnected', { reason: '准备重新连接' });
+        statusMessage.value = getStatusText('disconnected', { reason: t('uxTerminal.status.preparingReconnect') });
         dispatchMessage('internal:reconnect-status', { phase: 'disconnecting' }, { type: 'internal:reconnect-status' });
 
         return new Promise<boolean>((resolve) => {
@@ -438,7 +443,7 @@ export function createWebSocketConnectionManager(
                     finish(true);
                 };
 
-                closeTimeoutId = setTimeout(() => fail('旧终端连接未能正常关闭'), 5000);
+                closeTimeoutId = setTimeout(() => fail(t('uxTerminal.status.oldConnectionCloseFailed')), 5000);
                 oldWs.close(1000, '客户端请求重新连接');
             };
 
@@ -451,13 +456,13 @@ export function createWebSocketConnectionManager(
 
             unregisterAck = onMessage('ssh:disconnect:ack', (payload) => {
                 if (!payload?.success) {
-                    fail(payload?.message || '后端未能释放旧终端连接');
+                    fail(payload?.message || t('uxTerminal.status.backendReleaseFailed'));
                     return;
                 }
                 connectAfterClose();
             });
 
-            ackTimeoutId = setTimeout(() => fail('等待旧终端释放超时'), 5000);
+            ackTimeoutId = setTimeout(() => fail(t('uxTerminal.status.releaseTimeout')), 5000);
             oldWs.send(JSON.stringify({ type: 'ssh:disconnect', sessionId: instanceSessionId }));
         });
     };

@@ -68,10 +68,10 @@ const reconnectSession = (event: MouseEvent, sessionId: string) => {
 const confirmCloseSession = async (sessionId: string) => {
   if (aiStore.sessionRuntimes[sessionId]?.isRunning) {
     const confirmed = await showConfirmDialog({
-      title: 'AI 正在操作该终端',
-      message: '该终端有 AI 任务正在运行。关闭终端会同时停止 AI 任务。是否继续？',
-      confirmText: '停止 AI 并关闭',
-      cancelText: '取消',
+      title: t('uxTerminal.aiRunning.title'),
+      message: t('uxTerminal.aiRunning.closeMessage'),
+      confirmText: t('uxTerminal.aiRunning.closeConfirm'),
+      cancelText: t('common.cancel'),
     });
     if (!confirmed) return;
     aiStore.stopRun(sessionId);
@@ -83,10 +83,10 @@ const confirmCloseSession = async (sessionId: string) => {
 const confirmReconnectSession = async (sessionId: string) => {
   if (aiStore.sessionRuntimes[sessionId]?.isRunning) {
     const confirmed = await showConfirmDialog({
-      title: 'AI 正在操作该终端',
-      message: '重新连接会断开当前终端通道，并停止正在运行的 AI 任务。AI 对话上下文会保留。是否继续？',
-      confirmText: '停止 AI 并重连',
-      cancelText: '取消',
+      title: t('uxTerminal.aiRunning.title'),
+      message: t('uxTerminal.aiRunning.reconnectMessage'),
+      confirmText: t('uxTerminal.aiRunning.reconnectConfirm'),
+      cancelText: t('common.cancel'),
     });
     if (!confirmed) return;
     aiStore.stopRun(sessionId);
@@ -346,10 +346,8 @@ onBeforeUnmount(() => {
 const handleSessionsUpdate = (newSessions: SessionTabInfoWithStatus[]) => {
   // v-model handles updating draggableSessions.value automatically
   emit('update:sessions', newSessions);
-  // 保存用户自定义顺序到本地存储
-  const sessionOrder = newSessions.map(session => session.sessionId);
-  localStorage.setItem('sessionOrder', JSON.stringify(sessionOrder));
-  console.log('[TabBar] 已保存用户自定义标签顺序到本地存储');
+  // 写入 store（响应式，并持久化到本地存储），使关闭左/右侧、Alt+上/下等使用最新顺序
+  sessionStore.updateSessionOrder(newSessions.map(session => session.sessionId));
 };
 const toggleHeader = () => {
   if (isWorkspaceRoute.value) {

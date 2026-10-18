@@ -1818,5 +1818,39 @@
     "trustSuccess": "New host key trusted. Reconnecting...",
     "trustFailed": "Failed to update the host key: {error}",
     "newKeyTrusted": "First connection to {target}. Host key fingerprint trusted and saved: {fingerprint}"
+  },
+  "uxTerminal": {
+    "unknownError": "Unknown error",
+    "status": {
+      "unknownReason": "Unknown reason",
+      "manualDisconnect": "Disconnected manually",
+      "preparingReconnect": "Preparing to reconnect",
+      "oldConnectionCloseFailed": "The old terminal connection did not close properly",
+      "backendReleaseFailed": "The server failed to release the old terminal connection",
+      "releaseTimeout": "Timed out waiting for the old terminal to be released",
+      "sftpHealthCheckFailed": "SFTP health check failed"
+    },
+    "terminal": {
+      "sessionResumed": "[Nexus] Network restored. Reattached to the original session{note}.",
+      "resumedTruncatedNote": " (too much output while disconnected; only the most recent part was kept)",
+      "reconnectSucceeded": "[Nexus] Terminal reconnected.",
+      "reconnectedNewSession": "[Nexus] Reconnected. The original session expired, so a new session was started.",
+      "closingOldConnection": "[Nexus] Closing the old terminal connection...",
+      "oldConnectionReleased": "[Nexus] Old connection released. Reconnecting...",
+      "reconnectFailed": "[Nexus] Reconnect failed: {message}",
+      "connectionLostReconnecting": "[Nexus] Connection lost. Reconnecting in {delay}s ({attempt}/{max})…",
+      "autoReconnectGaveUp": "[Nexus] Automatic reconnect failed.",
+      "pressEnterToReconnect": "[Nexus] Press Enter to reconnect.",
+      "inputIgnoredReconnecting": "[Nexus] Connection not ready. Input was not sent.",
+      "decodeError": "Decode error: {error}"
+    },
+    "aiRunning": {
+      "title": "AI is operating this terminal",
+      "closeMessage": "An AI task is running in this terminal. Closing the terminal will also stop the AI task. Continue?",
+      "closeConfirm": "Stop AI and close",
+      "reconnectMessage": "Reconnecting will drop the current terminal channel and stop the running AI task. The AI conversation context will be kept. Continue?",
+      "reconnectConfirm": "Stop AI and reconnect",
+      "batchCloseMessage": "{count} of the terminals being closed have an AI task running. Closing them will also stop those AI tasks. Continue?"
+    }
   }
 }

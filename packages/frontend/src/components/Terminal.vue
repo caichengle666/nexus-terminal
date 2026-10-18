@@ -36,6 +36,17 @@ let resizeObserver: ResizeObserver | null = null;
 let observedElement: HTMLElement | null = null; // +++ Store the observed element +++
 let debounceTimer: number | null = null; // 用于防抖的计时器 ID
 let selectionListenerDisposable: IDisposable | null = null; // +++ 提升声明并添加类型 +++
+// 跟踪用户鼠标选择，用于区分用户选区与搜索插件产生的选区
+let isPointerSelecting = false;
+let lastPointerUpAt = 0;
+const handleSelectionPointerDown = (event: MouseEvent) => {
+  if (event.button === 0) isPointerSelecting = true;
+};
+const handleSelectionPointerUp = () => {
+  if (!isPointerSelecting) return;
+  isPointerSelecting = false;
+  lastPointerUpAt = Date.now();
+};
 let lastResizeObserverWidth = 0;
 let lastResizeObserverHeight = 0;
 const RESIZE_THRESHOLD = 0.5; // px
@@ -169,8 +180,8 @@ const handleContextMenuPaste = async (event: MouseEvent) => {
   try {
     const text = await navigator.clipboard.readText();
     if (text && terminal) {
-      const processedText = text.replace(/\r\n?/g, '\n');
-      emitWorkspaceEvent('terminal:input', { sessionId: props.sessionId, data: processedText });
+      // 通过 xterm 的 paste()：统一换行并在远端开启 bracketed paste 时自动包裹，再经 onData 发送
+      terminal.paste(text);
     }
   } catch (err) {
     console.error('[Terminal] Failed to paste via Right Click:', err);
@@ -263,6 +274,8 @@ onMounted(() => {
 
     // 将终端附加到 DOM
     terminal.open(terminalRef.value);
+    terminalRef.value.addEventListener('mousedown', handleSelectionPointerDown, true);
+    document.addEventListener('mouseup', handleSelectionPointerUp, true);
     // terminal.open() 同步执行完毕后，可以认为 Xterm 已尝试附加到 DOM
     isTerminalDomReady.value = true; // +++ 直接在此处设置 DOM 准备就绪状态 +++
     console.log(`[Terminal ${props.sessionId}] Xterm open() called, considering DOM ready for initial style checks.`);
@@ -429,8 +442,16 @@ onMounted(() => {
     // 添加防抖以避免过于频繁地触发 handleSelectionChange
     const debouncedSelectionChange = debounce(handleSelectionChange, 50); // 50ms 防抖
 
-    // 监听 xterm 的 selectionChange 事件
-    selectionListenerDisposable = terminal.onSelectionChange(debouncedSelectionChange); // Assign to outer variable
+    // 监听 xterm 的 selectionChange 事件。
+    // 只有用户用鼠标选择（按下期间或刚松开）时才自动复制；
+    // SearchAddon 的 findNext/findPrevious 会调用 select()，不能因此覆盖剪贴板。
+    selectionListenerDisposable = terminal.onSelectionChange(() => {
+        if (isPointerSelecting || Date.now() - lastPointerUpAt < 300) {
+            debouncedSelectionChange();
+        } else if (terminal && !terminal.getSelection()) {
+            currentSelection = '';
+        }
+    });
 
     // 监听设置变化，如果关闭了自动复制，确保清除可能存在的旧选区状态
     watch(autoCopyOnSelectBoolean, (newValue) => {
@@ -504,9 +525,9 @@ onMounted(() => {
                 event.stopPropagation();
                 try {
                     const text = await navigator.clipboard.readText();
-                    if (text) {
-                        const processedText = text.replace(/\r\n?/g, '\n');
-                        emitWorkspaceEvent('terminal:input', { sessionId: props.sessionId, data: processedText });
+                    if (text && terminal) {
+                        // 走 xterm paste()，保留 bracketed paste 语义，避免多行粘贴被逐行执行
+                        terminal.paste(text);
                     }
                 } catch (err) {
                     console.error('[Terminal] Failed to paste via Ctrl+Shift+V:', err);
@@ -601,6 +622,8 @@ onBeforeUnmount(() => {
   if (selectionListenerDisposable) {
       selectionListenerDisposable.dispose();
   }
+  terminalRef.value?.removeEventListener('mousedown', handleSelectionPointerDown, true);
+  document.removeEventListener('mouseup', handleSelectionPointerUp, true);
 
   
     // 确保在卸载时移除右键监听器

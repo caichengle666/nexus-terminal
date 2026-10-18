@@ -18,6 +18,8 @@ import type { SessionTabInfoWithStatus, SshTerminalInstance } from '../stores/se
 import { useSettingsStore } from '../stores/settings.store';
 import { useFileEditorStore, type FileTab } from '../stores/fileEditor.store';
 import { useCommandHistoryStore } from '../stores/commandHistory.store';
+import { useAiStore } from '../stores/ai.store';
+import { useConfirmDialog } from '../composables/useConfirmDialog';
 import type { Terminal as XtermTerminal } from '@xterm/xterm';
 import type { ISearchOptions } from '@xterm/addon-search';
 import {
@@ -37,6 +39,8 @@ const fileEditorStore = useFileEditorStore();
 const layoutStore = useLayoutStore();
 const commandHistoryStore = useCommandHistoryStore();
 const connectionsStore = useConnectionsStore(); 
+const aiStore = useAiStore();
+const { showConfirmDialog } = useConfirmDialog();
 const { isHeaderVisible } = storeToRefs(layoutStore);
 const { isMobile } = useDeviceDetection();
 
@@ -347,6 +351,32 @@ const unsubscribeFromWorkspaceEvents = useWorkspaceEventOff();
 
  // --- 事件处理 (传递给 LayoutRenderer 或直接使用) ---
 
+ /**
+  * 会话连接不可用时处理用户输入。返回 true 表示输入已被处理（不应再发送）。
+  * - 已断开/出错 (含自动重连已放弃)：Enter 重新连接当前会话，其它输入提示“按 Enter 重新连接”
+  * - 正在 (自动) 重连：提示输入未发送
+  */
+ const handleInputWhileUnavailable = (sessionId: string, isEnter: boolean): boolean => {
+   const session = sessionStore.sessions.get(sessionId);
+   if (!session) return false;
+   const manager = session.terminalManager as (SshTerminalInstance | undefined);
+   const wsStatus = session.wsManager.connectionStatus.value;
+   if (wsStatus === 'disconnected' || wsStatus === 'error') {
+     if (isEnter) {
+       console.log(`[WorkspaceView] 检测到在断开的会话 ${sessionId} 中按下回车，尝试重连...`);
+       void sessionStore.reconnectSession(sessionId);
+     } else {
+       manager?.notifyInputBlocked?.('disconnected');
+     }
+     return true;
+   }
+   if (wsStatus === 'connecting' && manager?.isSshConnected && !manager.isSshConnected.value) {
+     manager.notifyInputBlocked?.('connecting');
+     return true;
+   }
+   return false;
+ };
+
  // 处理命令发送 (用于 CommandBar, CommandHistory, QuickCommands)
  const handleSendCommand = (command: string, targetSessionId?: string) => {
    const sessionToCommand = targetSessionId ? sessionStore.sessions.get(targetSessionId) : activeSession.value;
@@ -358,17 +388,8 @@ const unsubscribeFromWorkspaceEvents = useWorkspaceEventOff();
    }
    const terminalManager = sessionToCommand.terminalManager as (SshTerminalInstance | undefined);
 
-   if (terminalManager?.isSshConnected && !terminalManager.isSshConnected.value && command.trim() === '') {
-     console.log(`[WorkspaceView] Command bar Enter detected in disconnected session ${sessionToCommand.sessionId}, attempting reconnect...`);
-     if (terminalManager.terminalInstance?.value) {
-         terminalManager.terminalInstance.value.writeln(`\r\n\x1b[33m${t('workspace.terminal.reconnectingMsg')}\x1b[0m`);
-     }
-     const connectionInfo = connectionsStore.connections.find(c => c.id === Number(sessionToCommand.connectionId));
-     if (connectionInfo) {
-       sessionStore.handleConnectRequest(connectionInfo);
-     } else {
-       console.error(`[WorkspaceView] handleSendCommand: 未找到 ID 为 ${sessionToCommand.connectionId} 的连接信息。`);
-     }
+   // 连接不可用：空命令 (Enter) 触发重连，其余输入给出提示而不是静默丢弃
+   if (handleInputWhileUnavailable(sessionToCommand.sessionId, command.trim() === '')) {
      return;
    }
 
@@ -400,23 +421,11 @@ const unsubscribeFromWorkspaceEvents = useWorkspaceEventOff();
      console.warn(`[WorkspaceView] handleTerminalInput: 未找到会话 ${sessionId} 或其 terminalManager`);
      return;
    }
-   if (data === '\r' && manager.isSshConnected && !manager.isSshConnected.value) {
-     console.log(`[WorkspaceView] 检测到在断开的会话 ${sessionId} 中按下回车，尝试重连...`);
-     if (manager.terminalInstance?.value) {
-         manager.terminalInstance.value.writeln(`\r\n\x1b[33m${t('workspace.terminal.reconnectingMsg')}\x1b[0m`);
-     } else {
-         console.warn(`[WorkspaceView] 无法写入重连提示，terminalInstance 不可用。`);
-     }
-     // +++ 修复：传递 ConnectionInfo 而不是 ID +++
-     const connectionInfo = connectionsStore.connections.find(c => c.id === Number(session.connectionId));
-     if (connectionInfo) {
-       sessionStore.handleConnectRequest(connectionInfo);
-     } else {
-       console.error(`[WorkspaceView] handleTerminalInput: 未找到 ID 为 ${session.connectionId} 的连接信息。`);
-     }
-   } else {
-     manager.handleTerminalData(data);
+   // 连接不可用：Enter 触发重连，其余输入给出提示而不是静默丢弃
+   if (handleInputWhileUnavailable(sessionId, data === '\r')) {
+     return;
    }
+   manager.handleTerminalData(data);
  };
 
  // 处理终端大小调整 (用于 Terminal)
@@ -666,11 +675,37 @@ const toggleVirtualKeyboard = () => {
 
  // --- 标签页关闭操作处理 ---
 
+ // 批量关闭：与单个关闭一致，若有 AI 任务在运行先确认并停止，再保存 AI 会话历史后关闭
+ const closeSessionsWithConfirm = async (sessionIds: string[]) => {
+   if (sessionIds.length === 0) return;
+   const runningIds = sessionIds.filter(id => aiStore.sessionRuntimes[id]?.isRunning);
+   if (runningIds.length > 0) {
+     const confirmed = await showConfirmDialog({
+       title: t('uxTerminal.aiRunning.title'),
+       message: t('uxTerminal.aiRunning.batchCloseMessage', { count: runningIds.length }),
+       confirmText: t('uxTerminal.aiRunning.closeConfirm'),
+       cancelText: t('common.cancel'),
+     });
+     if (!confirmed) return;
+     runningIds.forEach(id => aiStore.stopRun(id));
+   }
+   for (const id of sessionIds) {
+     try {
+       await aiStore.flushSessionHistory(id);
+     } catch (error) {
+       console.warn(`[WorkspaceView] 保存会话 ${id} 的 AI 历史失败:`, error);
+     }
+     if (sessionStore.sessions.has(id)) {
+       sessionStore.closeSession(id);
+     }
+   }
+ };
+
  const handleCloseOtherSessions = (targetSessionId: string) => {
    const sessionsToClose = sessionTabsWithStatus.value
      .filter(tab => tab.sessionId !== targetSessionId)
      .map(tab => tab.sessionId);
-   sessionsToClose.forEach(id => sessionStore.closeSession(id));
+   void closeSessionsWithConfirm(sessionsToClose);
  };
 
  const handleCloseSessionsToRight = (targetSessionId: string) => {
@@ -679,7 +714,7 @@ const toggleVirtualKeyboard = () => {
    const sessionsToClose = sessionTabsWithStatus.value
      .slice(targetIndex + 1)
      .map(tab => tab.sessionId);
-   sessionsToClose.forEach(id => sessionStore.closeSession(id));
+   void closeSessionsWithConfirm(sessionsToClose);
  };
 
  const handleCloseSessionsToLeft = (targetSessionId: string) => {
@@ -688,7 +723,7 @@ const toggleVirtualKeyboard = () => {
    const sessionsToClose = sessionTabsWithStatus.value
      .slice(0, targetIndex)
      .map(tab => tab.sessionId);
-   sessionsToClose.forEach(id => sessionStore.closeSession(id));
+   void closeSessionsWithConfirm(sessionsToClose);
  };
 
  const handleCloseOtherEditorTabs = (targetTabId: string) => {
