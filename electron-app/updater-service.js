@@ -52,6 +52,17 @@ const buildPortableLaunchScript = ({ currentProcessId, executable, extractPath, 
     'if ($currentProcess) { Wait-Process -Id $currentProcess.Id }',
   ];
   if (targetDirectory) {
+    // The main process exiting is not enough: the bundled backend node.exe,
+    // Electron helper processes and the ConPTY host also run from this folder
+    // and keep files locked for a moment, which made Remove-Item fail and the
+    // update roll back. Wait (bounded) until nothing runs from it any more.
+    const targetPrefix = `${String(targetDirectory).replace(/[\\/]+$/, '')}\\`;
+    commands.push(
+      `$targetPrefix = ${escapePowerShellLiteral(targetPrefix)}`,
+      '$waitDeadline = (Get-Date).AddSeconds(30)',
+      // Best effort: a process whose Path cannot be read must not abort the update.
+      'try { while ((Get-Date) -lt $waitDeadline -and (Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID -and $_.Path -and $_.Path.StartsWith($targetPrefix, [System.StringComparison]::OrdinalIgnoreCase) })) { Start-Sleep -Milliseconds 500 } } catch { }',
+    );
     commands.push(
       `$preservedNames = @('userData', 'data', '.Portable')`,
       `try {`,
@@ -87,6 +98,18 @@ const buildPortableLaunchScript = ({ currentProcessId, executable, extractPath, 
   }
   return commands.join('; ');
 };
+
+// The portable ZIP may only replace a portable copy. For an installed (NSIS)
+// copy, "falling back" to the ZIP used to start an unrelated portable instance
+// from %TEMP% with its own, empty data folder (and delete it afterwards), which
+// looked like the update had wiped the user's data.
+const shouldUsePortableFallback = ({ platform, installationKind, primaryFilename, fallbackUrl }) => (
+  platform === 'win32'
+  && installationKind === 'portable'
+  && typeof fallbackUrl === 'string'
+  && fallbackUrl.length > 0
+  && !/\.zip$/i.test(String(primaryFilename || ''))
+);
 
 const consumePortableUpdateResult = updaterDir => {
   const resultPath = path.join(updaterDir, 'portable-update-result.json');
@@ -155,4 +178,4 @@ const installPortableUpdate = async ({ archivePath, updaterDir, targetDirectory 
   });
 };
 
-module.exports = { buildPortableLaunchScript, consumePortableUpdateResult, installPortableUpdate };
+module.exports = { buildPortableLaunchScript, consumePortableUpdateResult, installPortableUpdate, shouldUsePortableFallback };

@@ -75,6 +75,26 @@ const requestWithRedirect = (value, options = {}, redirectCount = 0) => new Prom
   request.end();
 });
 
+// Parses the result of Electron's session.resolveProxy() (Chromium PAC syntax,
+// e.g. "PROXY 127.0.0.1:7890; DIRECT" or "SOCKS5 [::1]:1080") into the proxy
+// shape buildProxyAgent() understands. Only the first usable entry is taken;
+// DIRECT (or anything unsupported such as SOCKS4/HTTPS proxies) yields null so
+// the request goes out directly, as before.
+const parseSystemProxyRule = rule => {
+  if (typeof rule !== 'string') return null;
+  for (const entry of rule.split(';')) {
+    const match = entry.trim().match(/^(PROXY|SOCKS5)\s+(\[[0-9a-f:.]+\]|[^\s:]+):(\d{1,5})$/i);
+    if (!match) {
+      if (/^DIRECT$/i.test(entry.trim())) return null;
+      continue;
+    }
+    const port = Number(match[3]);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) continue;
+    return { type: match[1].toUpperCase() === 'PROXY' ? 'HTTP' : 'SOCKS5', host: match[2], port };
+  }
+  return null;
+};
+
 const fetchUpdateText = async (value, agent = null, context = {}) => {
   const { response } = await requestWithRedirect(value, {
     method: 'GET',
@@ -109,6 +129,7 @@ module.exports = {
   MAX_REDIRECTS,
   MAX_CHECKSUM_TEXT_SIZE,
   normalizeMirrorUrls,
+  parseSystemProxyRule,
   validateMirrorUrl,
   resolveRedirectUrl,
   validateUpdateUrl,

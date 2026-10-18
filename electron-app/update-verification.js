@@ -72,6 +72,19 @@ const classifyWindowsSignature = (status, exitCode) => {
   return { status: 'unavailable', detail: status || (exitCode === 0 ? '无法验证签名' : '无法读取签名状态') };
 };
 
+// Same policy as Windows: the SHA-256 from the release manifest is the hard
+// check. Release DMGs are not Developer ID signed / notarized, so Gatekeeper
+// rejects them ("no usable signature", "Unnotarized Developer ID") — that is
+// only advisory. A signature that exists but is broken or revoked is refused.
+const classifyMacSignature = (output, exitCode) => {
+  const detail = String(output || '').trim();
+  if (exitCode === 0) return { status: 'valid', detail: 'Gatekeeper 验证通过' };
+  if (/revoked|invalid signature|sealed resource|been modified|CSSMERR_TP_CERT_REVOKED/i.test(detail)) {
+    return { status: 'invalid', detail: detail || '系统未能验证安装包签名' };
+  }
+  return { status: 'unavailable', detail: detail || '安装包未经过 Apple 公证' };
+};
+
 const verifyUpdateSignature = (filePath, platform = process.platform) => new Promise(resolve => {
   if (platform === 'win32') {
     const escapedPath = filePath.replace(/'/g, "''");
@@ -85,14 +98,13 @@ const verifyUpdateSignature = (filePath, platform = process.platform) => new Pro
     return;
   }
   if (platform === 'darwin') {
-    const child = spawn('spctl', ['--assess', '--type', 'install', '--verbose', filePath], { windowsHide: true });
+    // `--type open --context context:primary-signature` is the Gatekeeper
+    // assessment for a disk image (`--type install` is for .pkg installers).
+    const child = spawn('spctl', ['--assess', '--type', 'open', '--context', 'context:primary-signature', '--verbose', filePath], { windowsHide: true });
     let output = '';
     child.stdout.on('data', data => { output += data.toString(); });
     child.stderr.on('data', data => { output += data.toString(); });
-    child.on('close', code => {
-      const accepted = code === 0;
-      resolve({ status: accepted ? 'valid' : 'invalid', detail: accepted ? 'Gatekeeper 验证通过' : '系统未能验证安装包签名' });
-    });
+    child.on('close', code => resolve(classifyMacSignature(output, code)));
     child.on('error', error => resolve({ status: 'unavailable', detail: error.message }));
     return;
   }
@@ -102,6 +114,7 @@ const verifyUpdateSignature = (filePath, platform = process.platform) => new Pro
 });
 
 module.exports = {
+  classifyMacSignature,
   classifyWindowsSignature,
   deriveManifestUrls,
   extractExpectedChecksum,

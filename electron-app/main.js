@@ -44,7 +44,7 @@ const fs = require('fs');
 const os = require('os');
 const iconv = require('iconv-lite');
 const { createProxyMiddleware } = require('http-proxy-middleware');
-const { consumePortableUpdateResult, installPortableUpdate } = require('./updater-service');
+const { consumePortableUpdateResult, installPortableUpdate, shouldUsePortableFallback } = require('./updater-service');
 const {
   deriveManifestUrls,
   extractExpectedChecksum,
@@ -1179,11 +1179,26 @@ onTrusted('minimize-window', () => {
 handleTrusted('get-app-version', () => require('./package.json').releaseVersion || app.getVersion());
 handleTrusted('get-platform', () => process.platform);
 handleTrusted('get-architecture', () => process.arch);
-handleTrusted('get-installation-kind', () => {
+const getInstallationKind = () => {
   if (process.platform !== 'win32') return 'system';
   const markerPath = path.join(path.dirname(app.getPath('exe')), '.Portable');
   return fs.existsSync(markerPath) ? 'portable' : 'system';
-});
+};
+handleTrusted('get-installation-kind', () => getInstallationKind());
+
+// The renderer (Chromium) checks for updates through the system proxy, but the
+// main-process downloader uses Node's https, which ignores it. Without this the
+// check succeeded while every download timed out for users who only reach
+// GitHub through a system proxy (Clash/V2Ray "set system proxy", PAC, ...).
+const resolveSystemUpdateProxy = async targetUrl => {
+  try {
+    const rule = await session.defaultSession.resolveProxy(targetUrl);
+    return updateNetwork.parseSystemProxyRule(rule);
+  } catch (error) {
+    console.warn(`[Updater] Unable to resolve system proxy: ${error.message}`);
+    return null;
+  }
+};
 
 handleTrusted('download-update', async (event, payload = {}) => {
   if (updateDownloadState) return { ok: false, message: '已有更新正在下载。' };
@@ -1236,7 +1251,12 @@ handleTrusted('download-update', async (event, payload = {}) => {
   completedUpdateManifestSignatureVerified = false;
   if (process.platform === 'win32' && /\.zip$/i.test(safeFilename)) completedUpdateKind = 'portable';
   try {
-    updateProxyAgent = await buildUpdateProxyAgent(payload.proxy);
+    const explicitProxy = payload.proxy && payload.proxy.host && payload.proxy.port ? payload.proxy : null;
+    const proxy = explicitProxy || await resolveSystemUpdateProxy(payload.url);
+    updateProxyAgent = await buildUpdateProxyAgent(proxy);
+    if (proxy) {
+      console.log(`[Updater] Using ${explicitProxy ? 'selected' : 'system'} ${proxy.type} proxy ${proxy.host}:${proxy.port}${updateProxyAgent ? '' : ' (proxy agent unavailable, connecting directly)'}`);
+    }
   } catch (error) {
     updateDownloadState?.completionResolve?.();
     updateDownloadState = null;
@@ -1313,7 +1333,12 @@ handleTrusted('download-update', async (event, payload = {}) => {
         });
       }, { allowMirrors: Boolean(expectedPrimaryChecksum), mirrorUrls: payload.mirrorUrls });
     } catch (primaryError) {
-      if (process.platform !== 'win32' || typeof payload.fallbackUrl !== 'string' || updateDownloadState.cancelled) {
+      if (updateDownloadState.cancelled || !shouldUsePortableFallback({
+        platform: process.platform,
+        installationKind: getInstallationKind(),
+        primaryFilename: safeFilename,
+        fallbackUrl: payload.fallbackUrl,
+      })) {
         throw primaryError;
       }
       sendProgress('trying-fallback', { message: '安装包下载失败，正在尝试便携版…' });
@@ -1426,12 +1451,13 @@ handleTrusted('install-update', async () => {
       return { ok: false, message: `安装包签名无效：${signature.detail}` };
     }
     const isPortable = completedUpdateKind === 'portable';
+    const isDiskImage = /\.dmg$/i.test(updatePath);
     const confirmation = await dialog.showMessageBox(mainWindow, {
       type: 'question',
       title: tMain('updateTitle'),
       message: tMain('updateMessage', { file: path.basename(updatePath) }),
-      detail: isPortable ? tMain('updateDetailPortable') : tMain('updateDetailInstaller'),
-      buttons: [isPortable ? tMain('updateButtonPortable') : tMain('updateButtonInstaller'), tMain('cancel')],
+      detail: isPortable ? tMain('updateDetailPortable') : tMain(isDiskImage ? 'updateDetailDmg' : 'updateDetailInstaller'),
+      buttons: [isPortable ? tMain('updateButtonPortable') : tMain(isDiskImage ? 'updateButtonDmg' : 'updateButtonInstaller'), tMain('cancel')],
       defaultId: 0,
       cancelId: 1,
     });

@@ -25,14 +25,22 @@ const shouldUseParallelDownload = ({ totalBytes, rangeSupported }) => (
   && totalBytes >= MIN_PARALLEL_DOWNLOAD_SIZE
 );
 
+const buildProxyUrl = proxy => {
+  const auth = proxy.username
+    ? `${encodeURIComponent(proxy.username)}:${encodeURIComponent(proxy.password || '')}@`
+    : '';
+  return `${proxy.type === 'HTTP' ? 'http' : 'socks5h'}://${auth}${proxy.host}:${proxy.port}`;
+};
+
 const buildProxyAgent = async (proxy, loadModule) => {
   if (!proxy || !proxy.host || !proxy.port) return null;
-  const auth = proxy.username ? `${proxy.username}:${proxy.password || ''}@` : '';
   const moduleName = proxy.type === 'HTTP' ? 'https-proxy-agent' : proxy.type === 'SOCKS5' ? 'socks-proxy-agent' : null;
   if (!moduleName) return null;
   const Agent = await loadModule(moduleName);
   if (!Agent) return null;
-  try { return new Agent(`${proxy.type === 'HTTP' ? 'http' : 'socks5'}://${auth}${proxy.host}:${proxy.port}`); } catch { return null; }
+  // socks5h: let the proxy resolve github.com / release-assets hostnames, so a
+  // poisoned local DNS cannot break (or redirect) the download.
+  try { return new Agent(buildProxyUrl(proxy)); } catch { return null; }
 };
 
 const cleanupPartial = targetPath => {
@@ -401,6 +409,7 @@ const downloadAsset = async (value, targetPath, context, onProgress, options = {
 
 module.exports = {
   buildProxyAgent,
+  buildProxyUrl,
   buildMirrorUrl,
   buildDownloadSources,
   cleanupPartial,

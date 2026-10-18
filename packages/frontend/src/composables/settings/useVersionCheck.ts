@@ -2,68 +2,16 @@ import { ref, computed, onUnmounted } from 'vue';
 import axios from 'axios';
 import pkg from '../../../package.json'; // 调整路径以正确导入 package.json
 import { useI18n } from 'vue-i18n';
-
-type ReleaseAsset = {
-  name: string;
-  browser_download_url: string;
-};
+import {
+  getChecksumAsset,
+  getPlatformDownloadAsset,
+  getWindowsPortableAsset,
+  isArm64Architecture,
+  isVersionNewer,
+} from './updateAssets';
 
 export type RuntimeKind = 'electron' | 'docker' | 'pwa' | 'web';
 export type UpdateDownloadStatus = 'idle' | 'fetching-checksum' | 'probing' | 'downloading' | 'parallel-failed' | 'trying-fallback' | 'source-failed' | 'verifying' | 'ready' | 'failed' | 'cancelled';
-
-const normalizeVersion = (version: string) => version.replace(/^v/i, '').split('.').map(part => Number.parseInt(part, 10) || 0);
-const isVersionNewer = (latest: string, current: string) => {
-  const latestParts = normalizeVersion(latest);
-  const currentParts = normalizeVersion(current);
-  for (let index = 0; index < Math.max(latestParts.length, currentParts.length); index += 1) {
-    const difference = (latestParts[index] || 0) - (currentParts[index] || 0);
-    if (difference !== 0) return difference > 0;
-  }
-  return false;
-};
-
-const getPlatformDownloadAsset = (assets: ReleaseAsset[], nativePlatform?: string, nativeArchitecture?: string): ReleaseAsset | null => {
-  const userAgentData = (navigator as Navigator & {
-    userAgentData?: { platform?: string; architecture?: string };
-  }).userAgentData;
-  const platform = `${nativePlatform || ''} ${navigator.userAgent} ${userAgentData?.platform || ''}`.toLowerCase();
-  const architecture = `${nativeArchitecture || ''} ${userAgentData?.architecture || ''} ${navigator.userAgent}`.toLowerCase();
-  const isArm64 = /arm64|aarch64|apple silicon/.test(architecture);
-  const findAsset = (pattern: RegExp) => assets.find(asset => pattern.test(asset.name)) || null;
-
-  if (/windows|win32/.test(platform)) {
-    return findAsset(/setup.*\.exe$/i)
-      || findAsset(isArm64
-      ? /(?:portable|windows|win).*?(?:arm64|aarch64).*\.exe$/i
-      : /portable.*\.exe$/i)
-      || findAsset(/\.exe$/i);
-  }
-
-  if (/macintosh|mac os x|macos|darwin/.test(platform)) {
-    return findAsset(isArm64
-      ? /(?:macos|darwin).*?(?:arm64|apple silicon).*\.dmg$/i
-      : /(?:macos|darwin).*?(?:x64|intel|amd64).*\.dmg$/i);
-  }
-
-  if (/linux/.test(platform)) {
-    return findAsset(isArm64
-      ? /(?:appimage|linux).*?(?:arm64|aarch64).*\.appimage$/i
-      : /(?:appimage|linux).*?(?:x64|amd64).*\.appimage$/i)
-      || findAsset(/\.appimage$/i);
-  }
-
-  return null;
-};
-
-const getWindowsPortableAsset = (assets: ReleaseAsset[], isArm64: boolean): ReleaseAsset | null => {
-  const armAsset = assets.find(asset => /portable.*(?:arm64|aarch64).*\.zip$/i.test(asset.name));
-  if (isArm64 && armAsset) return armAsset;
-  return assets.find(asset => /portable.*\.zip$/i.test(asset.name) && !/(?:arm64|aarch64)/i.test(asset.name)) || armAsset || null;
-};
-
-const getChecksumAsset = (assets: ReleaseAsset[]): ReleaseAsset | null => {
-  return assets.find(asset => /(?:sha256|sha-256|checksums?|checksum)[^/]*$/i.test(asset.name)) || null;
-};
 
 const UPDATE_MIRRORS_STORAGE_KEY = 'nexus.update-mirror-urls';
 const loadUpdateMirrorUrls = (): string[] => {
@@ -166,13 +114,11 @@ export function useVersionCheck() {
           latestVersion.value = response.data.tag_name;
           latestReleaseUrl.value = response.data.html_url || null;
           const assets = response.data.assets || [];
+          const isArm64 = isArm64Architecture(nativeArchitecture);
           const downloadAsset = installationKind === 'portable' && nativePlatform === 'win32'
-            ? getWindowsPortableAsset(assets, /arm64|aarch64/.test(`${navigator.userAgent} ${navigator.platform}`.toLowerCase()))
+            ? getWindowsPortableAsset(assets, isArm64)
             : getPlatformDownloadAsset(assets, nativePlatform || undefined, nativeArchitecture || undefined);
-          const userAgentData = (navigator as Navigator & { userAgentData?: { architecture?: string } }).userAgentData;
-          const architecture = `${userAgentData?.architecture || ''} ${navigator.userAgent}`.toLowerCase();
-          const isArm64 = /arm64|aarch64|apple silicon/.test(architecture);
-          const portableAsset = getWindowsPortableAsset(assets, isArm64);
+          const portableAsset = nativePlatform === 'win32' ? getWindowsPortableAsset(assets, isArm64) : null;
           const checksumAsset = getChecksumAsset(response.data.assets || []);
           updateDownloadUrl.value = downloadAsset?.browser_download_url || null;
           updatePortableUrl.value = portableAsset?.browser_download_url || null;
