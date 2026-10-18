@@ -89,7 +89,7 @@ jobs:
           nohup "$BIN" --remote-debugging-port=9222 --lang=zh-CN > "$RUNNER_TEMP/app.log" 2>&1 &
           system_profiler SPDisplaysDataType | grep -i resolution || true
 
-      - name: Install and launch the app (Windows)
+      - name: Install the app (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
@@ -100,15 +100,21 @@ jobs:
           $dir = Join-Path $env:RUNNER_TEMP 'nexus'
           Expand-Archive $zip.FullName -DestinationPath $dir
           $exe = Get-ChildItem $dir -Recurse -Filter '*.exe' | Where-Object { $_.Name -like 'Nexus*' } | Select-Object -First 1
-          Write-Output "launching $($exe.FullName)"
-          Start-Process -FilePath $exe.FullName -ArgumentList '--remote-debugging-port=9222','--lang=zh-CN' -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'app.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'app.err.log')
+          Write-Output "found $($exe.FullName)"
+          "APP_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Take screenshots
         shell: bash
         env:
           NODE_PATH: ${{ runner.temp }}/tools/node_modules
           SHOT_DIR: shots/${{ matrix.platform }}
-        run: node electron-app/scripts/readme-screenshots.js
+        run: |
+          # Windows kills processes a step leaves behind, so the app is started
+          # in the same step that photographs it.
+          if [ -n "${APP_EXE:-}" ]; then
+            "$APP_EXE" --remote-debugging-port=9222 --lang=zh-CN > "$RUNNER_TEMP/app.log" 2>&1 &
+          fi
+          node electron-app/scripts/readme-screenshots.js
 
       - name: Keep app log
         if: always()

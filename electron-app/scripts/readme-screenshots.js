@@ -93,6 +93,11 @@ const clickText = async (page, text) => {
     await api('POST', '/api/v1/connections', { name, type: 'SSH', host: ip, port: 22, username: 'root', auth_method: 'password', password: 'demo-password' });
   }
 
+  const quickCommands = platform === 'macos'
+    ? [['磁盘占用', 'df -h'], ['内存/进程', 'top -l 1 | head -12'], ['网络连接', 'netstat -an | head -20']]
+    : [['磁盘占用', 'Get-PSDrive -PSProvider FileSystem'], ['进程 Top10', 'Get-Process | Sort-Object CPU -Descending | Select-Object -First 10'], ['网络连接', 'Get-NetTCPConnection | Select-Object -First 15']];
+  for (const [name, command] of quickCommands) await api('POST', '/api/v1/quick-commands', { name, command });
+
   // Dashboard (reload so the new connections and audit entries show)
   await page.goto('http://localhost:22457/');
   await sleep(5000);
@@ -113,8 +118,8 @@ const clickText = async (page, text) => {
   if (await terminal.count()) {
     await terminal.click();
     const commands = platform === 'macos'
-      ? ['clear', 'sw_vers', 'uname -mrs', 'ls -lhG ~', 'df -h / | tail -1']
-      : ['cls', '[System.Environment]::OSVersion.VersionString', '$PSVersionTable.PSVersion.ToString()', 'Get-ChildItem C:\\ | Select-Object -First 8'];
+      ? ["export PS1='runner@macbook %1~ $ '; PS1='\\u@macbook \\W \\$ '", 'clear', 'sw_vers', 'uname -mrs', 'ls -lhG ~', 'df -h / | tail -1']
+      : ["function prompt { 'PS ' + (Get-Location).Path + '> ' }", 'cls', '[System.Environment]::OSVersion.VersionString', '$PSVersionTable.PSVersion.ToString()', 'Get-ChildItem C:\\ | Select-Object -First 8'];
     for (const command of commands) {
       await page.keyboard.type(command, { delay: 15 });
       await page.keyboard.press('Enter');
