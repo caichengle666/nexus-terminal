@@ -432,7 +432,7 @@ export const bulkInsertConnections = async (
     connections: Array<Omit<FullConnectionData, 'id' | 'created_at' | 'updated_at' | 'last_connected_at'> & { tag_ids?: number[] }>
 ): Promise<{ connectionId: number, originalData: any }[]> => {
 
-    const insertConnSql = `INSERT INTO connections (name, type, host, port, username, auth_method, encrypted_password, encrypted_private_key, encrypted_passphrase, proxy_id, proxy_type, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`; // Add type, proxy_type and notes columns and placeholders
+    const insertConnSql = `INSERT INTO connections (name, type, host, port, username, auth_method, encrypted_password, encrypted_private_key, encrypted_passphrase, proxy_id, proxy_type, ssh_key_id, notes, jump_chain, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
     const results: { connectionId: number, originalData: any }[] = [];
     const now = Math.floor(Date.now() / 1000);
 
@@ -444,7 +444,9 @@ export const bulkInsertConnections = async (
             connData.encrypted_passphrase || null,
             connData.proxy_id || null,
             connData.proxy_type || null, // Add proxy_type parameter
-connData.notes || null, // Add notes parameter
+            connData.ssh_key_id ?? null,
+            connData.notes || null, // Add notes parameter
+            (connData.jump_chain && connData.jump_chain.length > 0) ? JSON.stringify(connData.jump_chain) : null,
             now, now
         ];
         try {

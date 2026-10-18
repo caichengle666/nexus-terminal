@@ -1798,5 +1798,13 @@
       "failed": "{name} のダウンロードに失敗しました",
       "cancel": "キャンセル"
     }
+  },
+  "uxConn": {
+    "credentialsRequiredOnTypeChange": "接続タイプが変更されました。新しいタイプ用のパスワードを入力するか、SSH キーを選択してください。",
+    "jumpHostNotSelected": "ジャンプホストが選択されていない項目があります。ジャンプホストを選択するか、その項目を削除してください。",
+    "batchFailedIps": "追加に失敗した IP：{ips}",
+    "cancelTest": "テストをキャンセル",
+    "testTimedOut": "接続テストがタイムアウトしました。",
+    "importMoreErrors": "…ほか {count} 件のエラー"
   }
 }

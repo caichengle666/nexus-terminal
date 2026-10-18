@@ -30,7 +30,9 @@ const props = defineProps({
   advancedConnectionMode: { type: String as PropType<'proxy' | 'jump'>, required: true },
   addJumpHost: { type: Function as PropType<() => void>, required: true },
   removeJumpHost: { type: Function as PropType<(index: number) => void>, required: true },
-  isEditMode: { type: Boolean, default: false } 
+  isEditMode: { type: Boolean, default: false },
+  // 正在编辑的连接 ID，用于从跳板机候选中排除自身
+  connectionId: { type: Number as PropType<number | null>, required: false, default: null }
 });
 
 // Define Emits
@@ -58,10 +60,12 @@ const setConnectionMode = (mode: 'proxy' | 'jump') => {
 };
 
 
+const editingConnectionId = computed<number | null>(() => props.connectionId ?? props.formData.id ?? null);
+
 const getAvailableJumpHostsForIndex = (currentIndex: number): ConnectionInfo[] => {
   return props.connections.filter(conn => {
     if (conn.type !== 'SSH') return false;
-    if (props.isEditMode && props.formData.id === conn.id) return false;
+    if (props.isEditMode && editingConnectionId.value === conn.id) return false;
     return !props.formData.jump_chain?.some((jumpHostId, index) => {
       return index !== currentIndex && jumpHostId === conn.id;
     });
@@ -140,7 +144,7 @@ const getAvailableJumpHostsForIndex = (currentIndex: number): ConnectionInfo[] =
         <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         <span>{{ t('connections.form.addJumpHost', '添加跳板机') }}</span>
       </button>
-       <div v-if="props.connections.filter(c => c.type === 'SSH' && (!props.isEditMode || c.id !== props.formData.id)).length === 0" class="text-xs text-warning-foreground p-2 bg-warning/20 rounded-md">
+       <div v-if="props.connections.filter(c => c.type === 'SSH' && (!props.isEditMode || c.id !== editingConnectionId)).length === 0" class="text-xs text-warning-foreground p-2 bg-warning/20 rounded-md">
         {{ t('connections.form.noAvailableSshConnectionsForJump', '没有可用的SSH连接作为跳板机。请先创建一些SSH连接。') }}
       </div>
     </div>

@@ -64,6 +64,42 @@ export interface DecryptedConnectionDetails {
 }
 
 /**
+ * 将跳板机连接 ID 列表解析为解密后的跳板机详情 (按顺序)。
+ * @param jumpHostConnectionIds 跳板机连接 ID 列表
+ * @param selfConnectionId 当前 (目标) 连接 ID，用于防止自引用；未保存的连接传 undefined
+ */
+export const resolveJumpChainDetails = async (jumpHostConnectionIds: unknown[], selfConnectionId?: number): Promise<JumpHostDetail[]> => {
+    const ownerLabel = selfConnectionId ?? 'unsaved';
+    const details: JumpHostDetail[] = [];
+    for (let i = 0; i < jumpHostConnectionIds.length; i++) {
+        const hopConnectionId = jumpHostConnectionIds[i];
+        if (typeof hopConnectionId !== 'number') {
+            throw new Error(`Jump host ID at index ${i} in jump_chain for connection ${ownerLabel} is not a number. Found: ${hopConnectionId}`);
+        }
+        if (selfConnectionId !== undefined && hopConnectionId === selfConnectionId) {
+            throw new Error(`Connection ${selfConnectionId} cannot have itself (ID: ${hopConnectionId}) in its own jump_chain. This would cause a loop.`);
+        }
+
+        const hopTargetDetails: DecryptedConnectionDetails = await getConnectionDetails(hopConnectionId);
+
+        details.push({
+            id: `hop-${ownerLabel}-via-${hopConnectionId}-idx-${i}`, // A unique ID for this specific hop in this chain
+            connectionId: hopConnectionId,
+            name: hopTargetDetails.name || `Jump Host ${i + 1} (Conn ID ${hopConnectionId})`,
+            host: hopTargetDetails.host,
+            port: hopTargetDetails.port,
+            username: hopTargetDetails.username,
+            auth_method: hopTargetDetails.auth_method,
+            // Credentials should already be decrypted by the recursive call
+            password: hopTargetDetails.password,
+            privateKey: hopTargetDetails.privateKey,
+            passphrase: hopTargetDetails.passphrase,
+        });
+    }
+    return details;
+};
+
+/**
  * 获取并解密指定 ID 的完整连接信息（包括代理）
  * @param connectionId 连接 ID
  * @returns Promise<DecryptedConnectionDetails> 解密后的连接详情
@@ -137,42 +173,11 @@ export const getConnectionDetails = async (connectionId: number): Promise<Decryp
             };
         }
 
-        // 修改条件判断和 JSON.parse 以使用正确的字段名 jump_chain
         if (typedRawConnInfo.jump_chain) {
             try {
-                const jumpHostConnectionIds: number[] = JSON.parse(typedRawConnInfo.jump_chain);
-
+                const jumpHostConnectionIds: unknown = JSON.parse(typedRawConnInfo.jump_chain);
                 if (Array.isArray(jumpHostConnectionIds) && jumpHostConnectionIds.length > 0) {
-                    fullConnInfo.jump_chain = []; // Initialize for JumpHostDetail objects
-
-                    for (let i = 0; i < jumpHostConnectionIds.length; i++) {
-                        const hopConnectionId = jumpHostConnectionIds[i];
-                        if (typeof hopConnectionId !== 'number') {
-                            throw new Error(`Jump host ID at index ${i} in jump_chain for connection ${connectionId} is not a number. Found: ${hopConnectionId}`);
-                        }
-                        if (hopConnectionId === connectionId) {
-                            throw new Error(`Connection ${connectionId} cannot have itself (ID: ${hopConnectionId}) in its own jump_chain. This would cause a loop.`);
-                        }
-
-
-                        const hopTargetDetails: DecryptedConnectionDetails = await getConnectionDetails(hopConnectionId);
-
-                        const decryptedHop: JumpHostDetail = {
-                            id: `hop-${connectionId}-via-${hopConnectionId}-idx-${i}`, // A unique ID for this specific hop in this chain
-                            connectionId: hopConnectionId,
-                            name: hopTargetDetails.name || `Jump Host ${i + 1} (Conn ID ${hopConnectionId})`,
-                            host: hopTargetDetails.host,
-                            port: hopTargetDetails.port,
-                            username: hopTargetDetails.username,
-                            auth_method: hopTargetDetails.auth_method,
-                            // Credentials should already be decrypted by the recursive call
-                            password: hopTargetDetails.password,
-                            privateKey: hopTargetDetails.privateKey,
-                            passphrase: hopTargetDetails.passphrase,
-                        };
-                        
-                        fullConnInfo.jump_chain.push(decryptedHop);
-                    }
+                    fullConnInfo.jump_chain = await resolveJumpChainDetails(jumpHostConnectionIds, connectionId);
                 } else {
                      console.log(`SshService: Parsed jump_chain for connection ${connectionId} is empty or not an array after parsing.`);
                 }
@@ -857,14 +862,29 @@ export const testUnsavedConnection = async (connectionConfig: {
     passphrase?: string;
     ssh_key_id?: number | null;
     proxy_id?: number | null;
+    proxy_type?: 'proxy' | 'jump' | null;
+    jump_chain?: number[] | null;
+    /** 已保存连接的 ID (编辑模式)：未提供的凭证 (密码/密钥) 从该连接补全 */
+    connectionId?: number | null;
 }): Promise<{ latency: number }> => {
     console.log(`SshService: 测试未保存的连接到 ${connectionConfig.host}:${connectionConfig.port}...`);
     let sshClient: Client | null = null;
     const startTime = Date.now();
     try {
+        // 编辑模式：读取已保存连接，用于补全未填写的凭证
+        let savedConn: Awaited<ReturnType<typeof ConnectionRepository.findFullConnectionById>> = null;
+        if (connectionConfig.connectionId) {
+            savedConn = await ConnectionRepository.findFullConnectionById(connectionConfig.connectionId);
+            if (!savedConn) {
+                throw new Error(`连接配置 ID ${connectionConfig.connectionId} 未找到。`);
+            }
+        }
+        // 仅当目标主机未改变时沿用已保存连接的 ID (用于主机密钥校验)，否则按临时连接处理
+        const sameTargetAsSaved = !!savedConn && savedConn.host === connectionConfig.host && savedConn.port === connectionConfig.port;
+
         const tempConnDetails: DecryptedConnectionDetails = {
-            id: -1, // Temporary ID for non-persistent connection
-            name: `Test-${connectionConfig.host}`,
+            id: sameTargetAsSaved ? savedConn!.id : -1, // -1: temporary ID for non-persistent connection
+            name: savedConn?.name ?? `Test-${connectionConfig.host}`,
             host: connectionConfig.host,
             port: connectionConfig.port,
             username: connectionConfig.username,
@@ -878,8 +898,24 @@ export const testUnsavedConnection = async (connectionConfig: {
 
         if (tempConnDetails.auth_method === 'password') {
             tempConnDetails.password = connectionConfig.password;
+            if (!tempConnDetails.password && savedConn && savedConn.auth_method === 'password' && savedConn.encrypted_password) {
+                tempConnDetails.password = decrypt(savedConn.encrypted_password);
+            }
         } else {
-            if (connectionConfig.ssh_key_id) {
+            const keyProvided = !!connectionConfig.ssh_key_id || !!connectionConfig.private_key;
+            if (!keyProvided && savedConn && savedConn.auth_method === 'key') {
+                if (savedConn.ssh_key_id) {
+                    const storedKeyDetails = await SshKeyService.getDecryptedSshKeyById(savedConn.ssh_key_id);
+                    if (!storedKeyDetails) {
+                        throw new Error(`关联的 SSH 密钥 (ID: ${savedConn.ssh_key_id}) 未找到。`);
+                    }
+                    tempConnDetails.privateKey = storedKeyDetails.privateKey;
+                    tempConnDetails.passphrase = storedKeyDetails.passphrase;
+                } else if (savedConn.encrypted_private_key) {
+                    tempConnDetails.privateKey = decrypt(savedConn.encrypted_private_key);
+                    tempConnDetails.passphrase = savedConn.encrypted_passphrase ? decrypt(savedConn.encrypted_passphrase) : undefined;
+                }
+            } else if (connectionConfig.ssh_key_id) {
                 console.log(`SshService: Testing unsaved connection using stored SSH key ID: ${connectionConfig.ssh_key_id}...`);
                 const storedKeyDetails = await SshKeyService.getDecryptedSshKeyById(connectionConfig.ssh_key_id);
                 if (!storedKeyDetails) {
@@ -926,6 +962,14 @@ export const testUnsavedConnection = async (connectionConfig: {
             }
         } else {
             tempConnDetails.connection_proxy_setting = null; // Explicitly no proxy
+        }
+
+        // 跳板机链 (与正常连接相同的解析方式)
+        const jumpChainIds = Array.isArray(connectionConfig.jump_chain) ? connectionConfig.jump_chain : [];
+        if (connectionConfig.proxy_type === 'jump' && jumpChainIds.length > 0) {
+            tempConnDetails.jump_chain = await resolveJumpChainDetails(jumpChainIds, connectionConfig.connectionId ?? undefined);
+            tempConnDetails.connection_proxy_setting = 'jump';
+            tempConnDetails.proxy = null;
         }
 
         sshClient = await establishSshConnection(tempConnDetails, TEST_TIMEOUT);

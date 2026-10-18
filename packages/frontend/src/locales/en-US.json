@@ -1880,5 +1880,13 @@
       "failed": "{name} download failed",
       "cancel": "Cancel"
     }
+  },
+  "uxConn": {
+    "credentialsRequiredOnTypeChange": "The connection type was changed. Please enter a new password or select an SSH key for the new type.",
+    "jumpHostNotSelected": "A jump host entry has no host selected. Select a jump host or remove the entry.",
+    "batchFailedIps": "Failed IPs: {ips}",
+    "cancelTest": "Cancel test",
+    "testTimedOut": "Connection test timed out.",
+    "importMoreErrors": "…and {count} more errors"
   }
 }

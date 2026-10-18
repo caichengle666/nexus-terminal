@@ -1,4 +1,5 @@
-import { ref, reactive, watch, computed, onMounted, toRefs } from 'vue';
+import { ref, reactive, watch, computed, onMounted, onBeforeUnmount, toRefs } from 'vue';
+import { isCancel } from 'axios';
 import { storeToRefs } from 'pinia';
 import { useI18n } from 'vue-i18n';
 import apiClient from '../utils/apiClient';
@@ -14,6 +15,10 @@ import { useAlertDialog } from './useAlertDialog';
 interface AddConnectionFormProps {
   connectionToEdit: ConnectionInfo | null;
 }
+
+// 与后端 ssh.service.ts 中的 TEST_TIMEOUT 保持一致 (每一跳的超时)
+const BACKEND_TEST_TIMEOUT_PER_HOP_MS = 15000;
+const TEST_REQUEST_TIMEOUT_MARGIN_MS = 5000;
 
 // Define Emits type based on the component's emits
 type AddConnectionFormEmits = {
@@ -565,6 +570,14 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
     }
   };
 
+  // 跳板机链的深拷贝，去除未选择的 (null) 条目
+  const getCleanJumpChain = (): number[] | null => {
+    if (!formData.jump_chain) return null;
+    const ids = (JSON.parse(JSON.stringify(formData.jump_chain)) as Array<number | null | undefined>)
+      .filter((id): id is number => typeof id === 'number');
+    return ids.length > 0 ? ids : null;
+  };
+
   const handleSubmit = async () => {
     if (isScriptModeActive.value) {
       await handleScriptModeSubmit();
@@ -584,6 +597,26 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
     }
     if (formData.port <= 0 || formData.port > 65535) {
         uiNotificationsStore.showError(t('connections.form.errorPort'));
+        return;
+    }
+
+    // 编辑时更改了连接类型 (例如 SSH→VNC/RDP)：旧凭证不适用于新协议，必须重新填写
+    const typeChangedInEdit = isEditMode.value && !!connectionToEdit.value && connectionToEdit.value.type !== formData.type;
+    if (typeChangedInEdit) {
+        const missingCredentials =
+            (formData.type === 'SSH' && formData.auth_method === 'password' && !formData.password) ||
+            (formData.type === 'SSH' && formData.auth_method === 'key' && !formData.selected_ssh_key_id) ||
+            (formData.type === 'RDP' && !formData.password) ||
+            (formData.type === 'VNC' && !formData.vncPassword);
+        if (missingCredentials) {
+            uiNotificationsStore.showError(t('uxConn.credentialsRequiredOnTypeChange'));
+            return;
+        }
+    }
+
+    // 跳板机模式下不允许存在未选择的跳板机条目
+    if (formData.type === 'SSH' && formData.proxy_type === 'jump' && formData.jump_chain?.some(id => id === null || id === undefined)) {
+        uiNotificationsStore.showError(t('uxConn.jumpHostNotSelected'));
         return;
     }
 
@@ -644,6 +677,7 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
             let successCount = 0;
             let errorCount = 0;
             let firstErrorEncountered: string | null = null;
+            const failedIps: string[] = [];
 
             for (let i = 0; i < ips.length; i++) {
                 const currentIp = ips[i];
@@ -659,6 +693,7 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
                     proxy_id: formData.proxy_id || null,
                     tag_ids: currentSelectedValidTagIds,
                     proxy_type: formData.proxy_type,
+                    jump_chain: getCleanJumpChain(),
                 };
 
                 if (formData.type === 'SSH') {
@@ -685,6 +720,7 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
                     successCount++;
                 } else {
                     errorCount++;
+                    failedIps.push(currentIp);
                     if (!firstErrorEncountered) {
                         firstErrorEncountered = connectionsStore.error || t('errors.unknown', '未知错误');
                     }
@@ -692,7 +728,10 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
             }
 
             if (errorCount > 0) {
-                const message = t('connections.form.errorBatchAddResult', { successCount, errorCount, firstErrorEncountered: firstErrorEncountered || t('errors.unknown', '未知错误') });
+                const MAX_LISTED_IPS = 10;
+                const listedIps = failedIps.slice(0, MAX_LISTED_IPS).join(', ') + (failedIps.length > MAX_LISTED_IPS ? ', …' : '');
+                const message = t('connections.form.errorBatchAddResult', { successCount, errorCount, firstErrorEncountered: firstErrorEncountered || t('errors.unknown', '未知错误') })
+                    + ' ' + t('uxConn.batchFailedIps', { ips: listedIps });
                 if (successCount > 0) {
                   uiNotificationsStore.showWarning(message);
                 } else {
@@ -700,6 +739,9 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
                 }
             } else if (successCount > 0) {
                 uiNotificationsStore.showSuccess(t('connections.form.successBatchAddResult', { successCount }));
+            }
+            // 只要有成功添加的连接就关闭表单并刷新列表，避免再次提交时重复创建已成功的连接
+            if (successCount > 0) {
                 emit('connection-added');
             }
             return;
@@ -724,7 +766,7 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
         proxy_id: formData.proxy_id || null,
         proxy_type: formData.proxy_type,
         tag_ids: currentSelectedValidTagIds,
-        jump_chain: formData.jump_chain ? JSON.parse(JSON.stringify(formData.jump_chain)) : null,
+        jump_chain: getCleanJumpChain(),
     };
 
     if (formData.type === 'SSH') {
@@ -815,37 +857,101 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
   };
 
   // 处理测试连接
+  let testAbortController: AbortController | null = null;
+
+  // 编辑模式下：表单中与连接测试相关的字段是否与已保存的配置不同
+  const hasUnsavedTestChanges = (): boolean => {
+    const saved = connectionToEdit.value;
+    if (!saved) return true;
+    const savedJumpChain = (saved.jump_chain ?? []).filter((id): id is number => typeof id === 'number');
+    const formJumpChain = getCleanJumpChain() ?? [];
+    return (
+      saved.type !== formData.type ||
+      saved.host !== formData.host.trim() ||
+      saved.port !== formData.port ||
+      saved.username !== formData.username ||
+      saved.auth_method !== formData.auth_method ||
+      !!formData.password ||
+      (formData.auth_method === 'key' && (saved.ssh_key_id ?? null) !== (formData.selected_ssh_key_id ?? null)) ||
+      (saved.proxy_type ?? null) !== (formData.proxy_type ?? null) ||
+      (formData.proxy_type === 'proxy' && (saved.proxy_id ?? null) !== (formData.proxy_id ?? null)) ||
+      (formData.proxy_type === 'jump' && JSON.stringify(savedJumpChain) !== JSON.stringify(formJumpChain))
+    );
+  };
+
+  const cancelTestConnection = () => {
+    if (testAbortController) {
+      testAbortController.abort();
+      testAbortController = null;
+    }
+    if (testStatus.value === 'testing') {
+      testStatus.value = 'idle';
+      testResult.value = null;
+      testLatency.value = null;
+    }
+  };
+
+  onBeforeUnmount(() => {
+    cancelTestConnection();
+  });
+
   const handleTestConnection = async () => {
+    cancelTestConnection();
+    const abortController = new AbortController();
+    testAbortController = abortController;
     testStatus.value = 'testing';
     testResult.value = null;
     testLatency.value = null;
 
     try {
+      if (formData.type === 'SSH' && formData.proxy_type === 'jump' && formData.jump_chain?.some(id => id === null || id === undefined)) {
+        throw new Error(t('uxConn.jumpHostNotSelected'));
+      }
+
+      const jumpChain = formData.proxy_type === 'jump' ? getCleanJumpChain() : null;
+      const useProxy = formData.proxy_type === 'proxy' && !!formData.proxy_id;
+      // 后端每一跳 (代理握手 / 每个跳板机 / 目标主机) 各有独立超时，请求超时需覆盖整条链
+      const hops = 1 + (jumpChain?.length ?? 0) + (useProxy ? 1 : 0);
+      const requestConfig = {
+        timeout: BACKEND_TEST_TIMEOUT_PER_HOP_MS * hops + TEST_REQUEST_TIMEOUT_MARGIN_MS,
+        signal: abortController.signal,
+      };
+
       let response;
-      if (isEditMode.value && connectionToEdit.value) {
-        response = await apiClient.post(`/connections/${connectionToEdit.value.id}/test`);
+      const savedConnection = isEditMode.value ? connectionToEdit.value : null;
+      if (savedConnection && !hasUnsavedTestChanges()) {
+        response = await apiClient.post(`/connections/${savedConnection.id}/test`, undefined, requestConfig);
       } else {
-        const dataToSend = {
-            host: formData.host,
+        const dataToSend: Record<string, any> = {
+            host: formData.host.trim(),
             port: formData.port,
             username: formData.username,
             auth_method: formData.auth_method,
             password: formData.auth_method === 'password' ? formData.password : undefined,
-            proxy_id: formData.proxy_id || null,
+            proxy_id: useProxy ? formData.proxy_id : null,
+            proxy_type: formData.proxy_type,
+            jump_chain: jumpChain,
             ssh_key_id: formData.auth_method === 'key' ? formData.selected_ssh_key_id : undefined,
         };
+        // 编辑模式：未填写的凭证由后端从已保存的连接补全 (仅当类型与认证方式均未变化时)
+        const canReuseSavedCredentials = !!savedConnection && savedConnection.type === 'SSH' && savedConnection.auth_method === formData.auth_method;
+        if (savedConnection && savedConnection.type === 'SSH') {
+          dataToSend.connectionId = savedConnection.id;
+        }
 
         if (!dataToSend.host || !dataToSend.port || !dataToSend.username || !dataToSend.auth_method) {
           throw new Error(t('connections.test.errorMissingFields'));
         }
-        if (dataToSend.auth_method === 'password' && !formData.password) {
+        if (dataToSend.auth_method === 'password' && !formData.password && !canReuseSavedCredentials) {
            throw new Error(t('connections.form.errorPasswordRequired'));
-       }
-       if (dataToSend.auth_method === 'key' && !dataToSend.ssh_key_id) {
+        }
+        if (dataToSend.auth_method === 'key' && !dataToSend.ssh_key_id && !canReuseSavedCredentials) {
           throw new Error(t('connections.form.errorSshKeyRequired'));
-       }
-        response = await apiClient.post('/connections/test-unsaved', dataToSend);
+        }
+        response = await apiClient.post('/connections/test-unsaved', dataToSend, requestConfig);
       }
+
+      if (testAbortController !== abortController) return; // 已取消或被新的测试取代
 
       if (response.data.success) {
         testStatus.value = 'success';
@@ -859,16 +965,25 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
       }
 
     } catch (error: any) {
+      if (isCancel(error) || testAbortController !== abortController) {
+        return; // 用户取消测试：不显示错误
+      }
       console.error('测试连接失败:', error);
       testStatus.value = 'error';
       let errorMessageToShow: string;
       if (error.response && error.response.data && error.response.data.message) {
         errorMessageToShow = error.response.data.message;
+      } else if (error.code === 'ECONNABORTED') {
+        errorMessageToShow = t('uxConn.testTimedOut');
       } else {
         errorMessageToShow = error.message || t('connections.test.errorNetwork');
       }
       testResult.value = errorMessageToShow;
       uiNotificationsStore.showError(errorMessageToShow);
+    } finally {
+      if (testAbortController === abortController) {
+        testAbortController = null;
+      }
     }
   };
 
@@ -925,6 +1040,7 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
     handleSubmit,
     handleDeleteConnection,
     handleTestConnection,
+    cancelTestConnection,
     handleCreateTag,
     handleDeleteTag,
     latencyColor,
