@@ -1,99 +1,179 @@
-![banner.png](https://lsky.tuyu.me/i/2025/04/30/681209e053db7.png)
-
----
-
 <div align="center">
 
-[![Docker](https://img.shields.io/badge/-Docker-2496ED?style=flat-square&logo=docker&logoColor=white)][docker-url] [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-4CAF50?style=flat-square)](https://github.com/Heavrnl/nexus-terminal/blob/main/LICENSE)
+<img src="./images/logo.png" width="120" alt="Nexus Terminal" />
 
-[docker-url]: https://hub.docker.com/r/heavrnl/nexus-terminal-frontend
+# Nexus Terminal
+
+**Every server you run, in one window.**
+
+SSH · SFTP · RDP · VNC · Docker · AI Agent — self-hosted in the browser, or native on Windows and macOS, with the same experience everywhere.
+
+[![Release](https://img.shields.io/github/v/release/caichengle666/nexus-terminal?style=for-the-badge&color=8b5cf6&label=Release)](https://github.com/caichengle666/nexus-terminal/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/caichengle666/nexus-terminal/total?style=for-the-badge&color=0ea5e9)](https://github.com/caichengle666/nexus-terminal/releases)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://github.com/caichengle666?tab=packages&repo_name=nexus-terminal)
+[![License](https://img.shields.io/badge/License-GPL--3.0-22c55e?style=for-the-badge)](../LICENSE)
+
+[**Download desktop app**](https://github.com/caichengle666/nexus-terminal/releases/latest) · [**Deploy in one line**](#-deploy-the-web-version) · [**Features**](#-why-nexus-terminal) · [中文](../README.md)
+
+<br/>
+
+<img src="./screenshots/macos-workspace.png" alt="Nexus Terminal on macOS" width="100%" />
+
+<sub>The macOS app: terminal, file manager, AI assistant and quick commands side by side</sub>
 
 </div>
 
+---
 
+## ✨ Why Nexus Terminal
 
-## 📖 Overview
+<table>
+<tr>
+<td width="50%" valign="top">
 
-**Nexus Terminal** is a modern, feature-rich web-based SSH / RDP / VNC client dedicated to providing a highly customizable remote connection experience.
+### 🖥️ Every protocol, one workspace
+Tabbed SSH, SFTP file management, RDP / VNC remote desktops and a Docker panel, arranged in a drag-and-drop layout you design. Stop juggling five tools.
 
-## ✨ Features
+</td>
+<td width="50%" valign="top">
 
-*   Manage SSH and SFTP connections with multiple tabs
-*   Support remote access to desktops via RDP/VNC protocol
-*   Utilizes Monaco Editor for online file editing
-*   Integrated multi-factor login security mechanisms, including human verification (hCaptcha, Google reCAPTCHA) and two-factor authentication (2FA)
-*   Highly customizable interface themes and layout styles
-*   Built-in simple Docker container management panel for easy container operations
-*   Supports IP whitelisting and blacklisting, with automatic banning for abnormal access
-*   Notification system (e.g., login reminders, anomaly alerts)
-*   Audit logs for comprehensive recording of user behavior and system changes
-*   Lightweight Node.js-based backend with low resource consumption
-*   Built-in heartbeat keep-alive mechanism to ensure stable connections
-*   Focus Switcher: Allows switching between input components on the page, supporting customizable switching order and hotkeys.
+### 🤖 An AI agent that actually does the work
+The agent reads your live terminal context, plans from a plain-language goal, runs terminal tools and decides the next step. Risky commands ask first, you can stop it any time, and long sessions are compressed automatically.
 
-## 📸 Screenshots
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
 
+### 🔌 Sessions that survive the network
+Dropped WebSockets reconnect and re-attach to the same SSH session with no lost output. Suspend a session and your build keeps running after you close the tab.
 
+</td>
+<td width="50%" valign="top">
 
-|                            Login Interface                            |
-|:-------------------------------------------------------------:|
-| ![Login_en.png](https://lsky.tuyu.me/i/2025/04/30/68123e4016788.png) |
+### 🛡️ Built to face the internet
+hCaptcha / reCAPTCHA, 2FA, passkeys, IP allow / deny lists with auto-ban, SSH host-key pinning, full audit logs and login / anomaly notifications.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🎨 Make it yours
+Six UI theme presets, 400+ terminal color schemes, animated HTML backgrounds, custom fonts and layouts, Monaco for in-place file editing, pinch-to-zoom on mobile.
+
+</td>
+<td width="50%" valign="top">
+
+### 📦 Web or desktop
+One-line Docker deployment with PWA support, or native builds for Windows (installer and portable) and macOS (Apple silicon and Intel) with built-in, SHA-256 verified updates.
+
+</td>
+</tr>
+</table>
+
+## 📸 Real screenshots
+
+> Captured automatically in CI: the published release is installed on GitHub's macOS and Windows machines, connected to the local SSH server, and photographed.
+
+<table>
+<tr>
+<th width="50%">macOS</th>
+<th width="50%">Windows</th>
+</tr>
+<tr>
+<td><img src="./screenshots/macos-workspace.png" alt="macOS workspace" /></td>
+<td><img src="./screenshots/windows-workspace.png" alt="Windows workspace" /></td>
+</tr>
+<tr>
+<td align="center"><sub>Workspace · zsh over SSH</sub></td>
+<td align="center"><sub>Workspace · PowerShell over SSH</sub></td>
+</tr>
+<tr>
+<td><img src="./screenshots/macos-dashboard.png" alt="macOS dashboard" /></td>
+<td><img src="./screenshots/windows-dashboard.png" alt="Windows dashboard" /></td>
+</tr>
+<tr>
+<td align="center"><sub>Dashboard · connections and audit trail</sub></td>
+<td align="center"><sub>Dashboard</sub></td>
+</tr>
+</table>
+
+### 🎬 AI agent in action
+
+| Ask in plain language | It calls terminal tools | Keeps reasoning, stop any time |
+|:---:|:---:|:---:|
+| ![Start a task](./images/ai-agent-demo-10s.webp) | ![Tool calls](./images/ai-agent-demo-30s.webp) | ![Ongoing analysis](./images/ai-agent-demo-final.webp) |
+
+Full video: [Nexus Terminal AI Agent Demo](https://github.com/caichengle666/nexus-terminal/releases/download/0.9.9/Nexus-Terminal-0.9.9-AI-Agent-Demo.mp4)
+
+## 🧩 Feature map
+
+| Area | What you get |
+| --- | --- |
+| **Connections** | Tabbed SSH / SFTP · RDP / VNC · jump-host chains · HTTP / SOCKS5 proxies · SSH key manager · bulk import / export · tag groups |
+| **Terminal** | xterm.js · search · bracketed paste · IME friendly · command bar synced across sessions · history · quick commands with variables · broadcast to all sessions |
+| **Files** | Folder drag-and-drop upload · transfer progress and cancel · send files between servers · chmod · favorite paths and path history · Monaco editor · encoding switch |
+| **AI** | Terminal-aware context · auto / confirm execution modes · risky-command guard · streaming with stop · conversation history · smart context compression |
+| **Ops** | Server status (CPU / memory / disk / network) · Docker containers · suspended sessions with log export |
+| **Security** | 2FA · passkeys · hCaptcha / reCAPTCHA · IP allow / deny lists · host-key TOFU · audit log · Webhook / Telegram / email notifications |
+| **Experience** | Drag-and-drop layout · 6 UI themes + 400+ terminal schemes · HTML backgrounds · Chinese / English / Japanese · PWA · mobile |
+| **Data** | Encrypted full WebDAV backup and restore · automatic snapshot before restore |
 
 ---
 
-|                            Terminal Interface                             |
-|:-------------------------------------------------------------:|
-| ![workspace_en.png](https://lsky.tuyu.me/i/2025/04/30/68123e410d34f.png) |
+## 💻 Desktop app
 
+Grab it from [**Releases**](https://github.com/caichengle666/nexus-terminal/releases/latest):
 
+| Platform | File | Notes |
+| --- | --- | --- |
+| Windows | `Nexus Terminal Setup x.x.x.exe` | Installer with a custom install path — recommended |
+| Windows | `Nexus Terminal Portable win-unpacked.zip` | Portable, unzip and run; data stays next to the app |
+| macOS · Apple silicon | `Nexus Terminal-x.x.x-macOS-arm64.dmg` | Drag into Applications |
+| macOS · Intel | `Nexus Terminal-x.x.x-macOS-x64.dmg` | Drag into Applications |
 
----
+> The desktop app drops web-only features (login challenges, session suspension). The macOS build is not notarized: on first launch, choose “Open Anyway” in System Settings → Privacy & Security. In-app updates verify SHA-256 and honour your system proxy.
 
+## 🚀 Deploy the web version
 
-
-|                          Style Settings                            |                          Layout Settings                            |                          Settings Panel                            |
-|:-------------------------------------------------------------:|:-------------------------------------------------------------:|:-------------------------------------------------------------:|
-| ![ui_en.png](https://lsky.tuyu.me/i/2025/04/30/68123e40570cc.png) | ![layout_en.png](https://lsky.tuyu.me/i/2025/04/30/68123e4122276.png) | ![settings_en.png](https://lsky.tuyu.me/i/2025/04/30/68123e4036cd6.png) |
-
-## 🖥️ Desktop Client
-
-> Removed web-specific features such as various login verifications and session suspension.
-
-https://github.com/Heavrnl/nexus-terminal/releases/latest
-
-For regular Windows use, download `Nexus Terminal Setup ...exe`; the installer lets you choose the installation directory. For a no-install option, download `Nexus Terminal Portable win-unpacked.zip`, extract it, and run the app directly; its data stays in the extracted directory. On macOS, download the `.dmg` and move the app to Applications before launching it.
-
-## 🚀 Quick Start
-
-### 1️⃣ Configure Environment
-
-> It is recommended to deploy in a Debian (AMD64 architecture) environment. Since I do not have an ARM device, compatibility with ARM is not guaranteed.
-
-Use the one-line installer. The first run installs the containers; running it again pulls the latest images and updates them while preserving `data` and `.env`.
-
+> Debian / Ubuntu on AMD64 or ARM64 recommended. ARMv7 images are not provided.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash
 ```
 
-The script opens an interactive installer. The installation directory, image tag, and confirmation all have defaults, so pressing Enter through the prompts completes the default installation. On a headless server, add `--non-interactive`:
+Press Enter through the prompts for a default install in `/opt/nexus-terminal`. Run the same command again to **upgrade** — it backs up Compose and `.env`, and never touches `data`.
+
+<details>
+<summary><b>More install options</b></summary>
+
+Non-interactive:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --non-interactive
 ```
 
-The default installation directory is `/opt/nexus-terminal`. To choose a directory or image tag:
+Custom directory and version:
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --dir /srv/nexus-terminal --tag 0.9.22.22
+curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --dir /srv/nexus-terminal --tag 0.9.22.45
 ```
 
+ARM64 automatically uses the compatible `guacamole/guacd:1.6.0-RC1` image. For a manual deployment, use the repository's `docker-compose.yml`:
 
-> ⚠️ **Note:**
->
-> * The one-line script automatically uses the compatible `guacamole/guacd:1.6.0-RC1` image on **ARM64**.
-> * The project images do not provide **ARMv7** builds. Use an AMD64 or ARM64 host.
+```bash
+docker compose pull && docker compose up -d
+```
 
-Configure nginx
-```conf
+On first start with no users, the backend prints a one-time setup token: `docker compose logs backend`.
+
+</details>
+
+<details>
+<summary><b>Nginx reverse proxy</b></summary>
+
+```nginx
 location / {
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
@@ -109,23 +189,32 @@ location / {
 }
 ```
 
-#### 🔐 Security-related settings (`.env`)
+With an extra proxy in front, set `TRUST_PROXY` in `.env` to the number of proxy hops (e.g. `2`), and set `SESSION_COOKIE_SECURE=true` behind HTTPS. Browsers only allow copying terminal text over HTTPS or on localhost.
+
+</details>
+
+<details>
+<summary><b>Environment variables (<code>.env</code>)</b></summary>
 
 | Variable | Description |
 | --- | --- |
-| `TRUST_PROXY` | Defaults to `true` in Docker Compose: the nginx inside the frontend container is the only proxy in front of the backend, so the backend trusts only the `X-Forwarded-For` entry written by that hop and clients cannot spoof their IP (used by the IP whitelist, audit log and WebSocket). **If you put another reverse proxy in front (as shown above)**, set it to the number of proxy hops (set it in `.env`, e.g. `TRUST_PROXY=2`), otherwise the backend sees the outer proxy's IP. |
-| `SESSION_COOKIE_SECURE` | Set to `true` when the app is served over HTTPS so the session cookie is only sent over HTTPS. |
-| `ALLOWED_WS_ORIGINS` | Optional comma-separated list of extra allowed WebSocket origins (e.g. `https://a.example.com,https://b.example.com`). By default only same-origin (Origin matches Host) and loopback origins are accepted; add your URL here if your reverse proxy rewrites the `Host` header and the terminal cannot connect. |
-| `REMOTE_GATEWAY_SECRET` | Shared secret between the backend and the remote-desktop gateway. The installer generates it automatically; for manual deployments generate one (e.g. `openssl rand -hex 32`) and add it to `.env`. |
-| `SETUP_TOKEN` | Optional. On first start with no users, the backend prints a one-time setup token to its log (`docker compose logs backend`), which is required to create the admin account. Set this variable to use a fixed token instead. |
-| `WS_RESUME_GRACE_SECONDS` | Optional, default `180`. How long an SSH session is kept after the browser connection drops; the frontend's automatic reconnect reattaches to the same session (running programs and terminal output are preserved). Set to `0` to disable. Up to `WS_RESUME_BUFFER_BYTES` (default 512 KB) of output is buffered while disconnected. |
-| `SSH_MAX_EXEC_CHANNELS` | Optional, default `6`. Maximum concurrent exec channels (status monitor, Docker, AI commands, archive tools) per SSH connection; extra requests are queued so the terminal and SFTP always fit within OpenSSH `MaxSessions` (default 10). Lower it if your server uses a smaller `MaxSessions`. |
-| `WS_HEARTBEAT_INTERVAL_MS` / `WS_HEARTBEAT_MAX_MISSED` | Optional, defaults `15000` / `3`. WebSocket heartbeat interval and how many consecutive missed pongs are tolerated. |
+| `TRUST_PROXY` | Default `true`: only the frontend container's nginx hop is trusted for `X-Forwarded-For`. Set to the hop count (e.g. `2`) behind another reverse proxy, or IP rules and audit logs will see the proxy's IP. |
+| `SESSION_COOKIE_SECURE` | Set to `true` when served over HTTPS. |
+| `ALLOWED_WS_ORIGINS` | Optional, comma-separated extra WebSocket origins. Add your public URL if a proxy rewrites `Host` and the terminal cannot connect. |
+| `REMOTE_GATEWAY_SECRET` | Shared secret between backend and remote-desktop gateway; generated by the installer, or `openssl rand -hex 32` by hand. |
+| `SETUP_TOKEN` | Optional fixed initial setup token. |
+| `WS_RESUME_GRACE_SECONDS` | Default `180`. How long an SSH session is kept after the browser drops; reconnecting re-attaches it. `0` disables. Buffer capped by `WS_RESUME_BUFFER_BYTES` (default 512 KB). |
+| `SSH_MAX_EXEC_CHANNELS` | Default `6`. Concurrent exec channels per SSH connection (status, Docker, AI), keeping `MaxSessions` headroom for the terminal and SFTP. |
+| `WS_HEARTBEAT_INTERVAL_MS` / `WS_HEARTBEAT_MAX_MISSED` | Default `15000` / `3`. WebSocket heartbeat interval and allowed misses. |
+| `RP_ID` / `RP_ORIGIN` | Required to enable passkey login. |
 
+</details>
 
-Configure IPv6 for Docker (optional — you can skip this if you don't use IPv6 to connect to the server).
+<details>
+<summary><b>Docker IPv6 (optional)</b></summary>
 
-Add the following content to `/etc/docker/daemon.json`:
+Add this to `/etc/docker/daemon.json`, then run `sudo systemctl restart docker`:
+
 ```json
 {
   "ipv6": true,
@@ -134,87 +223,40 @@ Add the following content to `/etc/docker/daemon.json`:
   "experimental": true
 }
 ```
-Then restart the Docker service:
-```
-sudo systemctl restart docker
-```
 
-### 2️⃣ Start the Service
+</details>
 
-The one-line installer starts the service automatically. For a manual deployment, run `docker compose up -d` from the installation directory.
+## ⌨️ Tips
 
-### 3️⃣ Update
-Run the one-line installer again. It validates the downloaded Compose file, backs up the current Compose and `.env`, pulls the latest images, and updates the containers without replacing `data`. You can also update manually:
-```bash
-docker compose pull
-docker compose up -d
-```
-## 📚 Usage Guide
+| Task | How |
+| --- | --- |
+| Copy / paste | `Ctrl + Shift + C` / `Ctrl + Shift + V` in the terminal |
+| Switch tabs | With the command bar focused: `Alt + ↑/↓` for SSH tabs, `Alt + ←/→` for editor tabs |
+| Jump between inputs | Press `Alt` to cycle the inputs you configured (Settings → Focus Switcher) |
+| Reconnect | Press Enter in the terminal or command bar, or click the same connection again |
+| Suspend a session | Right-click the SSH tab (long-press on mobile) → Suspend; work continues after you close the page |
+| Files | Drag files or folders in, `Ctrl` / `Shift` to multi-select, drag inside to move, right-click for permissions |
+| Zoom | `Ctrl + wheel` in terminal, file manager and editor; pinch on mobile |
+| Tab bar | Right-click to close others / left / right; click a group name to rename it |
 
-### Suspend Session Component
+<details>
+<summary><b>Notes</b></summary>
 
-You can right-click in the SSH tab to select "Suspend Session" (long-press on mobile). Once suspended, even if the web connection is lost, the backend will automatically take over and keep the SSH connection active. You can resume the session at any time via the panel. This ensures that tasks such as compilation or long-running processes won’t be interrupted due to network issues.
+1. A layout can hold two file managers (experimental); multiple text editors in one layout are not supported yet.
+2. ARMv7 has no guacd image; see [arm/docker-compose.yml](./arm/docker-compose.yml) — RDP is unavailable there.
+3. Full WebDAV backups encrypt the whole `data` directory (database, keys, AI sessions, themes, uploads, suspended-session logs). Restoring needs the backup password and snapshots current data first. Legacy database ZIP backups still restore but do not include `data` files.
+4. Server status reads Linux metrics, so it shows N/A for macOS / Windows hosts.
 
+</details>
 
-### Command Input Component
-
-1.  **Tab Switching**: When the command input box has focus, use `Alt + ↑/↓` to switch between SSH session tabs, and `Alt + ←/→` to switch between text editor tabs.
-2.  **Command Sync** (needs to be enabled in settings): When enabled, text entered in the command input box will be synchronized in real-time to the selected target input source. Use the `↑/↓` keys to select menu command items, then press `Enter` to send the selected command.
-
-### File Manager Component
-
-1.  **Quick File Selection**: When the file search box has focus, you can use the `↑/↓` keys to quickly select files.
-2.  **Drag and Drop Upload**: Supports dragging files or folders from outside the browser for uploading. **Note:** When uploading a large number of files or deeply nested folders, it is recommended to compress them first to avoid browser freezes.
-3.  **Internal Drag and Drop**: You can directly drag and drop files or folders within the file manager to move them.
-4.  **Multiple Selection**: Hold down the `Ctrl` or `Shift` key to select multiple files or folders.
-5.  **Context Menu**: Provides common file operations such as copy, paste, cut, delete, rename, and modify permissions.
-
-### Command History Component
-
-1.  **View Full Command**: When a historical command is too long and truncated, hover the mouse over the command to view the complete instruction content.
-
-### Terminal Component
-
-1. Press **Ctrl + Shift + C** to copy, and **Ctrl + Shift + V** to paste.
-
-
-### General Operations
-
-1.  **Zoom**: In the terminal, file manager, text editor components, and quick command view, you can use `Ctrl + mouse wheel` to zoom.
-2. **Sidebar**: The expanded sidebar can have its width adjusted by dragging.
-3. **Tab Bar**: Right-clicking on the SSH tab bar or the file manager tab bar will open a context menu with the following options: Close, Close Tabs to the Left, Close Other Tabs, and Close Tabs to the Right.
-4. **Tab Group Fold Bar**: You can directly click on the tab name in the view to rename the tab.
-5. **Automatic Reconnection**: When the connection is lost, you can press Enter in the command input box or terminal, or click the same SSH connection in the connection list to trigger automatic reconnection.
-
-### Others
-
-
-1. **On mobile devices, you can zoom in or out on the terminal font using a two-finger gesture.**
-2. To enable Passkey login, set the `RP_ID` and `RP_ORIGIN` environment variables in the `.env` file.
-
-
-
-## ⚠️ Notes
-
-1.  **Dual File Managers**: You can add two file manager components in the layout (experimental feature, may be unstable).
-2.  **Multiple Text Editors**: The functionality to add multiple text editors in the same layout has not yet been implemented.
-3. For **ARMv7** users, please use the [docker-compose.yml](https://github.com/Heavrnl/nexus-terminal/blob/main/doc/arm/docker-compose.yml) provided here.
-Since Apache Guacamole does not provide an ARMv7-compatible image for `guacd`, the RDP/VNC feature has been disabled, and related images will not be pulled for now.
-4. Since I don't have an ARM machine on hand, I haven't conducted actual testing, so unexpected bugs may occur during runtime.
-5. For data backup, please back up the **data** folder in the directory yourself. This project does not provide any backup functionality.
-
+---
 
 ## 💐 Acknowledgements
 
-* The preset theme schemes are based on the excellent [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes) project.
+This repository is a maintained fork of [Heavrnl/nexus-terminal](https://github.com/Heavrnl/nexus-terminal) — thanks to [Heavrnl](https://github.com/Heavrnl) for the excellent foundation. Terminal color presets come from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes).
 
-## ☕ Donate
-
-If you find this project helpful, feel free to buy me a coffee through the following ways:
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/0heavrnl)
-
+If Nexus Terminal helps you, a ⭐ goes a long way — or [buy the original author a coffee](https://ko-fi.com/0heavrnl).
 
 ## 📄 License
 
-This project is licensed under the [GPL-3.0](LICENSE) license. See the [LICENSE](LICENSE) file for details.
+[GPL-3.0](../LICENSE)

@@ -1,116 +1,179 @@
-![banner.png](https://lsky.tuyu.me/i/2025/04/30/681209e053db7.png)
----
-
-> 本仓库基于 [Heavrnl/nexus-terminal](https://github.com/Heavrnl/nexus-terminal) 分叉维护，衷心感谢原作者 [Heavrnl](https://github.com/Heavrnl) 的出色工作与开源贡献。
-
-
 <div align="center">
 
-[![Docker](https://img.shields.io/badge/-Docker-2496ED?style=flat-square&logo=docker&logoColor=white)][docker-url] [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-4CAF50?style=flat-square)](https://github.com/Heavrnl/nexus-terminal/blob/main/LICENSE)
-<br>
-[中文](./README.md) | [English](./doc/README_EN.md)
+<img src="./doc/images/logo.png" width="120" alt="Nexus Terminal" />
 
-[docker-url]: https://hub.docker.com/r/heavrnl/nexus-terminal-frontend
+# 星枢终端 · Nexus Terminal
+
+**一个窗口，掌控所有服务器。**
+
+SSH · SFTP · RDP · VNC · Docker · AI Agent —— 自托管的 Web 版，与 Windows / macOS 原生桌面端，同一套体验。
+
+[![Release](https://img.shields.io/github/v/release/caichengle666/nexus-terminal?style=for-the-badge&color=8b5cf6&label=Release)](https://github.com/caichengle666/nexus-terminal/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/caichengle666/nexus-terminal/total?style=for-the-badge&color=0ea5e9)](https://github.com/caichengle666/nexus-terminal/releases)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://github.com/caichengle666?tab=packages&repo_name=nexus-terminal)
+[![License](https://img.shields.io/badge/License-GPL--3.0-22c55e?style=for-the-badge)](./LICENSE)
+
+[**下载桌面端**](https://github.com/caichengle666/nexus-terminal/releases/latest) · [**一键部署**](#-一键部署-web-版) · [**功能一览**](#-为什么选择星枢终端) · [English](./doc/README_EN.md)
+
+<br/>
+
+<img src="./doc/screenshots/macos-workspace.png" alt="Nexus Terminal on macOS" width="100%" />
+
+<sub>macOS 桌面端：终端、文件管理、AI 助手与快捷指令同屏协作</sub>
 
 </div>
 
+---
 
-## 📖 概述
+## ✨ 为什么选择星枢终端
 
-**星枢终端（Nexus Terminal）** 是一款现代化、功能丰富的 Web SSH / RDP / VNC 客户端，致力于提供高度可定制的远程连接体验。提供独立的本地桌面端。
+<table>
+<tr>
+<td width="50%" valign="top">
 
-## 🎬 AI Agent 演示
+### 🖥️ 全协议，一个工作台
+SSH 多标签、SFTP 文件管理、RDP / VNC 远程桌面、Docker 容器面板，全部收进一个可自由拖拽的布局里。不用再在五个工具之间来回切换。
 
-AI Agent 是内置在 SSH 终端里的智能运维助手，可以读取当前终端会话上下文，根据自然语言目标自动分析环境、调用终端工具、继续判断下一步，并支持随时停止 AI 工作。
+</td>
+<td width="50%" valign="top">
 
-| 发起自然语言任务 | 自动调用终端工具 | 持续分析并可随时停止 |
+### 🤖 会动手的 AI 运维助手
+AI Agent 读得懂当前终端上下文，按你的自然语言目标自己分析、调用终端工具、判断下一步；危险命令先确认，随时一键停止，接近上限时自动压缩上下文。
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🔌 断网不断会话
+WebSocket 断线自动重连并接回原 SSH 会话，输出不丢；“挂起会话”让编译、长任务在你关掉网页后依旧在后台运行，随时恢复。
+
+</td>
+<td width="50%" valign="top">
+
+### 🛡️ 为暴露在公网而设计
+人机验证（hCaptcha / reCAPTCHA）、两步验证、Passkey、IP 黑白名单与自动封禁、SSH 主机密钥校验、完整审计日志、登录与异常通知。
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🎨 每个像素都能定制
+六套 UI 主题预设、400+ 终端配色、HTML 动态背景、自定义字体与布局；Monaco 编辑器在线改文件，移动端双指缩放字体。
+
+</td>
+<td width="50%" valign="top">
+
+### 📦 Web 与桌面，两种形态
+Docker 一键部署到服务器，浏览器随处访问，支持 PWA；也可以直接下载 Windows 安装版 / 便携版、macOS（Apple 芯片与 Intel）桌面端，内置在线更新与 SHA-256 校验。
+
+</td>
+</tr>
+</table>
+
+## 📸 实机截图
+
+> 以下截图由 CI 在 GitHub 的 macOS 与 Windows 虚拟机上安装正式发布版、连接本机 SSH 后自动拍摄，所见即所得。
+
+<table>
+<tr>
+<th width="50%">macOS</th>
+<th width="50%">Windows</th>
+</tr>
+<tr>
+<td><img src="./doc/screenshots/macos-workspace.png" alt="macOS 工作区" /></td>
+<td><img src="./doc/screenshots/windows-workspace.png" alt="Windows 工作区" /></td>
+</tr>
+<tr>
+<td align="center"><sub>工作区 · zsh over SSH</sub></td>
+<td align="center"><sub>工作区 · PowerShell over SSH</sub></td>
+</tr>
+<tr>
+<td><img src="./doc/screenshots/macos-dashboard.png" alt="macOS 仪表盘" /></td>
+<td><img src="./doc/screenshots/windows-dashboard.png" alt="Windows 仪表盘" /></td>
+</tr>
+<tr>
+<td align="center"><sub>仪表盘 · 连接与审计一目了然</sub></td>
+<td align="center"><sub>仪表盘</sub></td>
+</tr>
+</table>
+
+### 🎬 AI Agent 实战
+
+| 发起自然语言任务 | 自动调用终端工具 | 持续分析，随时停止 |
 |:---:|:---:|:---:|
 | ![AI Agent 发起任务](./doc/images/ai-agent-demo-10s.webp) | ![AI Agent 调用工具](./doc/images/ai-agent-demo-30s.webp) | ![AI Agent 持续分析](./doc/images/ai-agent-demo-final.webp) |
 
-完整流程可以观看或下载：
-[Nexus Terminal 0.9.9 AI Agent 演示视频](https://github.com/caichengle666/nexus-terminal/releases/download/0.9.9/Nexus-Terminal-0.9.9-AI-Agent-Demo.mp4)
+完整演示视频：[Nexus Terminal AI Agent Demo](https://github.com/caichengle666/nexus-terminal/releases/download/0.9.9/Nexus-Terminal-0.9.9-AI-Agent-Demo.mp4)
 
-## ✨ 功能特性
+## 🧩 功能全景
 
-*   多标签页管理 SSH 与 SFTP 连接  
-*   支持 RDP/VNC 协议
-*   支持 PWA
-*   采用 Monaco Editor，支持在线编辑文件  
-*   集成多重登录安全机制，包括人机验证（hCaptcha、Google reCAPTCHA）与双因素认证（2FA）  
-*   高度可定制的界面主题与布局风格
-*   内置简易 Docker 容器管理面板，便于容器运维  
-*   支持 IP 白名单与黑名单，异常访问自动封禁  
-*   通知系统（如登录提醒、异常告警）  
-*   审计日志，全面记录用户行为与系统变更
-*   基于 Node.js 的轻量级后端，资源占用低
-*   内置心跳保活机制，确保连接稳定
-*   内置 **AI Agent 助手**：侧边抽屉式对话面板、回车发送、自动工具调用、随时停止生成、上下文智能压缩
-*   **UI 主题预设**：默认白、冷白、暖白、专业黑、午夜蓝、极简黑多款主题可选
-*   **全新品牌设计**：原创 Logo，桌面安装版与便携版（Windows）自动构建发布
-*   **智能上下文压缩**：接近 token 上限时自动生成会话摘要，避免请求过大（默认 256 KB）
-## 📸 截图
-
-
-
-
-
-|                            终端界面（Light）                            |
-|:-------------------------------------------------------------:|
-| ![workspace_light.png](https://lsky.tuyu.me/i/2025/04/30/68120a8dd0489.png) |
+| 领域 | 能力 |
+| --- | --- |
+| **连接** | SSH / SFTP 多标签 · RDP / VNC · 跳板机链 · HTTP / SOCKS5 代理 · SSH 密钥管理 · 批量导入导出 · 标签分组 |
+| **终端** | xterm.js · 搜索 · bracketed paste · 输入法友好 · 命令输入栏多会话同步 · 命令历史 · 快捷指令（支持变量） · 一键发送到全部会话 |
+| **文件** | 拖拽上传文件夹 · 传输进度与取消 · 跨服务器发送文件 · 权限修改 · 收藏路径与路径历史 · Monaco 在线编辑 · 编码切换 |
+| **AI** | 终端上下文感知 · 自动 / 确认两种执行模式 · 危险命令拦截 · 流式输出与随时停止 · 会话历史 · 上下文智能压缩 |
+| **运维** | 服务器状态监控（CPU / 内存 / 磁盘 / 网络） · Docker 容器管理 · 挂起会话与日志导出 |
+| **安全** | 2FA · Passkey · hCaptcha / reCAPTCHA · IP 黑白名单 · 主机密钥 TOFU 校验 · 审计日志 · Webhook / Telegram / 邮件通知 |
+| **体验** | 可拖拽布局 · 6 套 UI 主题 + 400+ 终端配色 · HTML 背景 · 中 / 英 / 日三语 · PWA · 移动端适配 |
+| **数据** | WebDAV 加密完整备份与恢复 · 恢复前自动快照 |
 
 ---
 
-|                            终端界面（Dark）                            |
-|:-------------------------------------------------------------:|
-| ![workspace_darker.png](https://lsky.tuyu.me/i/2025/04/30/68120aa275a76.png) |
+## 💻 桌面端
 
----
+前往 [**Releases**](https://github.com/caichengle666/nexus-terminal/releases/latest) 下载：
 
-|                            移动端界面1                            |                            移动端界面2                            |
-|:-------------------------------------------------------------:|:-------------------------------------------------------------:|
-| ![1746339196937.png](https://lsky.tuyu.me/i/2025/05/04/6817056948ac2.png) |![1746339222136.png](https://lsky.tuyu.me/i/2025/05/04/681705820fe01.png) |
+| 平台 | 文件 | 说明 |
+| --- | --- | --- |
+| Windows | `Nexus Terminal Setup x.x.x.exe` | 安装版，可自定义安装目录，推荐日常使用 |
+| Windows | `Nexus Terminal Portable win-unpacked.zip` | 便携版，解压即用，数据保存在解压目录 |
+| macOS · Apple 芯片 | `Nexus Terminal-x.x.x-macOS-arm64.dmg` | 打开后拖入“应用程序” |
+| macOS · Intel | `Nexus Terminal-x.x.x-macOS-x64.dmg` | 打开后拖入“应用程序” |
 
----
+> 桌面端去掉了仅 Web 端需要的功能（登录验证、会话挂起等）。macOS 安装包未经 Apple 公证，首次打开请在“系统设置 → 隐私与安全性”中点“仍要打开”。在线更新会校验 SHA-256，并自动使用系统代理。
 
+## 🚀 一键部署 Web 版
 
-## 🖥️ 桌面端
+> 推荐 Debian / Ubuntu，AMD64 或 ARM64。项目镜像不提供 ARMv7。
 
-> 移除了web端的特有功能，如各种登录验证，会话挂起等功能
-
-https://github.com/caichengle666/nexus-terminal/releases/latest
-
-Windows 日常使用请下载 `Nexus Terminal Setup ...exe`，安装向导可自定义安装目录。需要免安装版本时，可下载 `Nexus Terminal Portable win-unpacked.zip`，解压后直接运行；其数据保存在解压目录内。macOS 请下载 `.dmg`，将应用拖到“应用程序”目录后运行。
-
-## 🚀 快速开始
-
-### 1️⃣ 配置环境
-
-> 建议在 Debian（AMD64 架构）环境中部署，因本人无 ARM 设备，无法保证其兼容性。
-
-推荐直接执行一键安装命令。首次执行会安装容器，之后重复执行会自动拉取最新镜像并更新，`data` 和 `.env` 不会被覆盖。
 ```bash
 curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash
 ```
 
-脚本会进入交互安装界面，安装目录、镜像标签和确认项均有默认值，直接连续按回车即可完成默认安装。服务器没有终端时可追加 `--non-interactive`：
+一路回车即可完成默认安装（目录 `/opt/nexus-terminal`）。重复执行同一命令即可**升级**，脚本会备份 Compose 与 `.env`，`data` 不会被覆盖。
+
+<details>
+<summary><b>更多安装选项</b></summary>
+
+无交互安装：
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --non-interactive
 ```
 
-默认安装目录为 `/opt/nexus-terminal`。如需指定目录或版本，可以使用：
+指定目录与版本：
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --dir /srv/nexus-terminal --tag 0.9.22.22
+curl -fsSL https://raw.githubusercontent.com/caichengle666/nexus-terminal/main/install.sh | bash -s -- --dir /srv/nexus-terminal --tag 0.9.22.45
 ```
-> ⚠️ **注意：**
->
-> * 一键脚本会自动为 **ARM64** 使用兼容的 `guacamole/guacd:1.6.0-RC1` 镜像。
-> * 当前项目镜像不提供 **ARMv7** 架构，请使用 AMD64 或 ARM64 主机。
 
+ARM64 会自动使用兼容的 `guacamole/guacd:1.6.0-RC1` 镜像。手动部署可直接使用仓库中的 `docker-compose.yml`：
 
+```bash
+docker compose pull && docker compose up -d
+```
 
+首次启动且没有任何用户时，后端会在日志里打印一次性初始设置令牌：`docker compose logs backend`。
 
-配置 nginx
-```conf
+</details>
+
+<details>
+<summary><b>Nginx 反向代理</b></summary>
+
+```nginx
 location / {
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
@@ -126,25 +189,32 @@ location / {
 }
 ```
 
+在前面再加一层反向代理时，记得把 `.env` 里的 `TRUST_PROXY` 设为代理层数（例如 `2`），并在 HTTPS 下设置 `SESSION_COOKIE_SECURE=true`。浏览器只允许在 HTTPS 或 localhost 下复制终端内容。
 
-#### 🔐 安全相关配置（`.env`）
+</details>
+
+<details>
+<summary><b>环境变量（<code>.env</code>）</b></summary>
 
 | 变量 | 说明 |
 | --- | --- |
-| `TRUST_PROXY` | Docker Compose 中默认为 `true`：前端容器内的 nginx 是后端前面唯一的一层代理，后端只信任这一跳写入的 `X-Forwarded-For`，客户端无法伪造 IP（IP 白名单、审计日志、WebSocket 均使用该 IP）。**如果像上面那样在前面再加一层反向代理**，请把它设为代理层数（在 `.env` 中设置，例如 `TRUST_PROXY=2`），否则后端看到的将是外层代理的 IP。 |
-| `SESSION_COOKIE_SECURE` | 通过 HTTPS 访问时请设为 `true`，会话 Cookie 将只通过 HTTPS 发送。 |
-| `ALLOWED_WS_ORIGINS` | 可选，逗号分隔的额外允许的 WebSocket Origin（如 `https://a.example.com,https://b.example.com`）。默认只允许同源（Origin 与 Host 一致）以及本机回环地址；如果反向代理改写了 `Host` 头，导致终端无法连接，请在此加入访问地址。 |
-| `REMOTE_GATEWAY_SECRET` | 后端与远程桌面网关共享的密钥，一键脚本会自动生成。手动部署请自行生成（如 `openssl rand -hex 32`）并写入 `.env`。 |
-| `SETUP_TOKEN` | 可选。首次启动且没有任何用户时，后端会在日志中打印一次性的初始设置令牌（`docker compose logs backend` 查看），创建管理员时需要填写；设置此变量可指定固定令牌。 |
-| `WS_RESUME_GRACE_SECONDS` | 可选，默认 `180`。浏览器网络断开后 SSH 会话保留的秒数，期间前端自动重连会接回原会话（终端里的程序和输出不丢失）。设为 `0` 关闭。断线期间最多缓存 `WS_RESUME_BUFFER_BYTES`（默认 512 KB）终端输出。 |
-| `SSH_MAX_EXEC_CHANNELS` | 可选，默认 `6`。每个 SSH 连接上状态监控、Docker、AI 执行等 exec 通道的并发上限，超出的排队等待，为终端和 SFTP 预留 OpenSSH `MaxSessions`（默认 10）的配额。如果服务器调低了 `MaxSessions`，请相应调低此值。 |
-| `WS_HEARTBEAT_INTERVAL_MS` / `WS_HEARTBEAT_MAX_MISSED` | 可选，默认 `15000` / `3`。WebSocket 心跳间隔与允许连续丢失的次数。 |
+| `TRUST_PROXY` | 默认 `true`，只信任前端容器 nginx 这一跳写入的 `X-Forwarded-For`。外面再套反向代理时设为代理层数（如 `2`），否则 IP 白名单、审计日志看到的都是代理 IP。 |
+| `SESSION_COOKIE_SECURE` | 通过 HTTPS 访问时设为 `true`。 |
+| `ALLOWED_WS_ORIGINS` | 可选，逗号分隔的额外允许的 WebSocket Origin。反向代理改写了 `Host` 导致终端连不上时在此加入访问地址。 |
+| `REMOTE_GATEWAY_SECRET` | 后端与远程桌面网关的共享密钥，一键脚本自动生成；手动部署可用 `openssl rand -hex 32`。 |
+| `SETUP_TOKEN` | 可选，指定固定的初始设置令牌。 |
+| `WS_RESUME_GRACE_SECONDS` | 默认 `180`。断网后 SSH 会话保留的秒数，期间重连会接回原会话；`0` 关闭。缓存上限 `WS_RESUME_BUFFER_BYTES`（默认 512 KB）。 |
+| `SSH_MAX_EXEC_CHANNELS` | 默认 `6`。每个 SSH 连接上状态监控、Docker、AI 等 exec 通道的并发上限，为终端和 SFTP 预留 `MaxSessions` 配额。 |
+| `WS_HEARTBEAT_INTERVAL_MS` / `WS_HEARTBEAT_MAX_MISSED` | 默认 `15000` / `3`，WebSocket 心跳间隔与允许连续丢失次数。 |
+| `RP_ID` / `RP_ORIGIN` | 启用 Passkey 登录时需要设置。 |
 
+</details>
 
+<details>
+<summary><b>Docker IPv6（可选）</b></summary>
 
-为 docker 配置IPv6（可选，如果你不使用ipv6连接服务器可以不配置）
+在 `/etc/docker/daemon.json` 中加入以下内容后执行 `sudo systemctl restart docker`：
 
-在`/etc/docker/daemon.json`加入以下内容
 ```json
 {
   "ipv6": true,
@@ -153,83 +223,40 @@ location / {
   "experimental": true
 }
 ```
-重启docker服务
-```
-sudo systemctl restart docker
-```
 
-### 2️⃣ 启动服务
+</details>
 
-一键脚本会自动启动服务。手动部署时仍可使用 `docker compose up -d`。
+## ⌨️ 上手技巧
 
-### 3️⃣ 更新
-推荐再次执行一键安装命令，脚本会校验配置、备份当前 Compose 和 `.env`，拉取最新镜像后平滑更新容器。也可以在安装目录手动执行：
-```bash
-docker compose pull
-docker compose up -d
-```
-## 📚 使用指南
+| 场景 | 操作 |
+| --- | --- |
+| 复制 / 粘贴 | 终端内 `Ctrl + Shift + C` / `Ctrl + Shift + V` |
+| 切换标签 | 命令输入栏聚焦时 `Alt + ↑/↓` 切 SSH 标签，`Alt + ←/→` 切编辑器标签 |
+| 快速切换焦点 | 按 `Alt` 在配置好的输入框之间跳转（设置 → 焦点切换器） |
+| 断线重连 | 在终端或命令输入栏按回车，或再次点击同一连接 |
+| 挂起会话 | SSH 标签右键（移动端长按）→ 挂起会话，关闭网页后任务继续 |
+| 文件操作 | 拖拽上传文件 / 文件夹，`Ctrl` / `Shift` 多选，内部拖动即移动，右键管理权限 |
+| 缩放 | 终端、文件管理器、编辑器中 `Ctrl + 滚轮`；移动端双指缩放 |
+| 标签栏 | 右键可关闭其他 / 左侧 / 右侧标签；点击分组名可直接改名 |
 
-### 挂起会话组件
-你可以在 SSH 标签页中右键选择“挂起会话”（移动界面长按即可）。一旦挂起，即使网页断开连接，后端也会自动接管并保持 SSH 连接不中断。你可以随时通过面板组件重新恢复会话，整个过程确保编译、长任务等操作不会因网络波动等原因中断。
+<details>
+<summary><b>注意事项</b></summary>
 
-### 命令输入框组件
+1. 布局中可以放两个文件管理器（实验性），同一布局暂不支持多个文本编辑器。
+2. ARMv7 没有 guacd 镜像，请参考 [doc/arm/docker-compose.yml](./doc/arm/docker-compose.yml)，RDP 功能不可用。
+3. WebDAV 完整备份会加密保存整个 `data` 目录（数据库、密钥、AI 会话、主题、上传文件、挂起日志）；恢复需要备份密码，恢复前会自动创建快照。旧版数据库 ZIP 备份仍可恢复，但不含 `data` 目录文件。
+4. 服务器状态监控读取的是 Linux 指标，连接 macOS / Windows 主机时会显示 N/A。
 
-1.  **标签页切换**：当命令输入框获得焦点时，使用 `Alt + ↑/↓` 切换 SSH 会话标签页，使用 `Alt + ←/→` 切换文本编辑器标签页。
-2.  **命令同步**（需在设置中开启）：开启后，在命令输入框中输入的文字将实时同步到选定的目标输入源。使用 `↑/↓` 键选择菜单命令项，然后按下 `Enter` 发送选中的指令。
+</details>
 
-
-### 文件管理器组件
-
-1.  **文件快速选择**：在文件搜索框获得焦点时，可以使用 `↑/↓` 键快速选择文件。
-2.  **拖拽上传**：支持从浏览器外部拖拽文件或文件夹进行上传。**注意：** 上传大量文件或深层文件夹时，建议先进行打包压缩，以避免浏览器卡死。
-3.  **内部拖拽**：可以直接在文件管理器内部拖动文件或文件夹以进行移动。
-4.  **多选操作**：按住 `Ctrl` 或 `Shift` 键可以选择多个文件或文件夹。
-5.  **右键菜单**：提供复制、粘贴、剪切、删除、重命名、修改权限等常用文件操作。
-
-### 终端组件
-1.  Ctrl + Shift + C 复制，Ctrl + Shift + V 粘贴
-
-
-### 历史命令组件
-
-1.  **查看完整命令**：当历史命令过长被截断时，将鼠标悬停在命令上即可查看完整的指令内容。
-
-### 通用操作
-
-1.  **缩放**：在终端、文件管理器和文本编辑器组件和快捷指令视图中，可以使用 `Ctrl + 鼠标滚轮` 进行缩放。
-2.  **侧栏**：展开的侧栏可以通过拖拽调节宽度。
-3.  **标签栏**：对于ssh标签栏和文件管理器标签栏可以右键弹出菜单，内容项有：关闭，关闭左侧标签页，关闭其他标签页，关闭右侧标签页。
-4.  **标签分组折叠栏** 可以直接点击视图里的标签名字修改标签名称
-5.  **自动重连**：在连接断开状态下，可在命令输入框或终端中按回车，或点击连接列表中的同一 SSH 连接以触发自动重连。
-
-### 其他
-1. **移动端可以通过双指手势放大缩小终端字体**
-2. 如需启用 Passkey 登录，请在 `.env` 文件中设置 `RP_ID` 和 `RP_ORIGIN` 环境变量。
-
-
-## ⚠️ 注意事项
-
-1.  **双文件管理器**：可以在布局中添加两个文件管理器组件（实验性功能，可能存在不稳定情况）。
-2.  **多文本编辑器**：在同一布局中添加多个文本编辑器的功能尚未实现。
-3. ARMv7 用户请使用此处的 [docker-compose.yml](https://github.com/Heavrnl/nexus-terminal/blob/main/doc/arm/docker-compose.yml)。由于 Apache Guacamole 未提供 guacd 的 ARMv7 架构镜像，所以禁用 RDP 功能，相关镜像暂时不再拉取。
-4. WebDAV 完整备份会加密保存整个 `data` 目录，包括数据库、`data/.env` 加密密钥、AI 会话、主题、背景、上传文件和挂起日志。恢复完整备份需要输入创建备份时设置的备份密码；恢复前系统会自动创建当前数据的安全快照。
-5. 旧版数据库 ZIP 备份仍可恢复，但不包含 `data` 目录中的文件，建议使用新的 `.zip.enc` 完整备份格式。
-6. 由于浏览器限制，非https或者localhost无法复制终端内容，请使用https访问
-
+---
 
 ## 💐 致谢
-Heavrnl 的 [nexus-terminal](https://github.com/Heavrnl/nexus-terminal) 是本项目的基石，感谢原作者的出色架构与开源精神。
-*   预设主题方案来源于优秀的 [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes) 项目。
 
-## ☕ 捐赠
+本仓库基于 [Heavrnl/nexus-terminal](https://github.com/Heavrnl/nexus-terminal) 分叉维护，感谢原作者 [Heavrnl](https://github.com/Heavrnl) 出色的架构与开源精神。预设终端配色来自 [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)。
 
-如果你觉得这个项目对你有帮助，欢迎通过以下方式请我喝杯咖啡：
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/0heavrnl)
-
+如果这个项目帮到了你，欢迎点一个 ⭐，或者 [请原作者喝杯咖啡](https://ko-fi.com/0heavrnl)。
 
 ## 📄 开源协议
 
-本项目采用 [GPL-3.0](LICENSE) 开源协议，详细信息请参阅 [LICENSE](LICENSE) 文件。
-
+[GPL-3.0](./LICENSE)
