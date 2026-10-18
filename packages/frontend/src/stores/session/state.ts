@@ -10,6 +10,30 @@ import type { SuspendedSshSession } from '../../types/ssh-suspend.types'; // 路
 export const sessions = shallowRef<Map<string, SessionState>>(new Map());
 export const activeSessionId = ref<string | null>(null);
 
+// --- 标签页顺序 (用户拖拽排序) ---
+// 作为响应式状态保存，getter 依赖它；初始化自 localStorage，修改时通过 setSessionOrder 持久化
+const SESSION_ORDER_STORAGE_KEY = 'sessionOrder';
+const loadSessionOrder = (): string[] => {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(SESSION_ORDER_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+  } catch (e) {
+    console.error('[SessionState] 解析本地存储的标签顺序失败:', e);
+    return [];
+  }
+};
+export const sessionOrder = ref<string[]>(loadSessionOrder());
+export const setSessionOrder = (order: string[]) => {
+  sessionOrder.value = [...order];
+  try {
+    localStorage.setItem(SESSION_ORDER_STORAGE_KEY, JSON.stringify(sessionOrder.value));
+  } catch (e) {
+    console.warn('[SessionState] 保存标签顺序失败:', e);
+  }
+};
+
 // --- RDP Modal State ---
 export const isRdpModalOpen = ref(false);
 export const rdpConnectionInfo = ref<ConnectionInfo | null>(null);

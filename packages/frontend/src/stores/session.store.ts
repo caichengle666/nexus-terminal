@@ -9,6 +9,8 @@ import { useConnectionsStore, type ConnectionInfo } from './connections.store';
 import {
   sessions,
   activeSessionId,
+  sessionOrder,
+  setSessionOrder,
   isRdpModalOpen,
   rdpConnectionInfo,
   isVncModalOpen,
@@ -71,6 +73,8 @@ export const useSessionStore = defineStore('session', () => {
   const handleOpenNewSession = (connectionId: number | string) =>
     sessionActions.handleOpenNewSession(connectionId, { connectionsStore, t }); // 移除了 router 和不正确的 registerSshSuspendHandlers
   const cleanupAllSessions = () => sessionActions.cleanupAllSessions();
+  // 更新标签页顺序（拖拽排序后调用），getter 会立即响应
+  const updateSessionOrder = (order: string[]) => setSessionOrder(order);
 
   // SFTP Manager Actions
   const getOrCreateSftpManager = (sessionId: string, instanceId: string) =>
@@ -109,6 +113,7 @@ export const useSessionStore = defineStore('session', () => {
     // State (直接从 state 模块导出，Pinia 会处理)
     sessions,
     activeSessionId,
+    sessionOrder,
     isRdpModalOpen,
     rdpConnectionInfo,
     isVncModalOpen,
@@ -131,6 +136,7 @@ export const useSessionStore = defineStore('session', () => {
     handleConnectRequest,
     handleOpenNewSession,
     cleanupAllSessions,
+    updateSessionOrder,
     getOrCreateSftpManager,
     removeSftpManager,
     openFileInSession,

@@ -1822,5 +1822,39 @@
     "trustSuccess": "已信任新的主机密钥，正在重新连接...",
     "trustFailed": "更新主机密钥失败：{error}",
     "newKeyTrusted": "首次连接 {target}，已信任并保存主机密钥指纹：{fingerprint}"
+  },
+  "uxTerminal": {
+    "unknownError": "未知错误",
+    "status": {
+      "unknownReason": "未知原因",
+      "manualDisconnect": "手动断开",
+      "preparingReconnect": "准备重新连接",
+      "oldConnectionCloseFailed": "旧终端连接未能正常关闭",
+      "backendReleaseFailed": "后端未能释放旧终端连接",
+      "releaseTimeout": "等待旧终端释放超时",
+      "sftpHealthCheckFailed": "SFTP 健康检测失败"
+    },
+    "terminal": {
+      "sessionResumed": "[Nexus] 网络已恢复，已接回原会话{note}。",
+      "resumedTruncatedNote": "（断线期间输出过多，仅保留最近部分）",
+      "reconnectSucceeded": "[Nexus] 终端重新连接成功。",
+      "reconnectedNewSession": "[Nexus] 已重新连接。原会话已超过保留时间，已建立新会话。",
+      "closingOldConnection": "[Nexus] 正在关闭旧终端连接...",
+      "oldConnectionReleased": "[Nexus] 旧连接已释放，正在重新连接...",
+      "reconnectFailed": "[Nexus] 重新连接失败：{message}",
+      "connectionLostReconnecting": "[Nexus] 连接已断开，{delay} 秒后重新连接（{attempt}/{max}）…",
+      "autoReconnectGaveUp": "[Nexus] 自动重连失败。",
+      "pressEnterToReconnect": "[Nexus] 按 Enter 重新连接。",
+      "inputIgnoredReconnecting": "[Nexus] 连接尚未就绪，输入未发送。",
+      "decodeError": "解码错误: {error}"
+    },
+    "aiRunning": {
+      "title": "AI 正在操作该终端",
+      "closeMessage": "该终端有 AI 任务正在运行。关闭终端会同时停止 AI 任务。是否继续？",
+      "closeConfirm": "停止 AI 并关闭",
+      "reconnectMessage": "重新连接会断开当前终端通道，并停止正在运行的 AI 任务。AI 对话上下文会保留。是否继续？",
+      "reconnectConfirm": "停止 AI 并重连",
+      "batchCloseMessage": "将要关闭的终端中有 {count} 个正在运行 AI 任务。关闭会同时停止这些 AI 任务。是否继续？"
+    }
   }
 }

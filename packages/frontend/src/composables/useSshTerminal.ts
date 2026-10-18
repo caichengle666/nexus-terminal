@@ -34,6 +34,15 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
     let terminalWriteTimer: ReturnType<typeof setTimeout> | null = null;
     const isSshConnected = ref(false); // 跟踪 SSH 连接状态
     const isReconnecting = ref(false);
+    // WebSocket 意外断开（等待自动重连/恢复）期间为 true
+    let wsDropped = false;
+    // 断线期间对用户输入的提示只显示一次，状态变化时重置
+    let lastInputNotice: 'connecting' | 'disconnected' | null = null;
+
+    const writeNotice = (text: string, color: 'yellow' | 'red' | 'green' = 'yellow') => {
+        const code = color === 'red' ? 31 : color === 'green' ? 32 : 33;
+        terminalInstance.value?.writeln(`\r\n\x1b[${code}m${text}\x1b[0m`);
+    };
 
     const flushTerminalWrites = () => {
         terminalWriteTimer = null;
@@ -148,7 +157,7 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
                 outputData = bytes;
             } catch (e) {
                 console.error(`[会话 ${sessionId}][SSH终端模块] Base64 解码失败:`, e, '原始数据:', message.payload);
-                outputData = `\r\n[解码错误: ${e}]\r\n`; // 在终端显示解码错误
+                outputData = `\r\n[${t('uxTerminal.terminal.decodeError', { error: String(e) })}]\r\n`; // 在终端显示解码错误
             }
         }
         // 如果不是 base64 或解码失败，确保它是字符串
@@ -187,15 +196,20 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
 
         console.log(`[会话 ${sessionId}][SSH终端模块] SSH 会话已连接。 Payload:`, payload, 'Full message:', message); // 更详细的日志
         isSshConnected.value = true; // 更新状态
+        lastInputNotice = null;
         if (payload?.resumed) {
             // 后端在 WebSocket 断线期间保留了 SSH 会话，此处接回原会话，随后会补发断线期间的输出
-            const note = payload?.outputTruncated ? '（断线期间输出过多，仅保留最近部分）' : '';
-            terminalInstance.value?.writeln(`\r\n\x1b[32m[Nexus] 网络已恢复，已接回原会话${note}。\x1b[0m`);
+            const note = payload?.outputTruncated ? t('uxTerminal.terminal.resumedTruncatedNote') : '';
+            writeNotice(t('uxTerminal.terminal.sessionResumed', { note }), 'green');
             isReconnecting.value = false;
         } else if (isReconnecting.value) {
-            terminalInstance.value?.writeln('\r\n\x1b[32m[Nexus] 终端重新连接成功。\x1b[0m');
+            writeNotice(t('uxTerminal.terminal.reconnectSucceeded'), 'green');
             isReconnecting.value = false;
+        } else if (wsDropped) {
+            // 断线时间超过后端保留期，原会话已结束，后端新建了 SSH 会话
+            writeNotice(t('uxTerminal.terminal.reconnectedNewSession'), 'green');
         }
+        wsDropped = false;
         // 连接成功后聚焦终端
         terminalInstance.value?.focus();
 
@@ -284,15 +298,52 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
     };
 
     const handleReconnectStatus = (payload: MessagePayload) => {
+        lastInputNotice = null;
         if (payload?.phase === 'disconnecting') {
             isReconnecting.value = true;
-            terminalInstance.value?.writeln('\r\n\x1b[33m[Nexus] 正在关闭旧终端连接...\x1b[0m');
+            isSshConnected.value = false;
+            writeNotice(t('uxTerminal.terminal.closingOldConnection'));
         } else if (payload?.phase === 'connecting') {
-            terminalInstance.value?.writeln('\x1b[33m[Nexus] 旧连接已释放，正在重新连接...\x1b[0m');
+            isReconnecting.value = true;
+            terminalInstance.value?.writeln(`\x1b[33m${t('uxTerminal.terminal.oldConnectionReleased')}\x1b[0m`);
         } else if (payload?.phase === 'failed') {
             isReconnecting.value = false;
-            terminalInstance.value?.writeln(`\r\n\x1b[31m[Nexus] 重新连接失败：${payload?.message || '未知错误'}\x1b[0m`);
+            isSshConnected.value = false;
+            writeNotice(t('uxTerminal.terminal.reconnectFailed', { message: payload?.message || t('uxTerminal.unknownError') }), 'red');
+            writeNotice(t('uxTerminal.terminal.pressEnterToReconnect'));
+        } else if (payload?.phase === 'auto-retry') {
+            // WebSocket 意外断开，正在自动重连（后端会在保留期内保留 SSH 会话）
+            isSshConnected.value = false;
+            wsDropped = true;
+            writeNotice(t('uxTerminal.terminal.connectionLostReconnecting', {
+                attempt: payload?.attempt,
+                max: payload?.max,
+                delay: payload?.delay,
+            }));
+        } else if (payload?.phase === 'exhausted') {
+            isSshConnected.value = false;
+            isReconnecting.value = false;
+            writeNotice(t('uxTerminal.terminal.autoReconnectGaveUp'), 'red');
+            writeNotice(t('uxTerminal.terminal.pressEnterToReconnect'));
         }
+    };
+
+    const handleWsClosed = () => {
+        // WebSocket 断开后 SSH 输入无法送达，标记为未连接
+        // （提示文字由随后的 auto-retry / exhausted 状态事件输出）
+        isSshConnected.value = false;
+    };
+
+    /**
+     * 连接不可用时用户输入的提示（不静默丢弃）。同一断线状态下只提示一次。
+     * @param state 'connecting' 正在自动重连；'disconnected' 已断开，需要按 Enter 重连
+     */
+    const notifyInputBlocked = (state: 'connecting' | 'disconnected') => {
+        if (lastInputNotice === state) return;
+        lastInputNotice = state;
+        writeNotice(t(state === 'connecting'
+            ? 'uxTerminal.terminal.inputIgnoredReconnecting'
+            : 'uxTerminal.terminal.pressEnterToReconnect'));
     };
 
 
@@ -308,6 +359,7 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
         unregisterHandlers.push(onMessage('info', handleInfoMessage));
         unregisterHandlers.push(onMessage('error', handleErrorMessage)); // 也处理通用错误
         unregisterHandlers.push(onMessage('internal:reconnect-status', handleReconnectStatus));
+        unregisterHandlers.push(onMessage('internal:closed', handleWsClosed));
         console.log(`[会话 ${sessionId}][SSH终端模块] 已注册 SSH 相关消息处理器。`);
     };
 
@@ -388,6 +440,7 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
         handleTerminalData, // 这个处理来自 xterm.js 的输入
         handleTerminalResize,
         sendData, // 允许外部直接发送数据
+        notifyInputBlocked, // 连接不可用时提示用户输入未发送
         cleanup,
         // --- 搜索方法 ---
         searchNext,

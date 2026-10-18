@@ -155,6 +155,8 @@ const commandInputRef = ref<HTMLInputElement | null>(null); // Ref for command i
 // Removed debug computed property
 
 const handleCommandInputKeydown = (event: KeyboardEvent) => {
+  // 输入法组字期间（中文/日文等）的 Enter、方向键属于 IME，不应触发发送或历史导航
+  if (event.isComposing || event.keyCode === 229) return;
   // --- 移动到外部：优先处理 Enter 键执行选中项 ---
   if (!event.altKey && event.key === 'Enter') {
     const target = commandInputSyncTarget.value;
@@ -452,8 +454,8 @@ const handleQuickCommandExecute = (command: string) => {
         class="flex-grow min-w-0 px-4 py-1.5 border border-border/50 rounded-lg bg-input text-foreground text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-300 ease-in-out"
         :class="{ 'basis-1/4': !props.isMobile, 'w-0': props.isMobile }"
         data-focus-id="terminalSearch"
-        @keydown.enter.prevent="findNext"
-        @keydown.shift.enter.prevent="findPrevious"
+        @keydown.enter.exact.prevent="findNext"
+        @keydown.shift.enter.exact.prevent="findPrevious"
         @keydown.up.prevent="findPrevious"
         @keydown.down.prevent="findNext"
         ref="searchInputRef"

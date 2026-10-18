@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useConnectionsStore, type ConnectionInfo } from '../../connections.store'; 
 import { sessions, activeSessionId } from '../state';
+import { sessionTabsWithStatus } from '../getters';
 import { generateSessionId } from '../utils';
 import type { SessionState, SshTerminalInstance, StatusMonitorInstance, DockerManagerInstance, SftpManagerInstance, WsManagerInstance } from '../types';
 
@@ -253,6 +254,9 @@ export const closeSession = (sessionId: string) => {
     return;
   }
 
+  // 记录关闭前的可视顺序，用于关闭活动标签后激活相邻标签
+  const visualOrderBeforeClose = sessionTabsWithStatus.value.map(tab => tab.sessionId);
+
   // 1. 调用实例上的清理和断开方法
   sessionToClose.wsManager.disconnect();
   console.log(`[SessionActions] 已为会话 ${sessionId} 调用 wsManager.disconnect()`);
@@ -288,8 +292,14 @@ export const closeSession = (sessionId: string) => {
 
   // 3. 切换活动标签页
   if (activeSessionId.value === sessionId) {
-    const remainingSessions = Array.from(sessions.value.keys());
-    const nextActiveId = remainingSessions.length > 0 ? remainingSessions[remainingSessions.length - 1] : null;
+    // 优先激活可视顺序中右侧相邻的标签，没有则激活左侧相邻的标签
+    const closedIndex = visualOrderBeforeClose.indexOf(sessionId);
+    const remainingOrdered = visualOrderBeforeClose.filter(id => id !== sessionId && sessions.value.has(id));
+    let nextActiveId: string | null = null;
+    if (remainingOrdered.length > 0) {
+      const nextIndex = closedIndex < 0 ? remainingOrdered.length - 1 : Math.min(closedIndex, remainingOrdered.length - 1);
+      nextActiveId = remainingOrdered[nextIndex];
+    }
     activeSessionId.value = nextActiveId;
     console.log(`[SessionActions] 关闭活动会话后，切换到: ${nextActiveId}`);
   }

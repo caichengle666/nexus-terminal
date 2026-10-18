@@ -1736,5 +1736,39 @@
     "trustSuccess": "新しいホスト鍵を信頼しました。再接続しています...",
     "trustFailed": "ホスト鍵の更新に失敗しました：{error}",
     "newKeyTrusted": "{target} への初回接続です。ホスト鍵のフィンガープリントを信頼して保存しました：{fingerprint}"
+  },
+  "uxTerminal": {
+    "unknownError": "不明なエラー",
+    "status": {
+      "unknownReason": "不明な理由",
+      "manualDisconnect": "手動で切断しました",
+      "preparingReconnect": "再接続の準備中",
+      "oldConnectionCloseFailed": "古いターミナル接続を正常に閉じられませんでした",
+      "backendReleaseFailed": "サーバーが古いターミナル接続を解放できませんでした",
+      "releaseTimeout": "古いターミナルの解放待ちがタイムアウトしました",
+      "sftpHealthCheckFailed": "SFTP ヘルスチェックに失敗しました"
+    },
+    "terminal": {
+      "sessionResumed": "[Nexus] ネットワークが復旧し、元のセッションに再接続しました{note}。",
+      "resumedTruncatedNote": "（切断中の出力が多すぎたため、最新の部分のみ保持しています）",
+      "reconnectSucceeded": "[Nexus] ターミナルの再接続に成功しました。",
+      "reconnectedNewSession": "[Nexus] 再接続しました。元のセッションは保持期間を過ぎたため、新しいセッションを開始しました。",
+      "closingOldConnection": "[Nexus] 古いターミナル接続を閉じています...",
+      "oldConnectionReleased": "[Nexus] 古い接続を解放しました。再接続しています...",
+      "reconnectFailed": "[Nexus] 再接続に失敗しました：{message}",
+      "connectionLostReconnecting": "[Nexus] 接続が切断されました。{delay} 秒後に再接続します（{attempt}/{max}）…",
+      "autoReconnectGaveUp": "[Nexus] 自動再接続に失敗しました。",
+      "pressEnterToReconnect": "[Nexus] Enter キーを押すと再接続します。",
+      "inputIgnoredReconnecting": "[Nexus] 接続の準備ができていないため、入力は送信されませんでした。",
+      "decodeError": "デコードエラー: {error}"
+    },
+    "aiRunning": {
+      "title": "AI がこのターミナルを操作中です",
+      "closeMessage": "このターミナルで AI タスクが実行中です。ターミナルを閉じると AI タスクも停止します。続行しますか？",
+      "closeConfirm": "AI を停止して閉じる",
+      "reconnectMessage": "再接続すると現在のターミナルチャネルが切断され、実行中の AI タスクが停止します。AI の会話コンテキストは保持されます。続行しますか？",
+      "reconnectConfirm": "AI を停止して再接続",
+      "batchCloseMessage": "閉じようとしているターミナルのうち {count} 個で AI タスクが実行中です。閉じるとそれらの AI タスクも停止します。続行しますか？"
+    }
   }
 }
