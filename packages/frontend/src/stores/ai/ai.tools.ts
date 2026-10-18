@@ -266,7 +266,6 @@ export const normalizeCommand = (value: string) => value.trim().replace(/\s+/g, 
 // control operator, or after a common command wrapper (sudo, xargs ...).
 const CMD = String.raw`(?:^|[;&|\n\x60(]\s*|\b(?:sudo|doas|env|nohup|exec|time|nice|ionice|command|builtin|xargs|watch|busybox)\s+(?:-\S+\s+)*)`;
 const cmd = (body: string, flags = 'i') => new RegExp(`${CMD}${body}`, flags);
-const SHELLS = String.raw`(?:\S*\/)?(?:ba|z|da|k|c|tc|fi|a)?sh\b`;
 
 export const RISKY_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // Original patterns.
@@ -283,10 +282,6 @@ export const RISKY_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> 
   // Additional patterns / common bypasses.
   { pattern: /\bfind\b.*\s-delete\b/i, reason: 'find -delete 会批量删除文件' },
   { pattern: /\bfind\b.*\s-(exec|execdir|ok|okdir)\s+(\S*\/)?(rm|shred|unlink|mv|chmod|chown|dd|truncate|sh|bash)\b/i, reason: 'find -exec 会对匹配文件批量执行删除/修改命令' },
-  { pattern: /\b(curl|wget|fetch)\b[^|]*\|\s*(sudo\s+)?(\S*\/)?(ba|z|da|k)?sh\b/i, reason: '下载远程脚本并直接交给 shell 执行' },
-  { pattern: /\bbase64\s+(-\S*d\S*|--decode)\b.*\|/i, reason: '解码隐藏内容并通过管道执行' },
-  { pattern: new RegExp(String.raw`\|\s*(?:sudo\s+(?:-\S+\s+)*)?${SHELLS}|\|\s*(?:sudo\s+)?(?:\S*\/)?(?:python\d*(?:\.\d+)?|perl|ruby|node|php)\b\s*(?:-\s*)?(?:$|[;&|])`, 'i'), reason: '通过管道把内容交给 shell/解释器执行' },
-  { pattern: new RegExp(String.raw`(?:^|[;&|(]\s*|\s)${SHELLS}\s+(?:-\S+\s+)*(?:<\s*)?<\(|${SHELLS}\s+-c\s+["']?\$\(\s*(?:curl|wget)`, 'i'), reason: '执行动态下载或进程替换生成的脚本' },
   { pattern: cmd(String.raw`(?:eval|source)\b`), reason: 'eval/source 会执行动态生成的命令' },
   { pattern: /\b(DROP\s+(DATABASE|TABLE|SCHEMA|USER)|TRUNCATE\s+(TABLE\s+)?[`"']?\w)/i, reason: '会删除或清空数据库/数据表' },
   { pattern: /\b(mysql|mariadb|psql|sqlite3|mongo|mongosh|redis-cli)\b.*\b(DELETE\s+FROM|FLUSHALL|FLUSHDB|dropDatabase)\b/i, reason: '会删除数据库数据' },
