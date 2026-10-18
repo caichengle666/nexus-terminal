@@ -7,6 +7,8 @@ import { cleanupClientConnection } from '../utils';
 import { temporaryLogStorageService } from '../../ssh-suspend/temporary-log-storage.service';
 import { startDockerStatusPolling } from './docker.handler';
 import WebSocket from 'ws';
+import { installExecChannelLimiter } from '../../services/ssh-channel-limiter';
+import { appendDetachedOutput, canReattach, reattachClientConnection } from '../session-resume';
 
 export async function handleSshConnect(
     ws: AuthenticatedWebSocket,
@@ -36,6 +38,12 @@ export async function handleSshConnect(
         if (existingState.ws.userId !== ws.userId) {
             console.warn(`WebSocket: 用户 ${ws.username} 尝试接管不属于自己的会话 ${requestedSessionId}。`);
             if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ssh:error', payload: '会话归属校验失败。' }));
+            return;
+        }
+
+        // WebSocket 断线重连：SSH 会话仍然存活时直接接回原会话，终端内容与进程都不丢失
+        if (canReattach(existingState, payload?.connectionId)) {
+            reattachClientConnection(ws, requestedSessionId, existingState, payload);
             return;
         }
 
@@ -81,6 +89,8 @@ export async function handleSshConnect(
                 // mismatch 事件在下方 catch 中统一处理 (连接已被拒绝)
             }
         });
+
+        installExecChannelLimiter(sshClient);
 
         const newSessionId = requestedSessionId || uuidv4();
         ws.sessionId = newSessionId; // Assign new sessionId to the WebSocket
@@ -137,8 +147,8 @@ export async function handleSshConnect(
                         ip: newState.ipAddress,
                         reason: err.message
                     });
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'ssh:error', payload: `打开 Shell 失败: ${err.message}` }));
+                    if (newState.ws.readyState === WebSocket.OPEN) {
+                        newState.ws.send(JSON.stringify({ type: 'ssh:error', payload: `打开 Shell 失败: ${err.message}` }));
                     }
                     cleanupOwnedSession();
                     return;
@@ -149,10 +159,11 @@ export async function handleSshConnect(
                 newState.isShellReady = true;
 
                 stream.on('data', (data: Buffer) => {
-                    if (ws.readyState === WebSocket.OPEN) {
+                    appendDetachedOutput(newState, data);
+                    if (newState.ws.readyState === WebSocket.OPEN) {
                         // 确保数据以 UTF-8 编码转换为 Base64
                         const utf8Data = data.toString('utf8');
-                        ws.send(JSON.stringify({ type: 'ssh:output', payload: Buffer.from(utf8Data, 'utf8').toString('base64'), encoding: 'base64' }));
+                        newState.ws.send(JSON.stringify({ type: 'ssh:output', payload: Buffer.from(utf8Data, 'utf8').toString('base64'), encoding: 'base64' }));
                     }
                     // 如果会话被标记为待挂起，则将输出写入日志
                     const currentState = clientStates.get(newSessionId); // 获取最新的状态
@@ -164,10 +175,11 @@ export async function handleSshConnect(
                 });
                 stream.stderr.on('data', (data: Buffer) => {
                     console.error(`SSH Stderr (会话: ${newSessionId}): ${data.toString('utf8').substring(0, 100)}...`);
-                    if (ws.readyState === WebSocket.OPEN) {
+                    appendDetachedOutput(newState, data);
+                    if (newState.ws.readyState === WebSocket.OPEN) {
                         // 确保数据以 UTF-8 编码转换为 Base64
                         const utf8ErrData = data.toString('utf8');
-                        ws.send(JSON.stringify({ type: 'ssh:output', payload: Buffer.from(utf8ErrData, 'utf8').toString('base64'), encoding: 'base64' }));
+                        newState.ws.send(JSON.stringify({ type: 'ssh:output', payload: Buffer.from(utf8ErrData, 'utf8').toString('base64'), encoding: 'base64' }));
                     }
                     // 同样，如果会话被标记为待挂起，则将 stderr 输出写入日志
                     const currentState = clientStates.get(newSessionId);
@@ -182,20 +194,20 @@ export async function handleSshConnect(
                 });
                 stream.on('error', (error: Error) => {
                     console.error(`SSH: 会话 ${newSessionId} 的 Shell 通道错误:`, error);
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'ssh:error', payload: `Shell 通道错误: ${error.message}` }));
+                    if (newState.ws.readyState === WebSocket.OPEN) {
+                        newState.ws.send(JSON.stringify({ type: 'ssh:error', payload: `Shell 通道错误: ${error.message}` }));
                     }
                     void cleanupOwnedSession();
                 });
                 stream.on('close', () => {
                     console.log(`SSH: 会话 ${newSessionId} 的 Shell 通道已关闭。`);
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'ssh:disconnected', payload: 'Shell 通道已关闭。' }));
+                    if (newState.ws.readyState === WebSocket.OPEN) {
+                        newState.ws.send(JSON.stringify({ type: 'ssh:disconnected', payload: 'Shell 通道已关闭。' }));
                     }
                     cleanupOwnedSession();
                 });
 
-                if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({
+                if (newState.ws.readyState === WebSocket.OPEN) newState.ws.send(JSON.stringify({
                     type: 'ssh:connected',
                     payload: {
                         connectionId: dbConnectionIdAsNumber,
@@ -229,8 +241,8 @@ export async function handleSshConnect(
             });
         } catch (shellError: any) {
             console.error(`SSH: 会话 ${newSessionId} 打开 Shell 时发生意外错误:`, shellError);
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'ssh:error', payload: `打开 Shell 时发生意外错误: ${shellError.message}` }));
+            if (newState.ws.readyState === WebSocket.OPEN) {
+                newState.ws.send(JSON.stringify({ type: 'ssh:error', payload: `打开 Shell 时发生意外错误: ${shellError.message}` }));
             }
             cleanupOwnedSession();
         }
@@ -241,8 +253,8 @@ export async function handleSshConnect(
         });
         sshClient.on('error', (err: Error) => {
             console.error(`SSH: 会话 ${newSessionId} 的客户端连接错误:`, err);
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'ssh:error', payload: `SSH 连接错误: ${err.message}` }));
+            if (newState.ws.readyState === WebSocket.OPEN) {
+                newState.ws.send(JSON.stringify({ type: 'ssh:error', payload: `SSH 连接错误: ${err.message}` }));
             }
             cleanupOwnedSession();
         });

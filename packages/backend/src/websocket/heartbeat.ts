@@ -1,6 +1,5 @@
 import WebSocket, { WebSocketServer } from 'ws';
 import { AuthenticatedWebSocket } from './types';
-import { cleanupClientConnection } from './utils';
 
 /**
  * 心跳策略：
@@ -47,11 +46,7 @@ export function initializeHeartbeat(wss: WebSocketServer): NodeJS.Timeout {
             if (decision === 'skip') return;
             if (decision === 'terminate') {
                 console.log(`WebSocket 心跳检测：用户 ${extWs.username} (会话: ${extWs.sessionId}) 连续 ${extWs.missedPongs} 次无响应，正在终止...`);
-                if (extWs.sessionId) {
-                    void cleanupClientConnection(extWs.sessionId).catch(error => {
-                        console.error(`WebSocket 心跳清理会话 ${extWs.sessionId} 失败:`, error);
-                    });
-                }
+                // terminate 会触发 close 事件，由 close 处理器决定分离（等待重连）还是清理
                 extWs.terminate();
                 return;
             }

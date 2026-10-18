@@ -187,7 +187,12 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
 
         console.log(`[会话 ${sessionId}][SSH终端模块] SSH 会话已连接。 Payload:`, payload, 'Full message:', message); // 更详细的日志
         isSshConnected.value = true; // 更新状态
-        if (isReconnecting.value) {
+        if (payload?.resumed) {
+            // 后端在 WebSocket 断线期间保留了 SSH 会话，此处接回原会话，随后会补发断线期间的输出
+            const note = payload?.outputTruncated ? '（断线期间输出过多，仅保留最近部分）' : '';
+            terminalInstance.value?.writeln(`\r\n\x1b[32m[Nexus] 网络已恢复，已接回原会话${note}。\x1b[0m`);
+            isReconnecting.value = false;
+        } else if (isReconnecting.value) {
             terminalInstance.value?.writeln('\r\n\x1b[32m[Nexus] 终端重新连接成功。\x1b[0m');
             isReconnecting.value = false;
         }

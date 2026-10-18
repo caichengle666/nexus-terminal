@@ -35,7 +35,9 @@ export function createWebSocketConnectionManager(
     const instanceDbConnectionId = dbConnectionId; // 保存数据库连接 ID
     const getIsMarkedForSuspend = options?.getIsMarkedForSuspend; // +++ 获取回调函数 +++
     let reconnectAttempts = 0; // 重连尝试次数
-    const maxReconnectAttempts = 5; // 最大重连次数
+    // 最大重连次数：配合后端 WS_RESUME_GRACE_SECONDS（默认 180 秒）保留会话，
+    // 2+4+8+16+30+30+30+30 ≈ 150 秒内都能接回原 SSH 会话
+    const maxReconnectAttempts = 8;
     let reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null; // 重连定时器 ID
     let lastUrl = ''; // 保存上次连接的 URL
     let intentionalDisconnect = false; // 标记是否为用户主动断开
@@ -108,7 +110,7 @@ export function createWebSocketConnectionManager(
 
         reconnectAttempts++;
         // 指数退避延迟 (例如: 2s, 4s, 8s, 16s, 32s)
-        const delay = Math.pow(2, reconnectAttempts) * 1000;
+        const delay = Math.min(Math.pow(2, reconnectAttempts), 30) * 1000;
         statusMessage.value = getStatusText('reconnecting', { attempt: reconnectAttempts, delay: delay / 1000 });
         connectionStatus.value = 'connecting'; // 更新状态为正在连接
 

@@ -27,6 +27,12 @@ export interface ClientState { // 导出以便 Service 可以导入
     inputWindowStartedAt?: number;
     inputBytesInWindow?: number;
     isCleaningUp?: boolean;
+    // WebSocket 断线续连：分离状态（见 session-resume.ts）
+    detachedAt?: number;
+    detachTimer?: NodeJS.Timeout;
+    detachedOutput?: Buffer[];
+    detachedOutputBytes?: number;
+    detachedOutputTruncated?: boolean;
     activeExecCommands?: Map<string, {
         channel: ClientChannel;
         cancel: () => void;

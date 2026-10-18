@@ -49,6 +49,8 @@ import {
     handleSftpUploadChunk,
     handleSftpUploadCancel
 } from './handlers/sftp.handler';
+import { detachClientConnection } from './session-resume';
+import { installExecChannelLimiter } from '../services/ssh-channel-limiter';
 
 export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendService: SshSuspendService, sftpService: SftpService): void { // +++ Add sftpService parameter +++
     wss.on('connection', (ws: AuthenticatedWebSocket, request: Request) => {
@@ -215,6 +217,7 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
                                 // console.log(`[WebSocket Handler][${type}] sshSuspendService.resumeSession 返回: ${result ? `包含 sshClient: ${!!result.sshClient}, channel: ${!!result.channel}, logData长度: ${result.logData?.length}` : 'null'}`);
 
                                 if (result) {
+                                    installExecChannelLimiter(result.sshClient);
                                     // console.log(`[WebSocket Handler][${type}] 成功恢复会话。准备设置新的 ClientState (ID: ${newFrontendSessionId})。`);
                                     const newSessionState: ClientState = {
                                         ws, // 当前的 WebSocket 连接
@@ -483,12 +486,13 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
 
             ws.on('close', (code, reason) => {
                 console.log(`WebSocket：客户端 ${ws.username} (会话: ${ws.sessionId}) 已断开连接。代码: ${code}, 原因: ${reason.toString()}`);
-                cleanupClientConnection(ws.sessionId);
+                // 不立即关闭 SSH：进入分离状态，等待前端自动重连接回原会话
+                detachClientConnection(ws);
             });
 
             ws.on('error', (error) => {
                 console.error(`WebSocket：客户端 ${ws.username} (会话: ${ws.sessionId}) 发生错误:`, error);
-                cleanupClientConnection(ws.sessionId); // Ensure cleanup on error too
+                detachClientConnection(ws);
             });
         }
     });

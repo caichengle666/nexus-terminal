@@ -118,6 +118,9 @@ location / {
 | `ALLOWED_WS_ORIGINS` | Optional comma-separated list of extra allowed WebSocket origins (e.g. `https://a.example.com,https://b.example.com`). By default only same-origin (Origin matches Host) and loopback origins are accepted; add your URL here if your reverse proxy rewrites the `Host` header and the terminal cannot connect. |
 | `REMOTE_GATEWAY_SECRET` | Shared secret between the backend and the remote-desktop gateway. The installer generates it automatically; for manual deployments generate one (e.g. `openssl rand -hex 32`) and add it to `.env`. |
 | `SETUP_TOKEN` | Optional. On first start with no users, the backend prints a one-time setup token to its log (`docker compose logs backend`), which is required to create the admin account. Set this variable to use a fixed token instead. |
+| `WS_RESUME_GRACE_SECONDS` | Optional, default `180`. How long an SSH session is kept after the browser connection drops; the frontend's automatic reconnect reattaches to the same session (running programs and terminal output are preserved). Set to `0` to disable. Up to `WS_RESUME_BUFFER_BYTES` (default 512 KB) of output is buffered while disconnected. |
+| `SSH_MAX_EXEC_CHANNELS` | Optional, default `6`. Maximum concurrent exec channels (status monitor, Docker, AI commands, archive tools) per SSH connection; extra requests are queued so the terminal and SFTP always fit within OpenSSH `MaxSessions` (default 10). Lower it if your server uses a smaller `MaxSessions`. |
+| `WS_HEARTBEAT_INTERVAL_MS` / `WS_HEARTBEAT_MAX_MISSED` | Optional, defaults `15000` / `3`. WebSocket heartbeat interval and how many consecutive missed pongs are tolerated. |
 
 
 Configure IPv6 for Docker (optional — you can skip this if you don't use IPv6 to connect to the server).

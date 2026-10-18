@@ -77,6 +77,9 @@ export const cleanupClientConnection = async (
     if (state?.isCleaningUp) return;
     if (state) {
         state.isCleaningUp = true;
+        if (state.detachTimer) clearTimeout(state.detachTimer);
+        state.detachTimer = undefined;
+        state.detachedOutput = undefined;
         console.log(`WebSocket: 清理会话 ${sessionId} (用户: ${state.ws.username}, DB 连接 ID: ${state.dbConnectionId})...`);
 
         // 1. 停止状态轮询 (如果存在)

@@ -136,6 +136,9 @@ location / {
 | `ALLOWED_WS_ORIGINS` | 可选，逗号分隔的额外允许的 WebSocket Origin（如 `https://a.example.com,https://b.example.com`）。默认只允许同源（Origin 与 Host 一致）以及本机回环地址；如果反向代理改写了 `Host` 头，导致终端无法连接，请在此加入访问地址。 |
 | `REMOTE_GATEWAY_SECRET` | 后端与远程桌面网关共享的密钥，一键脚本会自动生成。手动部署请自行生成（如 `openssl rand -hex 32`）并写入 `.env`。 |
 | `SETUP_TOKEN` | 可选。首次启动且没有任何用户时，后端会在日志中打印一次性的初始设置令牌（`docker compose logs backend` 查看），创建管理员时需要填写；设置此变量可指定固定令牌。 |
+| `WS_RESUME_GRACE_SECONDS` | 可选，默认 `180`。浏览器网络断开后 SSH 会话保留的秒数，期间前端自动重连会接回原会话（终端里的程序和输出不丢失）。设为 `0` 关闭。断线期间最多缓存 `WS_RESUME_BUFFER_BYTES`（默认 512 KB）终端输出。 |
+| `SSH_MAX_EXEC_CHANNELS` | 可选，默认 `6`。每个 SSH 连接上状态监控、Docker、AI 执行等 exec 通道的并发上限，超出的排队等待，为终端和 SFTP 预留 OpenSSH `MaxSessions`（默认 10）的配额。如果服务器调低了 `MaxSessions`，请相应调低此值。 |
+| `WS_HEARTBEAT_INTERVAL_MS` / `WS_HEARTBEAT_MAX_MISSED` | 可选，默认 `15000` / `3`。WebSocket 心跳间隔与允许连续丢失的次数。 |
 
 
 
