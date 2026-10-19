@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Nexus Terminal</title>
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#9370DB" />
+    <meta name="theme-color" content="#0b1220" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Nexus Terminal">
@@ -15,9 +15,12 @@
   <body>
     <div id="app">
       <div class="app-boot" role="status" aria-live="polite">
-        <img class="app-boot__mark" src="/src/assets/logo.png?inline" alt="" aria-hidden="true" />
-        <div class="app-boot__name">Nexus Terminal</div>
-        <div id="app-loading-status" class="app-boot__status">正在启动客户端...</div>
+        <div class="app-boot__card">
+          <img class="app-boot__mark" src="/src/assets/logo.png?inline" alt="" aria-hidden="true" />
+          <div class="app-boot__name">Nexus Terminal</div>
+          <div id="app-loading-status" class="app-boot__status">正在启动客户端...</div>
+          <div class="app-boot__bar" aria-hidden="true"></div>
+        </div>
       </div>
     </div>
     <style>
@@ -29,37 +32,79 @@
       }
 
       body {
-        background: #101216;
+        background: #0b1220;
       }
 
+      /* 启动画面：与默认 Glass Dark 主题一致 */
       .app-boot {
         box-sizing: border-box;
         min-height: 100vh;
         display: grid;
-        place-content: center;
+        place-items: center;
+        padding: 24px;
+        color: #e8edf6;
+        background-image: radial-gradient(1200px 800px at 8% 6%, rgba(56, 116, 255, 0.40), transparent 60%), radial-gradient(900px 700px at 92% 16%, rgba(168, 85, 247, 0.30), transparent 62%), radial-gradient(1000px 800px at 70% 100%, rgba(20, 184, 166, 0.26), transparent 60%), radial-gradient(700px 520px at 16% 94%, rgba(236, 72, 153, 0.16), transparent 65%), linear-gradient(160deg, #0b1220 0%, #0d1526 45%, #0a0f1c 100%);
+        font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      .app-boot__card {
+        display: grid;
         justify-items: center;
         gap: 10px;
-        padding: 24px;
-        color: #f4f6fa;
-        font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        padding: 32px 44px 28px;
+        border-radius: 20px;
+        background: rgba(18, 24, 38, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 24px 60px rgba(0, 0, 0, 0.35);
       }
 
       .app-boot__mark {
         display: block;
         width: 72px;
         height: 72px;
-        border-radius: 14px;
+        border-radius: 18px;
         object-fit: contain;
+        box-shadow: 0 8px 28px rgba(56, 116, 255, 0.35);
       }
 
       .app-boot__name {
+        font-size: 16px;
         font-weight: 600;
-        letter-spacing: 0.01em;
+        letter-spacing: 0.02em;
       }
 
       .app-boot__status {
         min-height: 20px;
-        color: #9aa5b8;
+        color: #9aa7bd;
+        font-size: 13px;
+      }
+
+      .app-boot__bar {
+        width: 160px;
+        height: 3px;
+        margin-top: 6px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+      }
+
+      .app-boot__bar::after {
+        content: "";
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: 3px;
+        background: linear-gradient(90deg, #3874ff, #a855f7);
+        animation: app-boot-slide 1.2s ease-in-out infinite;
+      }
+
+      @keyframes app-boot-slide {
+        from { transform: translateX(-100%); }
+        to { transform: translateX(250%); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .app-boot__bar::after { animation: none; width: 100%; opacity: 0.5; }
       }
     </style>
     <script type="module" src="/src/main.ts"></script>

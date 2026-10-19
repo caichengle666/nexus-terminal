@@ -577,7 +577,7 @@ async function createWindow() {
     y: lastWindowState.y,
     frame: false,
     show: false, // 创建时不显示窗口
-    backgroundColor: '#101216',
+    backgroundColor: '#0b1220',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -617,12 +617,24 @@ async function createWindow() {
   createFloatingNotificationBell();
 
   // 先显示轻量启动画面，避免在正式页面加载前初始化一整套 Vue 应用。
+  // 样式与默认的 Glass Dark 主题一致；不使用 backdrop-filter（背后只有渐变，模糊无意义，且 GPU 关闭时更省）。
+  let startupLogo = '';
+  try {
+    const logoPath = app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(__dirname, 'build', 'icon.png');
+    const logoImage = nativeImage.createFromPath(logoPath);
+    if (!logoImage.isEmpty()) startupLogo = logoImage.resize({ width: 144, height: 144, quality: 'best' }).toDataURL();
+  } catch { /* 没有图标时只显示文字 */ }
   const startupHtml = `<!doctype html><html><head><meta charset="UTF-8"><style>
-    html,body{height:100%;margin:0;background:#101216;color:#f4f6fa;font:14px system-ui,-apple-system,"Segoe UI",sans-serif}
-    body{display:grid;place-content:center;justify-items:center;gap:10px}
-    .mark{width:56px;height:56px;border:3px solid #667085;border-top-color:#f4f6fa;border-radius:50%;animation:spin 1s linear infinite}
-    @keyframes spin{to{transform:rotate(360deg)}}
-  </style></head><body><div class="mark"></div><div>Nexus Terminal</div><div>正在启动客户端...</div></body></html>`;
+    html,body{height:100%;margin:0}
+    body{display:grid;place-items:center;color:#e8edf6;font:14px/1.4 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background-color: #0b1220; background-image: radial-gradient(1200px 800px at 8% 6%, rgba(56, 116, 255, 0.40), transparent 60%), radial-gradient(900px 700px at 92% 16%, rgba(168, 85, 247, 0.30), transparent 62%), radial-gradient(1000px 800px at 70% 100%, rgba(20, 184, 166, 0.26), transparent 60%), radial-gradient(700px 520px at 16% 94%, rgba(236, 72, 153, 0.16), transparent 65%), linear-gradient(160deg, #0b1220 0%, #0d1526 45%, #0a0f1c 100%);}
+    .card{display:grid;justify-items:center;gap:10px;padding:32px 44px 28px;border-radius:20px;background:rgba(18,24,38,.55);border:1px solid rgba(255,255,255,.10);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 24px 60px rgba(0,0,0,.35)}
+    .logo{width:72px;height:72px;border-radius:18px;box-shadow:0 8px 28px rgba(56,116,255,.35)}
+    .name{font-size:16px;font-weight:600;letter-spacing:.02em}
+    .status{color:#9aa7bd;font-size:13px}
+    .bar{width:160px;height:3px;margin-top:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
+    .bar::after{content:"";display:block;width:40%;height:100%;border-radius:3px;background:linear-gradient(90deg,#3874ff,#a855f7);animation:slide 1.2s ease-in-out infinite}
+    @keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
+  </style></head><body><div class="card">${startupLogo ? `<img class="logo" src="${startupLogo}" alt="">` : ''}<div class="name">Nexus Terminal</div><div class="status">正在启动客户端...</div><div class="bar"></div></div></body></html>`;
   mainWindowStartupUrl = `data:text/html;charset=UTF-8,${encodeURIComponent(startupHtml)}`;
   mainWindow.loadURL(mainWindowStartupUrl).catch((error) => {
     console.warn(`[Startup] Failed to load startup screen: ${error.message}`);
