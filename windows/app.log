@@ -1,0 +1,608 @@
+
+[Updater] UPDATE_PUBLIC_KEY_PEM is not configured: update manifests are NOT signature-verified (SHA-256 only).
+[Main Process] [Portable Mode Active] '.Portable' file found. Set userData path to: D:\a\_temp\nexus\userData
+[Main Process] [Portable Mode Active] Created userData directory: D:\a\_temp\nexus\userData
+
+DevTools listening on ws://127.0.0.1:9222/devtools/browser/eec0a3d4-cd95-4cda-a858-a037483aa41c
+[Direct Test] Attempting to parse a simple path with path-to-regexp...
+[Direct Test] path-to-regexp parse successful, tokens: {"tokens":[{"type":"text","value":"/test/"},{"type":"param","name":"id"}],"originalPath":"/test/:id"}
+[Main Process] Portable mode active. Backend data path will be: D:\a\_temp\nexus\data\backend-data
+[Main Process] Final backend data path chosen: D:\a\_temp\nexus\data\backend-data
+[Main Process] Backend data directory does not exist, attempting to create: D:\a\_temp\nexus\data\backend-data
+[Main Process] Backend data directory successfully created/ensured: D:\a\_temp\nexus\data\backend-data
+[Main Process] Using bundled Node.js executable: D:\a\_temp\nexus\resources\nodejs-runtime\win-x64\node.exe
+[Prod Mode] Starting backend service from D:\a\_temp\nexus\resources\packages\backend\dist\index.js using Node.js at D:\a\_temp\nexus\resources\nodejs-runtime\win-x64\node.exe...
+[Prod Mode] Backend service process initiated (PID: 7140). Waiting for 'BACKEND_READY_SIGNAL' signal (max 60s)...
+[Prod Mode] Calculated staticPath for express.static: D:\a\_temp\nexus\resources\packages\frontend\dist
+[Main Process] Waiting for backend and frontend server to be ready...
+[Prod Mode] Frontend server started at http://localhost:22457, serving from D:\a\_temp\nexus\resources\packages\frontend\dist
+[Prod Mode] actualBackendUrlForFileDownloads set to: http://localhost:22458
+[Backend STDOUT]: 2026-10-19T02:19:41.804Z INFO  ◇ injected env (0) from ..\..\..\.env // tip: ◈ encrypted .env [www.dotenvx.com]
+[Backend STDOUT]: 2026-10-19T02:19:41.806Z INFO  [ENV Init Early] Root .env file not found at D:\a\_temp\nexus\resources\.env, proceeding without it.
+[Backend STDOUT]: 2026-10-19T02:19:41.807Z INFO  ◇ injected env (0) from ..\..\..\..\data\backend-data\.env // tip: ◈ encrypted .env [www.dotenvx.com]
+[Backend STDOUT]: 2026-10-19T02:19:42.190Z INFO  [i18next] 动态检测到的语言: [ 'en-US', 'ja-JP', 'zh-CN' ]
+[Backend STDOUT]: 2026-10-19T02:19:42.700Z INFO  [GuacamoleService] DEPLOYMENT_MODE: undefined
+[Backend STDOUT]: 2026-10-19T02:19:42.700Z INFO  [GuacamoleService] Using Remote Gateway API Base (Local): undefined
+2026-10-19T02:19:42.700Z INFO  [GuacamoleService] Using Remote Gateway API Base (Docker): undefined
+2026-10-19T02:19:42.700Z INFO  [GuacamoleService] Effective Remote Gateway API Base: http://remote-gateway:9090
+[Backend STDOUT]: 2026-10-19T02:19:43.249Z INFO  [NotificationProcessor] 等待 i18n 初始化...
+[Backend STDOUT]: 2026-10-19T02:19:43.253Z INFO  [NotificationDispatcher] 已为通道类型 'telegram' 注册发送器。
+2026-10-19T02:19:43.253Z INFO  [NotificationDispatcher] 已为通道类型 'email' 注册发送器。
+[Backend STDOUT]: 2026-10-19T02:19:43.253Z INFO  [NotificationDispatcher] 已为通道类型 'webhook' 注册发送器。
+2026-10-19T02:19:43.253Z INFO  [NotificationDispatcher] 正在监听处理后的通知。
+[Backend STDOUT]: 2026-10-19T02:19:43.258Z INFO  [ENV Init] ENCRYPTION_KEY 未设置，正在生成...
+[Backend STDOUT]: 2026-10-19T02:19:43.259Z INFO  [ENV Init] SESSION_SECRET 未设置，正在生成...
+[Backend STDERR]: 2026-10-19T02:19:43.259Z WARN  [ENV Init] GUACD_HOST 未设置，将使用默认值 "localhost"
+[Backend STDERR]: 2026-10-19T02:19:43.259Z WARN  [ENV Init] GUACD_PORT 未设置，将使用默认值 "4822"
+[Backend STDERR]: 2026-10-19T02:19:43.260Z WARN  [ENV Init] 已自动生成密钥并保存到 D:\a\_temp\nexus\data\backend-data\.env
+2026-10-19T02:19:43.260Z WARN  [ENV Init] !!! 重要：请务必备份此 data/.env 文件，并在生产环境中妥善保管 !!!
+[Backend STDOUT]: 2026-10-19T02:19:43.267Z INFO  [AppearanceService] Created user custom_html_theme directory at D:\a\_temp\nexus\data\backend-data\custom_html_theme
+[Backend STDOUT]: 2026-10-19T02:19:43.271Z INFO  [i18next] 初始化完成。已加载语言: [ 'en-US', 'zh-CN', 'ja-JP' ]
+[Backend STDOUT]: 2026-10-19T02:19:43.271Z INFO  [NotificationProcessor] i18n 初始化完成。正在注册事件监听器...
+2026-10-19T02:19:43.271Z INFO  [NotificationProcessor] 已注册监听器。
+2026-10-19T02:19:43.271Z INFO  [NotificationProcessor] 初始化完成。
+[Backend STDOUT]: 2026-10-19T02:19:43.304Z INFO  [Migrations] 开始检查和应用数据库迁移...
+[Backend STDOUT]: 2026-10-19T02:19:43.306Z INFO  [Migrations] migrations 表已确保存在。
+[Backend STDOUT]: 2026-10-19T02:19:43.307Z INFO  [Migrations] 当前数据库版本: 0
+[Backend STDOUT]: 2026-10-19T02:19:43.309Z INFO  [Migrations] 发现 12 个新迁移需要应用: [
+  '  #1: Add ssh_keys table and update connections table for SSH key management',
+  '  #2: Create quick_command_tags table',
+  '  #3: Create quick_command_tag_associations table',
+  '  #4: Add notes column to connections table',
+  '  #5: Update connections table to allow VNC type in CHECK constraint',
+  '  #6: Create passkeys table for WebAuthn credentials',
+  '  #7: Create path_history table',
+  '  #8: Create favorite_paths table',
+  '  #9: Add jump_chain and proxy_type columns to connections table',
+  '  #10: Add variables column to quick_commands table',
+  '  #11: Add extended xterm theme fields to terminal_themes table',
+  '  #12: Add host_key_fingerprint column to connections table for SSH host key verification'
+]
+[Backend STDOUT]: 2026-10-19T02:19:43.314Z INFO  [Migrations] 应用迁移 #1: Add ssh_keys table and update connections table for SSH key management...
+[Backend STDOUT]: 2026-10-19T02:19:43.317Z INFO  [Migrations] 执行迁移 #1 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.321Z INFO  [Migrations] 迁移 #1 前置检查结果: 跳过 SQL 执行
+[Backend STDOUT]: 2026-10-19T02:19:43.321Z INFO  [Migrations] 记录迁移 #1 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.322Z INFO  [Migrations] 提交迁移 #1 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.324Z INFO  [Migrations] 迁移 #1: Add ssh_keys table and update connections table for SSH key management 应用成功 (SQL 可能已跳过)。
+2026-10-19T02:19:43.324Z INFO  [Migrations] 应用迁移 #2: Create quick_command_tags table...
+[Backend STDOUT]: 2026-10-19T02:19:43.325Z INFO  [Migrations] 执行迁移 #2 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.325Z INFO  [Migrations] 迁移 #2 前置检查结果: 需要执行 SQL
+2026-10-19T02:19:43.325Z INFO  [Migrations] 执行迁移 #2 的 SQL...
+[Backend STDOUT]: 2026-10-19T02:19:43.326Z INFO  [Migrations] 记录迁移 #2 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.326Z INFO  [Migrations] 提交迁移 #2 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.328Z INFO  [Migrations] 迁移 #2: Create quick_command_tags table 应用成功 (SQL 可能已跳过)。
+2026-10-19T02:19:43.328Z INFO  [Migrations] 应用迁移 #3: Create quick_command_tag_associations table...
+[Backend STDOUT]: 2026-10-19T02:19:43.329Z INFO  [Migrations] 执行迁移 #3 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.329Z INFO  [Migrations] 迁移 #3 前置检查结果: 需要执行 SQL
+2026-10-19T02:19:43.329Z INFO  [Migrations] 执行迁移 #3 的 SQL...
+[Backend STDOUT]: 2026-10-19T02:19:43.330Z INFO  [Migrations] 记录迁移 #3 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.330Z INFO  [Migrations] 提交迁移 #3 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.332Z INFO  [Migrations] 迁移 #3: Create quick_command_tag_associations table 应用成功 (SQL 可能已跳过)。
+[Backend STDOUT]: 2026-10-19T02:19:43.333Z INFO  [Migrations] 应用迁移 #4: Add notes column to connections table...
+[Backend STDOUT]: 2026-10-19T02:19:43.333Z INFO  [Migrations] 执行迁移 #4 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.334Z INFO  [Migrations] 迁移 #4 前置检查结果: 跳过 SQL 执行
+2026-10-19T02:19:43.334Z INFO  [Migrations] 记录迁移 #4 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.334Z INFO  [Migrations] 提交迁移 #4 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.336Z INFO  [Migrations] 迁移 #4: Add notes column to connections table 应用成功 (SQL 可能已跳过)。
+2026-10-19T02:19:43.336Z INFO  [Migrations] 应用迁移 #5: Update connections table to allow VNC type in CHECK constraint...
+[Backend STDOUT]: 2026-10-19T02:19:43.336Z INFO  [Migrations] 执行迁移 #5 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.338Z INFO  [Migrations] 迁移 #5 前置检查结果: 跳过 SQL 执行
+[Backend STDOUT]: 2026-10-19T02:19:43.338Z INFO  [Migrations] 记录迁移 #5 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.339Z INFO  [Migrations] 提交迁移 #5 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.340Z INFO  [Migrations] 迁移 #5: Update connections table to allow VNC type in CHECK constraint 应用成功 (SQL 可能已跳过)。
+2026-10-19T02:19:43.340Z INFO  [Migrations] 应用迁移 #6: Create passkeys table for WebAuthn credentials...
+[Backend STDOUT]: 2026-10-19T02:19:43.341Z INFO  [Migrations] 执行迁移 #6 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.341Z INFO  [Migrations] 迁移 #6 前置检查结果: 需要执行 SQL
+2026-10-19T02:19:43.341Z INFO  [Migrations] 执行迁移 #6 的 SQL...
+[Backend STDOUT]: 2026-10-19T02:19:43.342Z INFO  [Migrations] 记录迁移 #6 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.342Z INFO  [Migrations] 提交迁移 #6 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.344Z INFO  [Migrations] 迁移 #6: Create passkeys table for WebAuthn credentials 应用成功 (SQL 可能已跳过)。
+2026-10-19T02:19:43.344Z INFO  [Migrations] 应用迁移 #7: Create path_history table...
+[Backend STDOUT]: 2026-10-19T02:19:43.345Z INFO  [Migrations] 执行迁移 #7 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.345Z INFO  [Migrations] 迁移 #7 前置检查结果: 跳过 SQL 执行
+2026-10-19T02:19:43.345Z INFO  [Migrations] 记录迁移 #7 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.346Z INFO  [Migrations] 提交迁移 #7 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.348Z INFO  [Migrations] 迁移 #7: Create path_history table 应用成功 (SQL 可能已跳过)。
+2026-10-19T02:19:43.348Z INFO  [Migrations] 应用迁移 #8: Create favorite_paths table...
+[Backend STDOUT]: 2026-10-19T02:19:43.348Z INFO  [Migrations] 执行迁移 #8 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.349Z INFO  [Migrations] 迁移 #8 前置检查结果: 跳过 SQL 执行
+2026-10-19T02:19:43.349Z INFO  [Migrations] 记录迁移 #8 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.349Z INFO  [Migrations] 提交迁移 #8 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.351Z INFO  [Migrations] 迁移 #8: Create favorite_paths table 应用成功 (SQL 可能已跳过)。
+2026-10-19T02:19:43.351Z INFO  [Migrations] 应用迁移 #9: Add jump_chain and proxy_type columns to connections table...
+[Backend STDOUT]: 2026-10-19T02:19:43.351Z INFO  [Migrations] 执行迁移 #9 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.352Z INFO  [Migrations] 迁移 #9 前置检查结果: 跳过 SQL 执行
+2026-10-19T02:19:43.352Z INFO  [Migrations] 记录迁移 #9 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.353Z INFO  [Migrations] 提交迁移 #9 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.355Z INFO  [Migrations] 迁移 #9: Add jump_chain and proxy_type columns to connections table 应用成功 (SQL 可能已跳过)。
+2026-10-19T02:19:43.355Z INFO  [Migrations] 应用迁移 #10: Add variables column to quick_commands table...
+[Backend STDOUT]: 2026-10-19T02:19:43.355Z INFO  [Migrations] 执行迁移 #10 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.356Z INFO  [Migrations] 迁移 #10 前置检查结果: 跳过 SQL 执行
+2026-10-19T02:19:43.356Z INFO  [Migrations] 记录迁移 #10 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.357Z INFO  [Migrations] 提交迁移 #10 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.358Z INFO  [Migrations] 迁移 #10: Add variables column to quick_commands table 应用成功 (SQL 可能已跳过)。
+[Backend STDOUT]: 2026-10-19T02:19:43.358Z INFO  [Migrations] 应用迁移 #11: Add extended xterm theme fields to terminal_themes table...
+[Backend STDOUT]: 2026-10-19T02:19:43.359Z INFO  [Migrations] 执行迁移 #11 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.359Z INFO  [Migrations] 迁移 #11 前置检查结果: 跳过 SQL 执行
+2026-10-19T02:19:43.359Z INFO  [Migrations] 记录迁移 #11 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.360Z INFO  [Migrations] 提交迁移 #11 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.362Z INFO  [Migrations] 迁移 #11: Add extended xterm theme fields to terminal_themes table 应用成功 (SQL 可能已跳过)。
+2026-10-19T02:19:43.362Z INFO  [Migrations] 应用迁移 #12: Add host_key_fingerprint column to connections table for SSH host key verification...
+[Backend STDOUT]: 2026-10-19T02:19:43.362Z INFO  [Migrations] 执行迁移 #12 的前置检查...
+[Backend STDOUT]: 2026-10-19T02:19:43.363Z INFO  [Migrations] 迁移 #12 前置检查结果: 跳过 SQL 执行
+2026-10-19T02:19:43.363Z INFO  [Migrations] 记录迁移 #12 到 migrations 表...
+[Backend STDOUT]: 2026-10-19T02:19:43.364Z INFO  [Migrations] 提交迁移 #12 事务...
+[Backend STDOUT]: 2026-10-19T02:19:43.365Z INFO  [Migrations] 迁移 #12: Add host_key_fingerprint column to connections table for SSH host key verification 应用成功 (SQL 可能已跳过)。
+2026-10-19T02:19:43.365Z INFO  [Migrations] 所有新迁移已成功应用！
+[Backend STDOUT]: 2026-10-19T02:19:43.422Z INFO  [DB Init] 开始检查并初始化预设主题...
+2026-10-19T02:19:43.423Z INFO  [DB Init] 发现 403 个预设主题定义。
+[Backend STDOUT]: 2026-10-19T02:19:44.462Z INFO  [DB Init] 预设主题检查和初始化完成。
+[Backend STDOUT]: 2026-10-19T02:19:44.462Z INFO  [DB Init] 预设主题初始化检查完成。
+[Backend STDOUT]: 2026-10-19T02:19:44.510Z INFO  [DB Init] 外观设置初始化检查完成。
+2026-10-19T02:19:44.510Z INFO  [数据库] 初始化和迁移完成。
+[Backend STDOUT]: 2026-10-19T02:19:44.510Z INFO  [Index] 正在检查用户数量...
+[Backend STDOUT]: 2026-10-19T02:19:44.511Z INFO  [Index] 用户数量检查完成。找到 0 个用户。
+[Backend STDERR]: 2026-10-19T02:19:44.512Z WARN  
+========================================================================
+[Setup] 尚未创建管理员账号 (startup)。初始设置令牌 / Initial setup token:
+
+    "[REDACTED]"
+
+[Setup] 在初始设置页面填写此令牌以创建管理员账号。Docker 部署可通过 `docker compose logs backend` 查看。
+[Setup] Enter this token on the setup page to create the admin account (see `docker compose logs backend`).
+========================================================================
+[Backend STDOUT]: 2026-10-19T02:19:44.549Z INFO  后端服务器正在监听 http://localhost:22458
+BACKEND_READY_SIGNAL
+[Backend Watcher] Backend ready signal received!
+[Main Process] Backend and frontend server are ready. Proceeding to load URL.
+[Prod Mode] Attempting to load URL: http://localhost:22457
+[Backend STDOUT]: 2026-10-19T02:19:44.550Z INFO  心跳检测已初始化，间隔: 15000ms，最多允许连续丢失 3 次
+2026-10-19T02:19:44.550Z INFO  WebSocket upgrade handler initialized.
+2026-10-19T02:19:44.550Z INFO  WebSocket connection handler initialized, including SshSuspendService event listener.
+2026-10-19T02:19:44.550Z INFO  WebSocket 服务器初始化完成。
+[Backend STDOUT]: 2026-10-19T02:19:47.425Z INFO  初始管理员账号 'admin' (ID: 1) 已成功创建。
+[Backend STDOUT]: 2026-10-19T02:19:47.430Z INFO  [通知] 事件 ADMIN_SETUP_COMPLETE 使用语言 'en-US', 时区 'UTC'
+[Backend STDOUT]: 2026-10-19T02:19:47.431Z INFO  [通知] 找到 0 个适用于事件 ADMIN_SETUP_COMPLETE 的设置
+[Backend STDOUT]: 2026-10-19T02:19:47.437Z INFO  [Service] Attempting to get setting for key: ipBlacklistEnabled
+[Backend STDOUT]: 2026-10-19T02:19:47.437Z INFO  [Service] Raw value from repository for ipBlacklistEnabled: null
+[Backend STDOUT]: 2026-10-19T02:19:47.438Z INFO  [Service] Attempting to get setting for key: ipBlacklistEnabled
+[Backend STDOUT]: 2026-10-19T02:19:47.438Z INFO  [Service] Raw value from repository for ipBlacklistEnabled: null
+[Backend STDOUT]: 2026-10-19T02:19:47.439Z INFO  [SettingsService] Getting CAPTCHA config...
+[Backend STDOUT]: 2026-10-19T02:19:47.440Z INFO  [SettingsService] Returning CAPTCHA config: {
+  enabled: false,
+  provider: 'none',
+  hcaptchaSiteKey: '',
+  hcaptchaSecretKey: '***',
+  recaptchaSiteKey: '',
+  recaptchaSecretKey: '***'
+}
+2026-10-19T02:19:47.440Z INFO  [AuthController] CAPTCHA 未启用，跳过验证 - admin
+[Backend STDOUT]: 2026-10-19T02:19:47.513Z INFO  登录成功 (无 2FA): admin
+[Backend STDOUT]: 2026-10-19T02:19:47.546Z INFO  [IP Blacklist] 已重置 IP ::ffff:127.0.0.1 的失败尝试记录。
+[Backend STDOUT]: 2026-10-19T02:19:47.546Z INFO  [通知] 事件 LOGIN_SUCCESS 使用语言 'en-US', 时区 'UTC'
+[Backend STDOUT]: 2026-10-19T02:19:47.547Z INFO  [通知] 找到 0 个适用于事件 LOGIN_SUCCESS 的设置
+[Backend STDOUT]: 2026-10-19T02:19:47.559Z INFO  [Service:createConnection] Received input: {
+  "name": "win-local",
+  "type": "SSH",
+  "host": "127.0.0.1",
+  "port": 22,
+  "username": "runneradmin",
+  "auth_method": "key",
+  "private_key": "[REDACTED]"
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.560Z INFO  [Service:createConnection] Data being passed to ConnectionRepository.createConnection: {
+  "name": "win-local",
+  "type": "SSH",
+  "host": "127.0.0.1",
+  "port": 22,
+  "username": "runneradmin",
+  "auth_method": "key",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.561Z INFO  [Repository:createConnection] Received data: {
+  "name": "win-local",
+  "type": "SSH",
+  "host": "127.0.0.1",
+  "port": 22,
+  "username": "runneradmin",
+  "auth_method": "key",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+2026-10-19T02:19:47.561Z INFO  [Repository:createConnection] jump_chain input: null, stringified to: null
+[Backend STDOUT]: 2026-10-19T02:19:47.561Z INFO  [Repository:createConnection] SQL: 
+        INSERT INTO connections (name, type, host, port, username, auth_method, encrypted_password, encrypted_private_key, encrypted_passphrase, proxy_id, proxy_type, ssh_key_id, notes, jump_chain, created_at, updated_at) -- +++ Add ssh_key_id, notes, jump_chain AND proxy_type columns +++
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+2026-10-19T02:19:47.561Z INFO  [Repository:createConnection] Params: [
+  "win-local",
+  "SSH",
+  "127.0.0.1",
+  22,
+  "runneradmin",
+  "key",
+  null,
+  "7vbL9szI2KsdVpJz5bLrFNBysnF8iHb79Ev60Jaf/+m5aeNcuUvzhoSHKu6RuOZmGCnUpZxclClNz8Wio6wmDh0jeR42og7uMol59Nti3OXXgY4+Btzl0xATAG9Z0GNpRQShOeH8Kdk3AtHJs/5Zekfh8vwungxQ6O1LNHXwaPxPzwsRc0iianyYzSXHwxVLTre3wP0DlZdcGY9VgwFObZpDOgbIITvawEhx2Ay9pLhqqWppJzMZe21WnciBQxjN0ywamS5t6OGbRX6dIMaj/Edw0oIxHp+9Sk3hdY73N2bBOC/LPMkYCJVqV349NeW77Bt+s0o2/2p4b99HeSGQ11vC5bAFCd9O1GjQajKDWF2dv0La7AChtB6WRrfQZV9fzCWPinpsNJTtHiRzckGwY0zqlLT4uOo4BHgQrd29cCIg/1IvNfhR7TEzo9PCTeSeFYDOyEIzpRPKWbyZZbZS+ldRF+IF/k/omWg4NUFe6R7sma0VPjBtqgboGDxhBXPC3VsSQcpfBsGsO+iocPopzxiTUpBpAWLaW5DzdPk4+adV+mD81wFbUgjlYsGpHJ2z9BtAsfuli6OdRpKmNqLz0qEhEQ==",
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  1792376387,
+  1792376387
+]
+[Backend STDOUT]: 2026-10-19T02:19:47.577Z INFO  [Service:createConnection] Received input: {
+  "name": "prod-web-01",
+  "type": "SSH",
+  "host": "10.0.1.11",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "password": "[REDACTED]"
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.577Z INFO  [Service:createConnection] Data being passed to ConnectionRepository.createConnection: {
+  "name": "prod-web-01",
+  "type": "SSH",
+  "host": "10.0.1.11",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.577Z INFO  [Repository:createConnection] Received data: {
+  "name": "prod-web-01",
+  "type": "SSH",
+  "host": "10.0.1.11",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+2026-10-19T02:19:47.577Z INFO  [Repository:createConnection] jump_chain input: null, stringified to: null
+2026-10-19T02:19:47.578Z INFO  [Repository:createConnection] SQL: 
+        INSERT INTO connections (name, type, host, port, username, auth_method, encrypted_password, encrypted_private_key, encrypted_passphrase, proxy_id, proxy_type, ssh_key_id, notes, jump_chain, created_at, updated_at) -- +++ Add ssh_key_id, notes, jump_chain AND proxy_type columns +++
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+2026-10-19T02:19:47.578Z INFO  [Repository:createConnection] Params: [
+  "prod-web-01",
+  "SSH",
+  "10.0.1.11",
+  22,
+  "root",
+  "password",
+  "mQa4mibnrSOnM2UCv1v6eves9ANYS3bsS4kzKED3kuort7gHS2FJSv60Zy4e",
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  1792376387,
+  1792376387
+]
+[Backend STDOUT]: 2026-10-19T02:19:47.592Z INFO  [Service:createConnection] Received input: {
+  "name": "prod-web-02",
+  "type": "SSH",
+  "host": "10.0.1.12",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "password": "[REDACTED]"
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.593Z INFO  [Service:createConnection] Data being passed to ConnectionRepository.createConnection: {
+  "name": "prod-web-02",
+  "type": "SSH",
+  "host": "10.0.1.12",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.593Z INFO  [Repository:createConnection] Received data: {
+  "name": "prod-web-02",
+  "type": "SSH",
+  "host": "10.0.1.12",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+2026-10-19T02:19:47.593Z INFO  [Repository:createConnection] jump_chain input: null, stringified to: null
+2026-10-19T02:19:47.593Z INFO  [Repository:createConnection] SQL: 
+        INSERT INTO connections (name, type, host, port, username, auth_method, encrypted_password, encrypted_private_key, encrypted_passphrase, proxy_id, proxy_type, ssh_key_id, notes, jump_chain, created_at, updated_at) -- +++ Add ssh_key_id, notes, jump_chain AND proxy_type columns +++
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+2026-10-19T02:19:47.593Z INFO  [Repository:createConnection] Params: [
+  "prod-web-02",
+  "SSH",
+  "10.0.1.12",
+  22,
+  "root",
+  "password",
+  "Nf/IIe4433k+QG0QNMSXtp01ioTcLLwJ5VXk9UHsvoZG7enbvI6O3LoSjm9w",
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  1792376387,
+  1792376387
+]
+[Backend STDOUT]: 2026-10-19T02:19:47.608Z INFO  [Service:createConnection] Received input: {
+  "name": "db-primary",
+  "type": "SSH",
+  "host": "10.0.2.20",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "password": "[REDACTED]"
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.608Z INFO  [Service:createConnection] Data being passed to ConnectionRepository.createConnection: {
+  "name": "db-primary",
+  "type": "SSH",
+  "host": "10.0.2.20",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.608Z INFO  [Repository:createConnection] Received data: {
+  "name": "db-primary",
+  "type": "SSH",
+  "host": "10.0.2.20",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+2026-10-19T02:19:47.608Z INFO  [Repository:createConnection] jump_chain input: null, stringified to: null
+2026-10-19T02:19:47.608Z INFO  [Repository:createConnection] SQL: 
+        INSERT INTO connections (name, type, host, port, username, auth_method, encrypted_password, encrypted_private_key, encrypted_passphrase, proxy_id, proxy_type, ssh_key_id, notes, jump_chain, created_at, updated_at) -- +++ Add ssh_key_id, notes, jump_chain AND proxy_type columns +++
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+2026-10-19T02:19:47.608Z INFO  [Repository:createConnection] Params: [
+  "db-primary",
+  "SSH",
+  "10.0.2.20",
+  22,
+  "root",
+  "password",
+  "jgwIH/xIVZL4BdLSbw8Qlz/H5x6IeP19bgvCazfgfD862My6hLhIvqUPwoFK",
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  1792376387,
+  1792376387
+]
+[Backend STDOUT]: 2026-10-19T02:19:47.624Z INFO  [Service:createConnection] Received input: {
+  "name": "staging-api",
+  "type": "SSH",
+  "host": "10.0.3.30",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "password": "[REDACTED]"
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.624Z INFO  [Service:createConnection] Data being passed to ConnectionRepository.createConnection: {
+  "name": "staging-api",
+  "type": "SSH",
+  "host": "10.0.3.30",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.624Z INFO  [Repository:createConnection] Received data: {
+  "name": "staging-api",
+  "type": "SSH",
+  "host": "10.0.3.30",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+2026-10-19T02:19:47.624Z INFO  [Repository:createConnection] jump_chain input: null, stringified to: null
+2026-10-19T02:19:47.624Z INFO  [Repository:createConnection] SQL: 
+        INSERT INTO connections (name, type, host, port, username, auth_method, encrypted_password, encrypted_private_key, encrypted_passphrase, proxy_id, proxy_type, ssh_key_id, notes, jump_chain, created_at, updated_at) -- +++ Add ssh_key_id, notes, jump_chain AND proxy_type columns +++
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+2026-10-19T02:19:47.624Z INFO  [Repository:createConnection] Params: [
+  "staging-api",
+  "SSH",
+  "10.0.3.30",
+  22,
+  "root",
+  "password",
+  "k34YTwfC1JBdKjnRwyJ7iY+uuDRE0HBaBhA8Id8hWZlGahwHPNU9Kvjs8dDI",
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  1792376387,
+  1792376387
+]
+[Backend STDOUT]: 2026-10-19T02:19:47.641Z INFO  [Service:createConnection] Received input: {
+  "name": "k8s-node-1",
+  "type": "SSH",
+  "host": "10.0.4.41",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "password": "[REDACTED]"
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.641Z INFO  [Service:createConnection] Data being passed to ConnectionRepository.createConnection: {
+  "name": "k8s-node-1",
+  "type": "SSH",
+  "host": "10.0.4.41",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+2026-10-19T02:19:47.641Z INFO  [Repository:createConnection] Received data: {
+  "name": "k8s-node-1",
+  "type": "SSH",
+  "host": "10.0.4.41",
+  "port": 22,
+  "username": "root",
+  "auth_method": "password",
+  "encrypted_password": "[REDACTED]",
+  "encrypted_private_key": "[REDACTED]",
+  "encrypted_passphrase": "[REDACTED]",
+  "notes": null,
+  "proxy_id": null,
+  "proxy_type": null,
+  "jump_chain": null
+}
+[Backend STDOUT]: 2026-10-19T02:19:47.641Z INFO  [Repository:createConnection] jump_chain input: null, stringified to: null
+2026-10-19T02:19:47.641Z INFO  [Repository:createConnection] SQL: 
+        INSERT INTO connections (name, type, host, port, username, auth_method, encrypted_password, encrypted_private_key, encrypted_passphrase, proxy_id, proxy_type, ssh_key_id, notes, jump_chain, created_at, updated_at) -- +++ Add ssh_key_id, notes, jump_chain AND proxy_type columns +++
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+2026-10-19T02:19:47.641Z INFO  [Repository:createConnection] Params: [
+  "k8s-node-1",
+  "SSH",
+  "10.0.4.41",
+  22,
+  "root",
+  "password",
+  "F/rqch7kzxgb+bVZIChY/DRDaDwXI+UUo+EwLBcZmqpdCYKUrkDMh6PbkaEG",
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  1792376387,
+  1792376387
+]
+[Backend STDOUT]: 2026-10-19T02:19:47.911Z INFO  [Service] Attempting to get setting for key: showConnectionTags
+[Backend STDOUT]: 2026-10-19T02:19:47.913Z INFO  [Service] Attempting to get setting for key: showQuickCommandTags
+[Backend STDOUT]: 2026-10-19T02:19:47.914Z INFO  [AppearanceRepo LOG] 映射后的 terminalBackgroundEnabled 值: true
+[Backend STDOUT]: 2026-10-19T02:19:47.915Z INFO  [Service] Raw value from repository for showConnectionTags: null
+[Backend STDOUT]: 2026-10-19T02:19:47.932Z INFO  [Service] Raw value from repository for showQuickCommandTags: null
+[Backend STDOUT]: 2026-10-19T02:19:48.000Z INFO  [Service] Attempting to get setting for key: focusSwitcherSequence
+[Backend STDOUT]: 2026-10-19T02:19:48.001Z INFO  [Service] Raw value from repository for focusSwitcherSequence: ["quickCommandsSearch","commandHistorySearch","fileManagerSearch","commandInput","terminalSearch"]
+[Backend STDOUT]: 2026-10-19T02:19:48.001Z INFO  [Service] Returning default focus config: {"sequence":[],"shortcuts":{}}
+[Backend STDERR]: 2026-10-19T02:19:48.001Z WARN  [Service] Invalid full focus switcher config format found in settings. Returning default.
+[Backend STDOUT]: 2026-10-19T02:19:48.038Z INFO  [Service] Attempting to get setting for key: layoutTree
+[Backend STDOUT]: 2026-10-19T02:19:48.040Z INFO  [Service] Raw value from repository for layoutTree: {"type":"container","direction":"horizontal","children":[{"type":"container","direction":"vertical",...
+[Backend STDOUT]: 2026-10-19T02:19:48.049Z INFO  [Service] Attempting to get setting for key: navBarVisible
+[Backend STDOUT]: 2026-10-19T02:19:48.053Z INFO  [Service] Raw value from repository for navBarVisible: true
+[Backend STDOUT]: 2026-10-19T02:19:48.066Z INFO  [Service] Attempting to get setting for key: navBarVisible
+[Backend STDOUT]: 2026-10-19T02:19:48.067Z INFO  [Service] Raw value from repository for navBarVisible: true
+[Backend STDOUT]: 2026-10-19T02:19:48.093Z INFO  [SettingsService] Getting sidebar config...
+[Backend STDOUT]: 2026-10-19T02:19:48.095Z INFO  [SettingsService] Returning sidebar config: { left: [ 'connections', 'dockerManager', 'editor' ], right: [] }
+[Backend STDOUT]: 2026-10-19T02:19:48.095Z INFO  [控制器] 向客户端发送侧边栏配置: { left: [ 'connections', 'dockerManager', 'editor' ], right: [] }
+[Backend STDOUT]: 2026-10-19T02:19:53.251Z INFO  WebSocket: 升级请求来自 IP: 127.0.0.1, Path: /ws/
+[Backend STDOUT]: 2026-10-19T02:19:53.256Z INFO  WebSocket 认证成功 (Path: /ws/)：用户 admin (ID: 1)
+2026-10-19T02:19:53.256Z INFO  WebSocket: Handling standard upgrade for user admin
+2026-10-19T02:19:53.259Z INFO  WebSocket：客户端 admin (ID: 1, IP: 127.0.0.1, RDP Proxy: false) 已连接。
+[Backend STDOUT]: 2026-10-19T02:19:53.266Z INFO  WebSocket: 用户 admin 请求连接到数据库 ID: 1
+[Backend STDOUT]: 2026-10-19T02:19:53.269Z INFO  SshService: getConnectionDetails - 获取连接 1 的详细信息...
+[Backend STDOUT]: 2026-10-19T02:19:53.271Z INFO  SshService: Connection 1 does not have jump_chain configuration in DB, or it is null/empty string.
+[Backend STDOUT]: 2026-10-19T02:19:53.273Z INFO  SshService: Client for win-local (ID: 1, Final) - Attempting to connect... Config: host=127.0.0.1, port=22, user=runneradmin, sock=false
+[Backend STDOUT]: 2026-10-19T02:19:53.394Z INFO  SshService: HostKey win-local (ID: 1) - 首次连接，已信任并保存主机密钥指纹: SHA256:W1Rh/k/tWxgJFSwvzf/E3mzaJvCIXpNtUl/e1bYMRCo
+[Backend STDOUT]: 2026-10-19T02:19:53.428Z INFO  SshService: Client for win-local (ID: 1, Final) - SSH connection successful. Target: 127.0.0.1
+[Backend STDOUT]: 2026-10-19T02:19:53.448Z INFO  WebSocket: 为用户 admin (IP: 127.0.0.1) 创建新会话 mvemmk9kq4pbbdve379 (DB ID: 1, 连接名称: win-local)
+[Backend STDOUT]: 2026-10-19T02:19:53.521Z INFO  WebSocket: 会话 mvemmk9kq4pbbdve379 Shell 打开成功 (尺寸 80x24)。
+[Backend STDOUT]: 2026-10-19T02:19:53.523Z INFO  WebSocket: 会话 mvemmk9kq4pbbdve379 SSH 连接和 Shell 建立成功。
+2026-10-19T02:19:53.523Z INFO  WebSocket: 会话 mvemmk9kq4pbbdve379 正在异步初始化 SFTP...
+2026-10-19T02:19:53.527Z INFO  [Service] Attempting to get setting for key: statusMonitorIntervalSeconds
+2026-10-19T02:19:53.528Z INFO  WebSocket: 会话 mvemmk9kq4pbbdve379 正在启动 Docker 状态轮询...
+[Backend STDOUT]: 2026-10-19T02:19:53.800Z INFO  [Docker Polling] Using interval from settings: 5s (5000ms) for session mvemmk9kq4pbbdve379
+[Backend STDOUT]: 2026-10-19T02:19:53.801Z INFO  [Docker Initial Fetch] Fetching status for session mvemmk9kq4pbbdve379...
+[Backend STDOUT]: 2026-10-19T02:19:53.803Z INFO  [通知] 事件 SSH_CONNECT_SUCCESS 使用语言 'en-US', 时区 'UTC'
+[Backend STDOUT]: 2026-10-19T02:19:53.804Z INFO  [Service] Raw value from repository for statusMonitorIntervalSeconds: 3
+[Backend STDOUT]: 2026-10-19T02:19:53.804Z INFO  [StatusMonitor mvemmk9kq4pbbdve379] 使用配置的轮询间隔: 3 秒 (3000ms)
+[Backend STDOUT]: 2026-10-19T02:19:53.829Z INFO  [通知] 找到 0 个适用于事件 SSH_CONNECT_SUCCESS 的设置
+[Backend STDOUT]: 2026-10-19T02:19:53.894Z INFO  [SFTP] 为会话 mvemmk9kq4pbbdve379 初始化 SFTP 会话成功。
+[Backend STDOUT]: 2026-10-19T02:19:53.895Z INFO  SFTP: 会话 mvemmk9kq4pbbdve379 异步初始化成功。
+[Backend STDOUT]: 2026-10-19T02:19:54.136Z INFO  SSH: 会话 mvemmk9kq4pbbdve379 调整终端大小: 113x25
+[Backend STDOUT]: 2026-10-19T02:19:54.557Z INFO  SSH: 会话 mvemmk9kq4pbbdve379 调整终端大小: 113x25
+[Backend STDOUT]: 2026-10-19T02:20:24.073Z INFO  [SettingsService] Getting CAPTCHA config...
+[Backend STDOUT]: 2026-10-19T02:20:24.074Z INFO  [SettingsService] Returning CAPTCHA config: {
+  enabled: false,
+  provider: 'none',
+  hcaptchaSiteKey: '',
+  hcaptchaSecretKey: '***',
+  recaptchaSiteKey: '',
+  recaptchaSecretKey: '***'
+}
+2026-10-19T02:20:24.075Z INFO  [控制器] 向客户端发送公共 CAPTCHA 配置: {
+  enabled: false,
+  provider: 'none',
+  hcaptchaSiteKey: '',
+  recaptchaSiteKey: ''
+}
