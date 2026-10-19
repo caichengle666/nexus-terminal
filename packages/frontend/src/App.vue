@@ -15,7 +15,6 @@ import { storeToRefs } from 'pinia';
 import UINotificationDisplay from './components/UINotificationDisplay.vue';
 import TaskNotificationCenter from './components/TaskNotificationCenter.vue';
 import WindowControls from './components/WindowControls.vue';
-import TaskBellButton from './components/TaskBellButton.vue';
 import FileEditorOverlay from './components/FileEditorOverlay.vue';
 import StyleCustomizer from './components/StyleCustomizer.vue';
 import FocusSwitcherConfigurator from './components/FocusSwitcherConfigurator.vue';
@@ -409,7 +408,6 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
         </div>
         <!-- Right navigation links with Tailwind classes using theme variables -->
         <div class="flex items-center space-x-1">
-          <TaskBellButton v-if="isAuthenticated" class="px-2 py-2 rounded-md text-lg text-icon hover:text-icon-hover hover:bg-nav-active-bg" />
           <!-- GitHub Icon (Hide on mobile) -->
           <a v-if="!isMobile" href="https://github.com/caichengle666/nexus-terminal" target="_blank" rel="noopener noreferrer" title="caichengle666/nexus-terminal" class="px-2 py-2 rounded-md text-lg text-icon hover:text-icon-hover hover:bg-nav-active-bg hover:no-underline transition duration-150 ease-in-out">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">

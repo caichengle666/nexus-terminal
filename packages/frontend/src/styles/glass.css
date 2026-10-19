@@ -419,7 +419,7 @@ html[data-ui-effect="glass"] :is(.mobile-ai-overlay, .mobile-pane-menu, .ai-draw
   background-color: var(--glass-base-color, #0b1220) !important;
   background-image: linear-gradient(var(--glass-surface-strong, rgba(255, 255, 255, 0.06)), var(--glass-surface-strong, rgba(255, 255, 255, 0.06)));
 }
-html[data-ui-effect="glass"] body .task-notification-center > section.relative.overflow-hidden.rounded-lg {
+html[data-ui-effect="glass"] body .task-notification-center > section.overflow-hidden.rounded-lg.border {
   /* 选择器写长是为了压过上面“弹出层透明”规则 (它带 shadow-2xl 会被匹配) */
   background-color: var(--glass-base-color, #0b1220) !important;
   background-image: linear-gradient(var(--glass-surface-strong, rgba(255, 255, 255, 0.06)), var(--glass-surface-strong, rgba(255, 255, 255, 0.06)));

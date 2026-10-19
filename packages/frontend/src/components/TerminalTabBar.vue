@@ -2,7 +2,6 @@
 import { ref, computed, PropType, onMounted, onBeforeUnmount, watch } from 'vue';
 import draggable from 'vuedraggable';
 import WindowControls from './WindowControls.vue';
-import TaskBellButton from './TaskBellButton.vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 import { storeToRefs } from 'pinia';
@@ -545,11 +544,6 @@ onBeforeUnmount(() => {
                 @click="openLayoutConfigurator" :title="t('layout.configure', '配置布局')">
           <i class="fas fa-th-large text-sm"></i>
         </button>
-        <!-- 顶栏收起后铃铛跟着移到标签栏 -->
-        <TaskBellButton
-          v-if="!props.isMobile && isWorkspaceRoute && !isHeaderVisible"
-          class="px-3 h-full border-l border-border text-text-secondary hover:bg-border hover:text-foreground transition-colors duration-150"
-        />
         <!-- 收起/展开顶栏：放最右侧 -->
         <button
           v-if="isWorkspaceRoute"
