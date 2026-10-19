@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, PropType, onMounted, onBeforeUnmount, watch } from 'vue';
 import draggable from 'vuedraggable';
+import WindowControls from './WindowControls.vue';
+import TaskBellButton from './TaskBellButton.vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 import { storeToRefs } from 'pinia';
@@ -298,6 +300,9 @@ const openLayoutConfigurator = () => {
 
 // --- Header Visibility Logic ---
 const isWorkspaceRoute = ref(route.path === '/workspace'); // 检查是否在 /workspace 路由
+// Electron 客户端收起顶栏时，标签栏就是窗口标题栏：空白处可拖动窗口，窗口按钮排在同一行最右侧
+const isElectronApp = Boolean((window as any).electronAPI?.minimizeWindow);
+const actsAsTitlebar = computed(() => isElectronApp && !props.isMobile && isWorkspaceRoute.value && !isHeaderVisible.value);
 
 // 监视路由变化
 watch(() => route.path, (newPath) => {
@@ -462,6 +467,7 @@ onBeforeUnmount(() => {
   <!-- +++ 使用 :class 绑定来条件化样式，包括高度 (修正 props 引用) +++ -->
   <div :class="['terminal-tab-bar flex bg-header border-b border-border overflow-hidden',
                { 'border-x border-t': props.isMobile }, // 桌面端紧贴顶栏，不留缝隙和左右留白
+               { 'tab-bar-titlebar': actsAsTitlebar },
                props.isMobile
                  ? (isHeaderVisible ? 'h-11' : 'h-[calc(2.75rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]')
                  : 'h-10'
@@ -539,6 +545,11 @@ onBeforeUnmount(() => {
                 @click="openLayoutConfigurator" :title="t('layout.configure', '配置布局')">
           <i class="fas fa-th-large text-sm"></i>
         </button>
+        <!-- 顶栏收起后铃铛跟着移到标签栏 -->
+        <TaskBellButton
+          v-if="!props.isMobile && isWorkspaceRoute && !isHeaderVisible"
+          class="px-3 h-full border-l border-border text-text-secondary hover:bg-border hover:text-foreground transition-colors duration-150"
+        />
         <!-- 收起/展开顶栏：放最右侧 -->
         <button
           v-if="isWorkspaceRoute"
@@ -549,6 +560,7 @@ onBeforeUnmount(() => {
         >
           <i :class="[headerToggleIconClass, 'text-sm']"></i>
         </button>
+        <WindowControls v-if="actsAsTitlebar" compact class="border-l border-border" />
     </div>
     <!-- Connection List Popup -->
     <div v-if="showConnectionListPopup" class="fixed inset-0 bg-overlay flex justify-center items-center z-50 p-4" @click.self="togglePopup">
@@ -583,3 +595,14 @@ onBeforeUnmount(() => {
     <TransferProgressModal v-model:visible="showTransferProgressModal" />
   </div>
 </template>
+
+<style scoped>
+/* 收起顶栏时标签栏充当标题栏：空白处拖动窗口，可交互元素不参与拖动 */
+.tab-bar-titlebar {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.tab-bar-titlebar :is(li, button, a, input, [role="button"], .overflow-x-auto) {
+  -webkit-app-region: no-drag;
+}
+</style>

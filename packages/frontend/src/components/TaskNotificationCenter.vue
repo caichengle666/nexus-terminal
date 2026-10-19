@@ -7,46 +7,19 @@ import { useDeviceDetection } from '../composables/useDeviceDetection';
 
 const { t } = useI18n();
 const notificationsStore = useUiNotificationsStore();
-const { taskNotifications, unreadTaskCount } = storeToRefs(notificationsStore);
+const { taskNotifications } = storeToRefs(notificationsStore);
 const isOpen = ref(false);
-// 移动端不显示可拖动的悬浮铃铛（默认停在左上角，会盖住 Logo / 返回按钮 / AI 助手标题），
-// 改由 MobileAppHeader 的铃铛按钮触发 open-task-notification-center 事件打开面板。
+// 面板由各处铃铛按钮触发 open-task-notification-center 事件打开（Electron 托盘 / 桌面悬浮铃铛也走这个事件）。
 const { isMobile } = useDeviceDetection();
-const buttonPosition = ref({ x: 16, y: 16 });
-const isDragging = ref(false);
-const dragOffset = ref({ x: 0, y: 0 });
-
-const clampPosition = (x: number, y: number) => ({
-  x: Math.max(0, Math.min(window.innerWidth - 40, x)),
-  y: Math.max(0, Math.min(window.innerHeight - 40, y)),
-});
-
+const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') isOpen.value = false; };
 onMounted(() => {
-  const savedPosition = localStorage.getItem('task-notification-center-position');
-  if (savedPosition) {
-    try {
-      const position = JSON.parse(savedPosition);
-      if (typeof position.x === 'number' && typeof position.y === 'number') buttonPosition.value = clampPosition(position.x, position.y);
-    } catch { localStorage.removeItem('task-notification-center-position'); }
-  }
   window.addEventListener('open-task-notification-center', showCenter);
+  window.addEventListener('keydown', closeOnEscape);
 });
-
-onUnmounted(() => window.removeEventListener('open-task-notification-center', showCenter));
-
-const startDrag = (event: PointerEvent) => {
-  isDragging.value = true;
-  dragOffset.value = { x: event.clientX - buttonPosition.value.x, y: event.clientY - buttonPosition.value.y };
-  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-};
-const moveDrag = (event: PointerEvent) => {
-  if (isDragging.value) buttonPosition.value = clampPosition(event.clientX - dragOffset.value.x, event.clientY - dragOffset.value.y);
-};
-const endDrag = () => {
-  if (!isDragging.value) return;
-  isDragging.value = false;
-  localStorage.setItem('task-notification-center-position', JSON.stringify(buttonPosition.value));
-};
+onUnmounted(() => {
+  window.removeEventListener('open-task-notification-center', showCenter);
+  window.removeEventListener('keydown', closeOnEscape);
+});
 
 const statusIcon = (status: string) => {
   if (status === 'running') return 'fas fa-spinner fa-spin';
@@ -62,12 +35,6 @@ const statusClass = (status: string) => ({
   'text-text-secondary': status === 'cancelled',
 });
 
-const openCenter = () => {
-  if (isDragging.value) return;
-  isOpen.value = !isOpen.value;
-  if (isOpen.value) notificationsStore.markTaskNotificationsRead();
-};
-
 function showCenter() {
   isOpen.value = true;
   notificationsStore.markTaskNotificationsRead();
@@ -75,34 +42,14 @@ function showCenter() {
 </script>
 
 <template>
-  <div v-if="isMobile && isOpen" class="fixed inset-0 z-[1089]" aria-hidden="true" @click="isOpen = false" />
+  <!-- 任务通知面板：由顶栏 / 标签栏 / 移动端顶栏里的铃铛按钮打开，不再在页面上悬浮（会盖住 Logo、新建标签等按钮） -->
+  <div v-if="isOpen" class="fixed inset-0 z-[1089]" aria-hidden="true" @click="isOpen = false" />
   <div
-    v-if="!isMobile || isOpen"
-    class="task-notification-center fixed z-[1090]"
-    :class="isMobile ? 'right-2 top-[calc(3.25rem+env(safe-area-inset-top))]' : ''"
-    :style="isMobile ? undefined : { left: buttonPosition.x + 'px', top: buttonPosition.y + 'px' }"
+    v-if="isOpen"
+    class="task-notification-center fixed right-2 z-[1090]"
+    :class="isMobile ? 'top-[calc(3.25rem+env(safe-area-inset-top))]' : 'top-12'"
   >
-    <button
-      v-if="!isMobile"
-      type="button"
-      class="relative flex h-10 w-10 items-center justify-center rounded-full border border-border bg-header text-foreground shadow-lg hover:bg-hover"
-      :title="t('taskNotifications.title')"
-      :aria-label="t('taskNotifications.title')"
-      :aria-expanded="isOpen"
-      :class="{ 'cursor-grabbing': isDragging, 'cursor-grab': !isDragging }"
-      @pointerdown="startDrag"
-      @pointermove="moveDrag"
-      @pointerup="endDrag"
-      @pointercancel="endDrag"
-      @click="openCenter"
-    >
-      <i class="fas fa-bell" aria-hidden="true"></i>
-      <span v-if="unreadTaskCount > 0" class="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] text-white">
-        {{ unreadTaskCount > 99 ? '99+' : unreadTaskCount }}
-      </span>
-    </button>
-
-    <section v-if="isOpen" :class="isMobile ? 'relative' : 'absolute left-0 top-12'" class="w-[min(24rem,calc(100vw-1rem))] overflow-hidden rounded-lg border border-border bg-background text-foreground shadow-2xl" role="dialog" :aria-label="t('taskNotifications.title')">
+    <section class="relative w-[min(24rem,calc(100vw-1rem))] overflow-hidden rounded-lg border border-border bg-background text-foreground shadow-2xl" role="dialog" :aria-label="t('taskNotifications.title')">
       <header class="flex items-center justify-between border-b border-border bg-header px-3 py-2">
         <h2 class="text-sm font-semibold">{{ t('taskNotifications.title') }}</h2>
         <button type="button" class="text-xs text-text-secondary hover:text-foreground" @click="notificationsStore.clearTaskNotifications">

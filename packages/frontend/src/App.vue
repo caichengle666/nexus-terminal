@@ -14,6 +14,8 @@ import { useTransferStore } from './stores/transfer.store';
 import { storeToRefs } from 'pinia';
 import UINotificationDisplay from './components/UINotificationDisplay.vue';
 import TaskNotificationCenter from './components/TaskNotificationCenter.vue';
+import WindowControls from './components/WindowControls.vue';
+import TaskBellButton from './components/TaskBellButton.vue';
 import FileEditorOverlay from './components/FileEditorOverlay.vue';
 import StyleCustomizer from './components/StyleCustomizer.vue';
 import FocusSwitcherConfigurator from './components/FocusSwitcherConfigurator.vue';
@@ -52,12 +54,13 @@ const navRef = ref<HTMLElement | null>(null);
 const underlineRef = ref<HTMLElement | null>(null);
 
 const getElectronApi = () => (window as any).electronAPI;
+// 只有 Electron 客户端才有自绘窗口按钮；网页版顶栏右侧留出正常内边距
+const isElectronApp = Boolean(getElectronApi()?.minimizeWindow);
 
 // +++ 存储上一次由切换器聚焦的 ID +++
 const lastFocusedIdBySwitcher = ref<string | null>(null);
 const isAltPressed = ref(false); // 跟踪 Alt 键是否按下
 const altShortcutKey = ref<string | null>(null);
-const isAlwaysOnTop = ref(false);
 const installPrompt = ref<BeforeInstallPromptEvent | null>(null);
 const pwaUpdateAvailable = ref(false);
 const showIosInstallHelp = ref(false);
@@ -68,7 +71,6 @@ const isStandalonePwa = ref(
   window.matchMedia('(display-mode: standalone)').matches ||
   Boolean((navigator as Navigator & { standalone?: boolean }).standalone),
 );
-let removeAlwaysOnTopListener: (() => void) | undefined;
 let removeOpenTaskNotificationCenterListener: (() => void) | undefined;
 // --- 移除 shortcutTriggeredInKeyDown 标志 ---
 
@@ -104,9 +106,6 @@ onMounted(() => {
   // +++ 加载 Header 可见性状态 +++
   layoutStore.loadHeaderVisibility();
 
-  removeAlwaysOnTopListener = getElectronApi()?.receiveMessage?.('always-on-top-changed', (value: boolean) => {
-    isAlwaysOnTop.value = Boolean(value);
-  });
   removeOpenTaskNotificationCenterListener = getElectronApi()?.onOpenTaskNotificationCenter?.(() => {
     window.dispatchEvent(new Event('open-task-notification-center'));
   });
@@ -130,7 +129,6 @@ onUnmounted(() => {
   window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
   window.removeEventListener('appinstalled', handleAppInstalled);
   window.removeEventListener('pwa-update-available', handlePwaUpdateAvailable);
-  removeAlwaysOnTopListener?.();
   removeOpenTaskNotificationCenterListener?.();
 });
 
@@ -192,22 +190,6 @@ const reloadPwa = () => {
 const canInstallPwa = computed(() => (
   (Boolean(installPrompt.value) || isIosDevice) && !isStandalonePwa.value && !getElectronApi()
 ));
-
-const minimizeWindow = () => {
-  getElectronApi()?.minimizeWindow?.();
-};
-
-const toggleMaximizeWindow = () => {
-  getElectronApi()?.toggleMaximizeWindow?.();
-};
-
-const toggleAlwaysOnTop = () => {
-  getElectronApi()?.toggleAlwaysOnTop?.();
-};
-
-const closeWindow = () => {
-  getElectronApi()?.closeWindow?.();
-};
 
 // 打开样式自定义器的方法现在直接调用 store action
 const openStyleCustomizer = () => {
@@ -397,27 +379,6 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
         </div>
       </section>
     </div>
-    <div v-if="!isMobile && isWorkspaceRoute && !isHeaderVisible" class="electron-drag-strip"></div>
-    <div v-if="!isMobile && isWorkspaceRoute && !isHeaderVisible" class="window-control-group floating-window-controls">
-      <button class="window-control-button" type="button" title="最小化" @click="minimizeWindow">
-        <span class="window-control-icon minimize-icon"></span>
-      </button>
-      <button class="window-control-button" type="button" title="最大化/还原" @click="toggleMaximizeWindow">
-        <span class="window-control-icon maximize-icon"></span>
-      </button>
-      <button
-        class="window-control-button"
-        type="button"
-        :class="{ 'always-on-top-active': isAlwaysOnTop }"
-        :title="isAlwaysOnTop ? '取消置顶' : '窗口置顶'"
-        @click="toggleAlwaysOnTop"
-      >
-        <i class="fas fa-thumbtack text-xs" aria-hidden="true"></i>
-      </button>
-      <button class="window-control-button close-window-button" type="button" title="关闭" @click="closeWindow">
-        <span class="window-control-icon close-icon"></span>
-      </button>
-    </div>
     <!-- *** 修改 v-if 条件以使用 isHeaderVisible *** -->
     <!-- Header with Tailwind classes using theme variables -->
     <MobileAppHeader
@@ -431,7 +392,7 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
       @install-pwa="installPwa"
       @logout="handleLogout"
     />
-    <header v-else-if="!isWorkspaceRoute || isHeaderVisible" class="electron-titlebar sticky top-0 z-10 flex items-center h-14 pl-3 pr-0 bg-header border-b border-border shadow-sm"> <!-- 减少左侧内边距 -->
+    <header v-else-if="!isWorkspaceRoute || isHeaderVisible" class="electron-titlebar sticky top-0 z-10 flex items-center h-14 pl-3 bg-header border-b border-border shadow-sm" :class="isElectronApp ? 'pr-0' : 'pr-3'"> <!-- 减少左侧内边距 -->
       <!-- Nav with Tailwind classes -->
       <nav ref="navRef" class="flex items-center justify-between flex-1 min-w-0 relative pr-2"> <!-- Added relative positioning for underline -->
         <!-- Left navigation links with Tailwind classes using theme variables -->
@@ -448,6 +409,7 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
         </div>
         <!-- Right navigation links with Tailwind classes using theme variables -->
         <div class="flex items-center space-x-1">
+          <TaskBellButton v-if="isAuthenticated" class="px-2 py-2 rounded-md text-lg text-icon hover:text-icon-hover hover:bg-nav-active-bg" />
           <!-- GitHub Icon (Hide on mobile) -->
           <a v-if="!isMobile" href="https://github.com/caichengle666/nexus-terminal" target="_blank" rel="noopener noreferrer" title="caichengle666/nexus-terminal" class="px-2 py-2 rounded-md text-lg text-icon hover:text-icon-hover hover:bg-nav-active-bg hover:no-underline transition duration-150 ease-in-out">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
@@ -464,26 +426,7 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
         <!-- Sliding underline element with Tailwind classes using theme variables (JS still controls positioning) -->
         <div ref="underlineRef" class="absolute bottom-0 h-0.5 bg-link-active rounded transition-all duration-300 ease-in-out pointer-events-none opacity-0 transform translate-y-1.5"></div> <!-- Changed translate-y-1 to translate-y-1.5 -->
       </nav>
-      <div class="window-control-group">
-        <button class="window-control-button" type="button" title="最小化" @click="minimizeWindow">
-          <span class="window-control-icon minimize-icon"></span>
-        </button>
-        <button class="window-control-button" type="button" title="最大化/还原" @click="toggleMaximizeWindow">
-          <span class="window-control-icon maximize-icon"></span>
-        </button>
-        <button
-          class="window-control-button"
-          type="button"
-          :class="{ 'always-on-top-active': isAlwaysOnTop }"
-          :title="isAlwaysOnTop ? '取消置顶' : '窗口置顶'"
-          @click="toggleAlwaysOnTop"
-        >
-          <i class="fas fa-thumbtack text-xs" aria-hidden="true"></i>
-        </button>
-        <button class="window-control-button close-window-button" type="button" title="关闭" @click="closeWindow">
-          <span class="window-control-icon close-icon"></span>
-        </button>
-      </div>
+      <WindowControls />
     </header>
 
     <main class="flex-1 bg-background text-foreground" :class="{ 'min-h-0 overflow-hidden': isWorkspaceRoute }">
@@ -565,108 +508,6 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
 .electron-titlebar svg {
   -webkit-app-region: no-drag;
 }
-
-.electron-drag-strip {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 138px;
-  height: 8px;
-  z-index: 2147483647;
-  -webkit-app-region: drag;
-  user-select: none;
-}
-
-.window-control-group {
-  display: flex;
-  align-items: stretch;
-  height: 100%;
-  flex-shrink: 0;
-  -webkit-app-region: no-drag;
-}
-
-.floating-window-controls {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 36px;
-  z-index: 2147483647;
-  background: var(--header-bg-color, var(--bg-header, var(--header-bg, var(--color-header, #1f2430))));
-  border-left: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.window-control-button {
-  width: 46px;
-  height: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  color: var(--text-color, var(--foreground, #f3f4f6));
-  cursor: default;
-  -webkit-app-region: no-drag;
-}
-
-.window-control-button:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.window-control-button.always-on-top-active {
-  background: var(--link-active-bg-color, rgba(59, 130, 246, 0.2));
-  color: var(--link-active-color, #60a5fa);
-}
-
-.close-window-button:hover {
-  background: #c42b1c;
-  color: #fff;
-}
-
-.window-control-icon {
-  position: relative;
-  width: 14px;
-  height: 14px;
-  display: inline-block;
-}
-
-.minimize-icon::before {
-  content: '';
-  position: absolute;
-  left: 1px;
-  right: 1px;
-  bottom: 3px;
-  height: 1.5px;
-  background: currentColor;
-}
-
-.maximize-icon::before {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  border: 1.5px solid currentColor;
-  border-radius: 2px;
-}
-
-.close-icon::before,
-.close-icon::after {
-  content: '';
-  position: absolute;
-  top: 6px;
-  left: 0;
-  width: 14px;
-  height: 1.5px;
-  background: currentColor;
-}
-
-.close-icon::before {
-  transform: rotate(45deg);
-}
-
-.close-icon::after {
-  transform: rotate(-45deg);
-}
-
 
 main {
   flex-grow: 1;
