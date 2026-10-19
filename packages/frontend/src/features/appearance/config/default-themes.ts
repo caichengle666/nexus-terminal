@@ -276,3 +276,7 @@ export const uiThemePresets: UiThemePreset[] = [
     }),
   },
 ];
+
+// 软件首次打开 / 重置时使用的默认界面主题：毛玻璃·深
+export const defaultAppUiTheme: Record<string, string> =
+  uiThemePresets.find(preset => preset.key === 'glass-dark')!.theme;

@@ -1,6 +1,6 @@
 import { getDbInstance, runDb, getDb, allDb } from '../database/connection';
 import { AppearanceSettings, UpdateAppearanceDto } from '../types/appearance.types';
-import { defaultUiTheme } from '../config/default-themes';
+import { defaultAppUiTheme } from '../config/default-themes';
 import { findThemeById as findTerminalThemeById } from '../terminal-themes/terminal-theme.repository';
 import * as sqlite3 from 'sqlite3'; 
 
@@ -191,7 +191,7 @@ case 'terminalTextStrokeEnabled':
 // 获取默认外观设置 (已简化, _id 在此不再相关)
 const getDefaultAppearanceSettings = (): Omit<AppearanceSettings, '_id'> => {
     return {
-        customUiTheme: JSON.stringify(defaultUiTheme),
+        customUiTheme: JSON.stringify(defaultAppUiTheme), // 新安装默认：毛玻璃·深
         activeTerminalThemeId: null, // 初始默认应为 null
         terminalFontFamily: 'Consolas, "Courier New", monospace, "Microsoft YaHei", "微软雅黑"',
         terminalFontSize: 14,

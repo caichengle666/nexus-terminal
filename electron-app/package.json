@@ -1,7 +1,7 @@
 {
   "name": "nexus-electron-app",
-  "version": "0.9.22.45",
-  "releaseVersion": "0.9.22.45",
+  "version": "0.9.22.46",
+  "releaseVersion": "0.9.22.46",
   "description": "Electron application for Nexus Terminal",
   "main": "main.js",
   "author": {
@@ -39,7 +39,7 @@
   "build": {
     "appId": "com.caichengle666.nexus-terminal",
     "productName": "Nexus Terminal",
-    "buildVersion": "0.9.22.45",
+    "buildVersion": "0.9.22.46",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -88,7 +88,7 @@
         "nsis"
       ],
       "icon": "build/icon.ico",
-      "artifactName": "${productName}-0.9.22.45-${name}.${ext}"
+      "artifactName": "${productName}-0.9.22.46-${name}.${ext}"
     },
     "mac": {
       "target": [
@@ -97,11 +97,11 @@
       "icon": "build/icon.png",
       "category": "public.app-category.developer-tools",
       "bundleShortVersion": "0.9.22",
-      "bundleVersion": "0.9.22.45",
-      "artifactName": "${productName}-0.9.22.45-macOS-${arch}.${ext}"
+      "bundleVersion": "0.9.22.46",
+      "artifactName": "${productName}-0.9.22.46-macOS-${arch}.${ext}"
     },
     "nsis": {
-      "artifactName": "${productName} Setup 0.9.22.45.${ext}",
+      "artifactName": "${productName} Setup 0.9.22.46.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,

@@ -5,7 +5,7 @@ import { useDeviceDetection } from '../composables/useDeviceDetection';
 import type { ITheme } from '@xterm/xterm';
 import type { TerminalTheme } from '../types/terminal-theme.types'; 
 import type { AppearanceSettings, UpdateAppearanceDto } from '../types/appearance.types';
-import { defaultXtermTheme, defaultUiTheme } from '../features/appearance/config/default-themes';
+import { defaultXtermTheme, defaultAppUiTheme } from '../features/appearance/config/default-themes';
 import { isGlassTheme, resolveEffectiveUiTheme } from '../features/appearance/glass-effect';
 
 // Helper function to safely parse JSON
@@ -45,7 +45,7 @@ export const useAppearanceStore = defineStore('appearance', () => {
     // 移除 availableTerminalThemes 计算属性，直接使用 allTerminalThemes
     // 当前应用的 UI 主题 (CSS 变量对象)
     const currentUiTheme = computed<Record<string, string>>(() => {
-        return safeJsonParse(appearanceSettings.value.customUiTheme, defaultUiTheme);
+        return safeJsonParse(appearanceSettings.value.customUiTheme, defaultAppUiTheme);
     });
 
     // 毛玻璃效果开关 (独立于 UI 主题)。旧数据没有该字段时，以当前主题是否为毛玻璃主题为准。
@@ -208,7 +208,7 @@ export const useAppearanceStore = defineStore('appearance', () => {
             appearanceSettings.value = {}; // 清空可能不完整的设置
             allTerminalThemes.value = []; // 清空 allTerminalThemes
             initialAppearanceDataLoaded.value = false; // +++ 设置为 false 表示数据加载失败
-            applyUiTheme(defaultUiTheme);
+            applyUiTheme(defaultAppUiTheme);
             applyPageBackground(); // 应用默认背景（可能为空）
         } finally {
             isLoading.value = false;
@@ -278,7 +278,7 @@ export const useAppearanceStore = defineStore('appearance', () => {
      * 重置为默认 UI 主题并保存。
      */
     async function resetCustomUiTheme() {
-        await saveCustomUiTheme(defaultUiTheme, false);
+        await saveCustomUiTheme(defaultAppUiTheme, true);
     }
 
      /**

@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useAppearanceStore } from '../../stores/appearance.store';
 import { useUiNotificationsStore } from '../../stores/uiNotifications.store';
 import { storeToRefs } from 'pinia';
-import { defaultUiTheme, uiThemePresets, type UiThemePreset } from '../../features/appearance/config/default-themes';
+import { defaultUiTheme, defaultAppUiTheme, uiThemePresets, type UiThemePreset } from '../../features/appearance/config/default-themes';
 import { safeJsonParse } from '../../stores/appearance.store';
 import UiAppearancePreview from './UiAppearancePreview.vue';
 import {
@@ -294,8 +294,8 @@ const handleSaveUiTheme = async () => {
 
 const handleResetUiTheme = () => {
   cancelAiThemeGeneration();
-  editableUiTheme.value = JSON.parse(JSON.stringify(defaultUiTheme));
-  editableGlassEnabled.value = false;
+  editableUiTheme.value = JSON.parse(JSON.stringify(defaultAppUiTheme));
+  editableGlassEnabled.value = true;
 };
 
 const previewThemePreset = (preset: UiThemePreset) => {
