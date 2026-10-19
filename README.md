@@ -60,7 +60,7 @@ WebSocket 断线自动重连并接回原 SSH 会话，输出不丢；“挂起�
 <td width="50%" valign="top">
 
 ### 🎨 每个像素都能定制
-六套 UI 主题预设、400+ 终端配色、HTML 动态背景、自定义字体与布局；Monaco 编辑器在线改文件，移动端双指缩放字体。
+八套 UI 主题预设（含毛玻璃）、400+ 终端配色、HTML 动态背景、自定义字体与布局；Monaco 编辑器在线改文件，移动端双指缩放字体。
 
 </td>
 <td width="50%" valign="top">
@@ -99,6 +99,32 @@ Docker 一键部署到服务器，浏览器随处访问，支持 PWA；也可以
 </tr>
 </table>
 
+### 🧊 毛玻璃主题
+
+> 新安装默认即「毛玻璃·深」。磨砂面板透出壁纸，终端、侧栏、AI 面板共享同一层背景；「毛玻璃效果」开关可叠加在任意主题上，AI 生成配色也会保留玻璃质感。
+
+<img src="./doc/screenshots/glass-dark-wallpaper-workspace.png" alt="毛玻璃·深 + 壁纸" width="100%" />
+<p align="center"><sub>毛玻璃·深 · 自定义壁纸透出整个工作区</sub></p>
+
+<table>
+<tr>
+<td width="50%"><img src="./doc/screenshots/glass-dark-dashboard.png" alt="毛玻璃·深 仪表盘" /></td>
+<td width="50%"><img src="./doc/screenshots/glass-light-workspace.png" alt="毛玻璃·浅 工作区" /></td>
+</tr>
+<tr>
+<td align="center"><sub>毛玻璃·深 · 仪表盘</sub></td>
+<td align="center"><sub>毛玻璃·浅 · 终端保持深色易读</sub></td>
+</tr>
+<tr>
+<td><img src="./doc/screenshots/glass-toggle-workspace.png" alt="专业黑 + 毛玻璃开关" /></td>
+<td><img src="./doc/screenshots/glass-ai-dashboard.png" alt="AI 生成的毛玻璃配色" /></td>
+</tr>
+<tr>
+<td align="center"><sub>专业黑 + 毛玻璃效果开关</sub></td>
+<td align="center"><sub>AI 随机生成的毛玻璃配色</sub></td>
+</tr>
+</table>
+
 ## 🧩 功能全景
 
 | 领域 | 能力 |
@@ -109,7 +135,7 @@ Docker 一键部署到服务器，浏览器随处访问，支持 PWA；也可以
 | **AI** | 终端上下文感知 · 自动 / 确认两种执行模式 · 危险命令拦截 · 流式输出与随时停止 · 会话历史 · 上下文智能压缩 |
 | **运维** | 服务器状态监控（CPU / 内存 / 磁盘 / 网络） · Docker 容器管理 · 挂起会话与日志导出 |
 | **安全** | 2FA · Passkey · hCaptcha / reCAPTCHA · IP 黑白名单 · 主机密钥 TOFU 校验 · 审计日志 · Webhook / Telegram / 邮件通知 |
-| **体验** | 可拖拽布局 · 6 套 UI 主题 + 400+ 终端配色 · HTML 背景 · 中 / 英 / 日三语 · PWA · 移动端适配 |
+| **体验** | 可拖拽布局 · 8 套 UI 主题（含毛玻璃） + 400+ 终端配色 · HTML 背景 · 中 / 英 / 日三语 · PWA · 移动端适配 |
 | **数据** | WebDAV 加密完整备份与恢复 · 恢复前自动快照 |
 
 ---

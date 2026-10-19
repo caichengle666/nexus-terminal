@@ -60,7 +60,7 @@ hCaptcha / reCAPTCHA, 2FA, passkeys, IP allow / deny lists with auto-ban, SSH ho
 <td width="50%" valign="top">
 
 ### 🎨 Make it yours
-Six UI theme presets, 400+ terminal color schemes, animated HTML backgrounds, custom fonts and layouts, Monaco for in-place file editing, pinch-to-zoom on mobile.
+Eight UI theme presets (including frosted glass), 400+ terminal color schemes, animated HTML backgrounds, custom fonts and layouts, Monaco for in-place file editing, pinch-to-zoom on mobile.
 
 </td>
 <td width="50%" valign="top">
@@ -99,6 +99,32 @@ One-line Docker deployment with PWA support, or native builds for Windows (insta
 </tr>
 </table>
 
+### 🧊 Frosted glass themes
+
+> Fresh installs open in **Glass Dark**. Frosted panels let your wallpaper through, and the terminal, sidebars and AI panel share one background. The **Frosted glass** switch layers the effect on any theme, and AI-generated palettes keep the glass look.
+
+<img src="./screenshots/glass-dark-wallpaper-workspace.png" alt="Glass Dark with wallpaper" width="100%" />
+<p align="center"><sub>Glass Dark · a custom wallpaper shows through the whole workspace</sub></p>
+
+<table>
+<tr>
+<td width="50%"><img src="./screenshots/glass-dark-dashboard.png" alt="Glass Dark dashboard" /></td>
+<td width="50%"><img src="./screenshots/glass-light-workspace.png" alt="Glass Light workspace" /></td>
+</tr>
+<tr>
+<td align="center"><sub>Glass Dark · dashboard</sub></td>
+<td align="center"><sub>Glass Light · terminal stays dark and readable</sub></td>
+</tr>
+<tr>
+<td><img src="./screenshots/glass-toggle-workspace.png" alt="Pro Dark with glass switch" /></td>
+<td><img src="./screenshots/glass-ai-dashboard.png" alt="AI-generated glass palette" /></td>
+</tr>
+<tr>
+<td align="center"><sub>Pro Dark + frosted glass switch</sub></td>
+<td align="center"><sub>An AI-generated glass palette</sub></td>
+</tr>
+</table>
+
 ## 🧩 Feature map
 
 | Area | What you get |
@@ -109,7 +135,7 @@ One-line Docker deployment with PWA support, or native builds for Windows (insta
 | **AI** | Terminal-aware context · auto / confirm execution modes · risky-command guard · streaming with stop · conversation history · smart context compression |
 | **Ops** | Server status (CPU / memory / disk / network) · Docker containers · suspended sessions with log export |
 | **Security** | 2FA · passkeys · hCaptcha / reCAPTCHA · IP allow / deny lists · host-key TOFU · audit log · Webhook / Telegram / email notifications |
-| **Experience** | Drag-and-drop layout · 6 UI themes + 400+ terminal schemes · HTML backgrounds · Chinese / English / Japanese · PWA · mobile |
+| **Experience** | Drag-and-drop layout · 8 UI themes incl. frosted glass + 400+ terminal schemes · HTML backgrounds · Chinese / English / Japanese · PWA · mobile |
 | **Data** | Encrypted full WebDAV backup and restore · automatic snapshot before restore |
 
 ---
