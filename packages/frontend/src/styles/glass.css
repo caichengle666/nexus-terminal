@@ -120,6 +120,14 @@ html[data-ui-effect="glass"] body header.electron-titlebar {
 html[data-ui-effect="glass"] .workspace-view {
   padding-bottom: 6px;
 }
+/* 标签栏紧贴顶栏铺满：只留底部细线，不投影；面板区自己留边距 */
+html[data-ui-effect="glass"] body .workspace-view:not(.is-mobile) > .terminal-tab-bar {
+  box-shadow: inset 0 -1px 0 var(--glass-border);
+  border-bottom-color: transparent !important;
+}
+html[data-ui-effect="glass"] .workspace-view:not(.is-mobile) .main-content-area {
+  padding: 6px 8px 0;
+}
 html[data-ui-effect="glass"] body .splitpanes__pane:not(:has(.splitpanes__pane)) {
   border: 1px solid var(--glass-border);
   border-radius: var(--glass-radius);

@@ -1045,11 +1045,10 @@ const closeFileManagerModal = () => {
     display: flex;
     flex: 1;
     overflow: hidden; /* Keep overflow hidden */
-    border: 1px solid var(--border-color, #ccc); /* Use variable for border */
-    border-top: none; /* Remove top border as it's handled by the tab bar */
-    border-radius: 0 0 5px 5px; /* Top-left, Top-right, Bottom-right, Bottom-left */
-    margin: var(--base-margin, 0.5rem); /* Add some margin around the content area */
-    margin-top: 0; /* Remove top margin if tab bar is directly above */
+    /* 与标签栏一起铺满，紧贴顶栏，不再留外边距和外框 */
+    border: none;
+    border-radius: 0;
+    margin: 0;
 }
 
 .layout-renderer-wrapper {

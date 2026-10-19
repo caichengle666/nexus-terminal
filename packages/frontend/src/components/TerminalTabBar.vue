@@ -359,12 +359,10 @@ const toggleHeader = () => {
   }
 };
 
-// 计算属性，用于确定眼睛图标的类
-const eyeIconClass = computed(() => {
-  // 默认显示眼睛图标，如果主导航栏不可见，则显示斜杠眼睛
-  // 注意：这里假设 isHeaderVisible 为 true 时是可见的
-  return isHeaderVisible.value ? 'fas fa-eye' : 'fas fa-eye-slash';
-});
+// 顶栏可见时显示“收起”箭头，隐藏时显示“展开”箭头
+const headerToggleIconClass = computed(() => (
+  isHeaderVisible.value ? 'fas fa-chevron-up' : 'fas fa-chevron-down'
+));
 
 // 计算属性，用于按钮的 title
 const toggleButtonTitle = computed(() => {
@@ -462,8 +460,8 @@ onBeforeUnmount(() => {
 
 <template>
   <!-- +++ 使用 :class 绑定来条件化样式，包括高度 (修正 props 引用) +++ -->
-  <div :class="['flex bg-header border border-border overflow-hidden',
-               { 'rounded-t-md mx-2 mt-2': !props.isMobile }, // Desktop margins/rounding - Use props.isMobile
+  <div :class="['terminal-tab-bar flex bg-header border-b border-border overflow-hidden',
+               { 'border-x border-t': props.isMobile }, // 桌面端紧贴顶栏，不留缝隙和左右留白
                props.isMobile
                  ? (isHeaderVisible ? 'h-11' : 'h-[calc(2.75rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]')
                  : 'h-10'
@@ -529,14 +527,6 @@ onBeforeUnmount(() => {
     </div>
     <!-- Action Buttons -->
     <div class="flex items-center ml-auto h-full flex-shrink-0">
-        <button
-          v-if="isWorkspaceRoute"
-          class="flex items-center justify-center px-3 h-full border-l border-border text-text-secondary hover:bg-border hover:text-foreground transition-colors duration-150"
-          @click="toggleHeader"
-          :title="toggleButtonTitle"
-        >
-          <i :class="[eyeIconClass, 'text-sm']"></i>
-        </button>
         <!-- 查看传输进度按钮 (移除 v-if="!isMobile" 以在移动端显示) -->
         <button
                 class="flex items-center justify-center px-3 h-full border-l border-border text-text-secondary hover:bg-border hover:text-foreground transition-colors duration-150"
@@ -548,6 +538,16 @@ onBeforeUnmount(() => {
         <button v-if="!isMobile" class="flex items-center justify-center px-3 h-full border-l border-border text-text-secondary hover:bg-border hover:text-foreground transition-colors duration-150"
                 @click="openLayoutConfigurator" :title="t('layout.configure', '配置布局')">
           <i class="fas fa-th-large text-sm"></i>
+        </button>
+        <!-- 收起/展开顶栏：放最右侧 -->
+        <button
+          v-if="isWorkspaceRoute"
+          class="flex items-center justify-center px-3 h-full border-l border-border text-text-secondary hover:bg-border hover:text-foreground transition-colors duration-150"
+          @click="toggleHeader"
+          :title="toggleButtonTitle"
+          :aria-label="toggleButtonTitle"
+        >
+          <i :class="[headerToggleIconClass, 'text-sm']"></i>
         </button>
     </div>
     <!-- Connection List Popup -->
