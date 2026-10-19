@@ -6,6 +6,7 @@ import type { ITheme } from '@xterm/xterm';
 import type { TerminalTheme } from '../types/terminal-theme.types'; 
 import type { AppearanceSettings, UpdateAppearanceDto } from '../types/appearance.types';
 import { defaultXtermTheme, defaultUiTheme } from '../features/appearance/config/default-themes';
+import { isGlassTheme, resolveEffectiveUiTheme } from '../features/appearance/glass-effect';
 
 // Helper function to safely parse JSON
 export const safeJsonParse = <T>(jsonString: string | undefined | null, defaultValue: T): T => { 
@@ -46,6 +47,15 @@ export const useAppearanceStore = defineStore('appearance', () => {
     const currentUiTheme = computed<Record<string, string>>(() => {
         return safeJsonParse(appearanceSettings.value.customUiTheme, defaultUiTheme);
     });
+
+    // 毛玻璃效果开关 (独立于 UI 主题)。旧数据没有该字段时，以当前主题是否为毛玻璃主题为准。
+    const uiGlassEnabled = computed<boolean>(() => {
+        const enabled = appearanceSettings.value.uiGlassEnabled;
+        return typeof enabled === 'boolean' ? enabled : isGlassTheme(currentUiTheme.value);
+    });
+
+    // 实际应用到页面的 UI 主题：开关打开时为普通主题推导毛玻璃变量，关闭时毛玻璃主题回退为实色
+    const effectiveUiTheme = computed<Record<string, string>>(() => resolveEffectiveUiTheme(currentUiTheme.value, uiGlassEnabled.value));
 
     // 当前激活的终端主题 ID
     const activeTerminalThemeId = computed(() => appearanceSettings.value.activeTerminalThemeId);
@@ -186,7 +196,7 @@ export const useAppearanceStore = defineStore('appearance', () => {
             remoteHtmlPresetsRepositoryUrl.value = appearanceSettings.value.remoteHtmlPresetsUrl || null;
  
             // 应用加载的 UI 主题
-            applyUiTheme(currentUiTheme.value);
+            applyUiTheme(effectiveUiTheme.value);
             // 应用背景
             applyPageBackground();
             // 终端主题将由 Terminal 组件根据 activeTerminalThemeId 自动应用
@@ -236,7 +246,7 @@ export const useAppearanceStore = defineStore('appearance', () => {
             console.log('[AppearanceStore] 外观设置已更新:', appearanceSettings.value);
 
             // 如果 UI 主题或背景更新，重新应用
-            if (updates.customUiTheme !== undefined) applyUiTheme(currentUiTheme.value);
+            if (updates.customUiTheme !== undefined || updates.uiGlassEnabled !== undefined) applyUiTheme(effectiveUiTheme.value);
             if (updates.pageBackgroundImage !== undefined) applyPageBackground(); // 移除 pageBackgroundOpacity 检查
             // 终端相关设置由 Terminal 组件监听应用
             // 注意：terminalBackgroundEnabled 的应用逻辑在 Terminal 组件中处理
@@ -251,15 +261,24 @@ export const useAppearanceStore = defineStore('appearance', () => {
      * 保存当前编辑器中的自定义 UI 主题到后端。
      * @param uiTheme UI 主题对象
      */
-    async function saveCustomUiTheme(uiTheme: Record<string, string>) {
-        await updateAppearanceSettings({ customUiTheme: JSON.stringify(uiTheme) });
+    async function saveCustomUiTheme(uiTheme: Record<string, string>, glassEnabled?: boolean) {
+        const updates: UpdateAppearanceDto = { customUiTheme: JSON.stringify(uiTheme) };
+        if (typeof glassEnabled === 'boolean') updates.uiGlassEnabled = glassEnabled;
+        await updateAppearanceSettings(updates);
+    }
+
+    /**
+     * 设置毛玻璃效果开关并保存。
+     */
+    async function setUiGlassEnabled(enabled: boolean) {
+        await updateAppearanceSettings({ uiGlassEnabled: enabled });
     }
 
     /**
      * 重置为默认 UI 主题并保存。
      */
     async function resetCustomUiTheme() {
-        await saveCustomUiTheme(defaultUiTheme);
+        await saveCustomUiTheme(defaultUiTheme, false);
     }
 
      /**
@@ -865,7 +884,7 @@ export const useAppearanceStore = defineStore('appearance', () => {
 
     // --- Watchers ---
     // 监听 UI 主题变化并应用
-    watch(currentUiTheme, (newTheme) => {
+    watch(effectiveUiTheme, (newTheme) => {
         applyUiTheme(newTheme);
     }, { deep: true, immediate: true }); // 添加 immediate: true 确保初始加载时应用默认主题
 
@@ -883,6 +902,8 @@ export const useAppearanceStore = defineStore('appearance', () => {
         appearanceSettings,
         allTerminalThemes, // 导出重命名后的 ref
         currentUiTheme,
+        uiGlassEnabled,
+        effectiveUiTheme,
         activeTerminalThemeId,
         currentTerminalTheme,     
         currentTerminalFontFamily,
@@ -900,6 +921,7 @@ export const useAppearanceStore = defineStore('appearance', () => {
         updateAppearanceSettings,
         saveCustomUiTheme,
         resetCustomUiTheme,
+        setUiGlassEnabled,
         setActiveTerminalTheme,
         setTerminalFontFamily,
         setTerminalFontSize, // 设置桌面端字体大小

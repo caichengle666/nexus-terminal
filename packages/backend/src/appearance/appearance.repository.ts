@@ -15,6 +15,16 @@ interface DbAppearanceSettingsRow {
 }
 
 
+const isGlassUiThemeJson = (themeJson: string | undefined): boolean => {
+    if (!themeJson) return false;
+    try {
+        const theme = JSON.parse(themeJson);
+        return !!theme && typeof theme === 'object' && String(theme['--ui-effect'] ?? '').trim() === 'glass';
+    } catch {
+        return false;
+    }
+};
+
 const mapRowsToAppearanceSettings = (rows: DbAppearanceSettingsRow[]): AppearanceSettings => {
     const settings: Partial<AppearanceSettings> = {};
     let latestUpdatedAt = 0;
@@ -28,6 +38,7 @@ let terminalTextStrokeEnabledFound = false;
     let terminalTextShadowOffsetYFound = false;
     let terminalTextShadowBlurFound = false;
     let terminalTextShadowColorFound = false;
+    let uiGlassEnabledFound = false;
  
     for (const row of rows) {
         // 更新 latestUpdatedAt
@@ -38,6 +49,12 @@ let terminalTextStrokeEnabledFound = false;
         switch (row.key) {
             case 'customUiTheme':
                 settings.customUiTheme = row.value;
+                break;
+            case 'uiGlassEnabled':
+                if (row.value === 'true' || row.value === 'false') {
+                    settings.uiGlassEnabled = row.value === 'true';
+                    uiGlassEnabledFound = true;
+                }
                 break;
             case 'activeTerminalThemeId':
                 const parsedId = parseInt(row.value, 10);
@@ -120,6 +137,10 @@ case 'terminalTextStrokeEnabled':
     return {
         _id: 'global_appearance', // 全局外观设置的固定 ID
         customUiTheme: settings.customUiTheme ?? defaults.customUiTheme,
+        // 未保存过毛玻璃开关时 (旧版本数据)，沿用当前 UI 主题是否为毛玻璃主题
+        uiGlassEnabled: uiGlassEnabledFound
+            ? settings.uiGlassEnabled
+            : isGlassUiThemeJson(settings.customUiTheme ?? defaults.customUiTheme),
         activeTerminalThemeId: settings.activeTerminalThemeId ?? defaults.activeTerminalThemeId,
         terminalFontFamily: settings.terminalFontFamily ?? defaults.terminalFontFamily,
         terminalFontSize: settings.terminalFontSize ?? defaults.terminalFontSize,

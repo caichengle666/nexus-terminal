@@ -7,16 +7,34 @@ import { storeToRefs } from 'pinia';
 import { defaultUiTheme, uiThemePresets, type UiThemePreset } from '../../features/appearance/config/default-themes';
 import { safeJsonParse } from '../../stores/appearance.store';
 import UiAppearancePreview from './UiAppearancePreview.vue';
+import {
+  ALL_GLASS_KEYS,
+  GLASS_BACKDROP_KEY,
+  GLASS_COLOR_KEYS,
+  GLASS_EFFECT_KEY,
+  GLASS_EFFECT_VALUE,
+  GLASS_NON_COLOR_KEYS,
+  GLASS_SHADOW_KEY,
+  guessThemeMode,
+  isGlassTheme,
+  isSafeGlassBackdrop,
+  isSafeGlassShadow,
+  resolveEffectiveUiTheme,
+} from '../../features/appearance/glass-effect';
 
 const { t } = useI18n();
 const appearanceStore = useAppearanceStore();
 const notificationsStore = useUiNotificationsStore();
-const { appearanceSettings } = storeToRefs(appearanceStore);
+const { appearanceSettings, uiGlassEnabled } = storeToRefs(appearanceStore);
 
 const CUSTOM_UI_THEMES_KEY = 'nexus_custom_ui_themes';
 type CustomUiTheme = UiThemePreset;
 
 const editableUiTheme = ref<Record<string, string>>({});
+// 毛玻璃效果开关 (与主题一起在“保存”时提交)
+const editableGlassEnabled = ref(false);
+// 预览使用最终生效的主题 (开关打开时推导毛玻璃变量，关闭时毛玻璃主题回退为实色)
+const previewUiTheme = computed(() => resolveEffectiveUiTheme(editableUiTheme.value, editableGlassEnabled.value));
 const editableUiThemeString = ref('');
 const themeParseError = ref<string | null>(null);
 const customUiThemes = ref<CustomUiTheme[]>([]);
@@ -121,16 +139,25 @@ const generateAiUiTheme = async () => {
       throw new Error(t('styleCustomizer.aiThemeSetupRequired', '请先在 AI 助手设置中配置 API 地址、密钥和模型。'));
     }
 
-    const themeTemplate = Object.fromEntries(
-      Object.keys(defaultUiTheme).map(key => [key, editableUiTheme.value[key] ?? defaultUiTheme[key]]),
+    // 编辑中的主题若为毛玻璃主题，则模板带上 --glass-* 变量，让 AI 一并设计半透明配色
+    const sourceTheme = editableUiTheme.value;
+    const generateGlass = isGlassTheme(sourceTheme);
+    const glassDefaults: Record<string, string> = generateGlass ? resolveEffectiveUiTheme({ ...sourceTheme, [GLASS_EFFECT_KEY]: '' }, true) : {};
+    const baseKeys = Object.keys(defaultUiTheme);
+    const glassKeys = generateGlass ? ALL_GLASS_KEYS : [];
+    const themeTemplate: Record<string, string> = Object.fromEntries(
+      [...baseKeys, ...glassKeys].map(key => [key, sourceTheme[key] ?? glassDefaults[key] ?? defaultUiTheme[key]]),
     );
+    const glassInstructions = generateGlass
+      ? ' This is a frosted-glass (translucent) theme. The surfaces must stay translucent: use rgba() with alpha roughly 0.4-0.7 for --app-bg-color, --header-bg-color, --footer-bg-color and --glass-surface, about 0.85 for --glass-surface-strong, and low-alpha rgba() for --glass-inner, --glass-field, --glass-border, --glass-highlight. --glass-base-color must be an opaque color matching the backdrop. Design a matching --glass-backdrop made only of linear-gradient()/radial-gradient()/conic-gradient() layers using colors, percentages, px, deg and "at" positions (no url(), no other functions). --glass-shadow is a plain box-shadow such as "0 10px 30px rgba(0, 0, 0, 0.35)". Keep --glass-blur, --glass-saturate and --glass-terminal-alpha unchanged.'
+      : '';
     const responseText = await requestAiThemeJson({
       temperature: 1,
       responseFormat: { type: 'json_object' },
       messages: [
         {
           role: 'system',
-          content: 'You are a UI theme designer. Return only one valid JSON object with exactly two keys: "name" and "theme". Give the theme a short, creative Chinese name that reflects its palette. In "theme", keep exactly the provided CSS variable keys. Create a coherent, visually polished and distinctly original color palette. Change color-related values only; preserve font, spacing, and non-color values. Use CSS color values, and do not add CSS rules or properties.',
+          content: 'You are a UI theme designer. Return only one valid JSON object with exactly two keys: "name" and "theme". Give the theme a short, creative Chinese name that reflects its palette. In "theme", keep exactly the provided CSS variable keys. Create a coherent, visually polished and distinctly original color palette. Change color-related values only; preserve font, spacing, and non-color values. Use CSS color values, and do not add CSS rules or properties.' + glassInstructions,
         },
         {
           role: 'user',
@@ -144,22 +171,38 @@ const generateAiUiTheme = async () => {
     const jsonText = responseText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     const generatedResult = JSON.parse(jsonText);
     const generatedTheme = generatedResult?.theme;
-    const expectedKeys = Object.keys(defaultUiTheme);
+    const expectedKeys = baseKeys;
+    const allowedKeys = [...baseKeys, ...glassKeys];
 
     if (!generatedResult || typeof generatedResult.name !== 'string' || !generatedResult.name.trim()
       || generatedResult.name.trim().length > 40
       || Object.keys(generatedResult).some(key => !['name', 'theme'].includes(key))
       || !generatedTheme || typeof generatedTheme !== 'object' || Array.isArray(generatedTheme)
       || expectedKeys.some(key => typeof generatedTheme[key] !== 'string' || generatedTheme[key].length > 200)
-      || Object.keys(generatedTheme).some(key => !expectedKeys.includes(key))
+      // --ui-effect 即使 AI 返回也会被忽略 (毛玻璃主题固定为 glass)，不因此判定整体无效
+      || Object.keys(generatedTheme).some(key => !allowedKeys.includes(key) && !(generateGlass && key === GLASS_EFFECT_KEY))
       || expectedKeys.some(key => !nonColorThemeKeys.includes(key) && !isValidCssColor(generatedTheme[key]))) {
       throw new Error(t('styleCustomizer.aiThemeInvalidResponse', 'AI 返回的主题格式无效，请重试。'));
     }
 
-    editableUiTheme.value = Object.fromEntries(expectedKeys.map(key => [
+    const nextTheme: Record<string, string> = Object.fromEntries(expectedKeys.map(key => [
       key,
       nonColorThemeKeys.includes(key) ? themeTemplate[key] : generatedTheme[key],
     ]));
+    if (generateGlass) {
+      // --ui-effect 固定为 glass，不取自 AI；毛玻璃附加变量单独校验，不合格时回退模板值而不是整体失败
+      nextTheme[GLASS_EFFECT_KEY] = GLASS_EFFECT_VALUE;
+      const pick = (key: string, valid: (value: unknown) => boolean) => {
+        const value = generatedTheme[key];
+        nextTheme[key] = typeof value === 'string' && value.length <= 1500 && valid(value) ? value.trim() : themeTemplate[key];
+      };
+      GLASS_COLOR_KEYS.forEach(key => pick(key, value => typeof value === 'string' && value.length <= 200 && isValidCssColor(value)));
+      pick(GLASS_BACKDROP_KEY, isSafeGlassBackdrop);
+      pick(GLASS_SHADOW_KEY, isSafeGlassShadow);
+      GLASS_NON_COLOR_KEYS.forEach(key => { nextTheme[key] = themeTemplate[key]; });
+    }
+    editableUiTheme.value = nextTheme;
+    if (generateGlass) editableGlassEnabled.value = true;
     customThemeName.value = generatedResult.name.trim();
     isCreatingCustomTheme.value = true;
     notificationsStore.addNotification({
@@ -203,6 +246,7 @@ const initializeEditableState = () => {
   const userTheme = safeJsonParse(userThemeJson, {});
   const mergedTheme = { ...defaultUiTheme, ...userTheme };
   editableUiTheme.value = JSON.parse(JSON.stringify(mergedTheme));
+  editableGlassEnabled.value = uiGlassEnabled.value;
   themeParseError.value = null;
   try {
       const themeObject = editableUiTheme.value;
@@ -228,11 +272,19 @@ watch(() => appearanceSettings.value.customUiTheme, () => {
     initializeEditableState();
 }, { deep: true });
 
+watch(uiGlassEnabled, (enabled) => {
+    editableGlassEnabled.value = enabled;
+});
+
+const toggleGlassEffect = () => {
+  editableGlassEnabled.value = !editableGlassEnabled.value;
+};
+
 
 const handleSaveUiTheme = async () => {
   if (isGeneratingTheme.value) return;
   try {
-    await appearanceStore.saveCustomUiTheme(editableUiTheme.value);
+    await appearanceStore.saveCustomUiTheme(editableUiTheme.value, editableGlassEnabled.value);
     notificationsStore.addNotification({ type: 'success', message: t('styleCustomizer.uiThemeSaved') });
   } catch (error: any) {
     console.error("保存 UI 主题失败:", error);
@@ -243,11 +295,14 @@ const handleSaveUiTheme = async () => {
 const handleResetUiTheme = () => {
   cancelAiThemeGeneration();
   editableUiTheme.value = JSON.parse(JSON.stringify(defaultUiTheme));
+  editableGlassEnabled.value = false;
 };
 
 const previewThemePreset = (preset: UiThemePreset) => {
   cancelAiThemeGeneration();
   editableUiTheme.value = JSON.parse(JSON.stringify(preset.theme));
+  // 选择毛玻璃主题时自动打开毛玻璃效果；选择普通主题时保持开关现状
+  if (isGlassTheme(preset.theme)) editableGlassEnabled.value = true;
 };
 
 const openCreateCustomTheme = () => {
@@ -273,7 +328,7 @@ const createCustomUiTheme = () => {
     key: `custom-${Date.now()}`,
     name,
     description: t('styleCustomizer.customThemeDescription', '由用户创建的自定义界面主题'),
-    mode: /#(?:0{2,}|[0-3][0-9a-f]{5})/i.test(editableUiTheme.value['--glass-base-color'] || editableUiTheme.value['--app-bg-color'] || '') ? 'dark' : 'light',
+    mode: guessThemeMode(editableUiTheme.value),
     theme: JSON.parse(JSON.stringify(editableUiTheme.value)),
   };
   customUiThemes.value.push(theme);
@@ -436,7 +491,32 @@ onUnmounted(() => {
       <span>{{ aiThemeGenerationError }}</span>
       <button type="button" @click="generateAiUiTheme" class="rounded border border-error/40 px-3 py-1 text-xs font-medium hover:bg-error/20">{{ t('common.retry', '重试') }}</button>
     </div>
-    <UiAppearancePreview class="mb-5" :theme="editableUiTheme" />
+    <div class="mb-3 flex items-center justify-between gap-4 rounded-md border border-border bg-header px-3 py-2.5">
+      <div class="min-w-0">
+        <label for="uiGlassEffectSwitch" class="block text-sm font-medium text-foreground">{{ t('styleCustomizer.glassEffect', '毛玻璃效果') }}</label>
+        <p class="mt-0.5 text-xs text-text-secondary">{{ t('styleCustomizer.glassEffectHint', '半透明磨砂面板，可叠加在任意主题上') }}</p>
+      </div>
+      <button
+        type="button"
+        id="uiGlassEffectSwitch"
+        role="switch"
+        :aria-checked="editableGlassEnabled"
+        @click="toggleGlassEffect"
+        :class="[
+          'relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary',
+          editableGlassEnabled ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
+        ]"
+      >
+        <span
+          aria-hidden="true"
+          :class="[
+            'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200',
+            editableGlassEnabled ? 'translate-x-5' : 'translate-x-0'
+          ]"
+        ></span>
+      </button>
+    </div>
+    <UiAppearancePreview class="mb-5" :theme="previewUiTheme" />
     <div class="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start md:items-center gap-2 md:gap-3 mb-6">
         <label class="text-left text-foreground text-sm font-medium mb-1 md:mb-0">{{ t('styleCustomizer.themeModeLabel', '主题模式:') }}</label>
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">

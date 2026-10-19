@@ -115,6 +115,20 @@ export const updateSettings = async (settingsDto: UpdateAppearanceDto): Promise<
       // 仓库层会处理 null
   }
 
+  // 规范化 uiGlassEnabled (如果提供了)：只接受布尔值或 'true'/'false'
+  if (settingsDto.uiGlassEnabled !== undefined) {
+      const raw: unknown = settingsDto.uiGlassEnabled;
+      if (raw === null) {
+          delete settingsDto.uiGlassEnabled;
+      } else if (typeof raw === 'boolean') {
+          // ok
+      } else if (raw === 'true' || raw === 'false') {
+          settingsDto.uiGlassEnabled = raw === 'true';
+      } else {
+          throw new Error(`无效的毛玻璃效果开关值: ${String(raw)}。必须是布尔值。`);
+      }
+  }
+
   // 验证 terminalFontSize (如果提供了)
   if (settingsDto.terminalFontSize !== undefined && settingsDto.terminalFontSize !== null) {
       const size = Number(settingsDto.terminalFontSize);

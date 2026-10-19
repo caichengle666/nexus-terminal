@@ -53,6 +53,8 @@
     "aiThemeSetupRequired": "Configure the API URL, key, and model in AI Assistant settings first.",
     "aiThemeInvalidResponse": "AI returned an invalid theme. Please retry.",
     "aiThemePreviewHint": "Preview the result first, then save it when you like it.",
+    "glassEffect": "Frosted glass effect",
+    "glassEffectHint": "Translucent frosted panels that work on top of any theme",
     "resetUiTheme": "Reset UI Theme",
     "saveUiTheme": "Save UI Theme",
     "terminalFontFamily": "Terminal Font",

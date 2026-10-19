@@ -8,7 +8,7 @@
     "typecheck": "vue-tsc --noEmit",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --test test/i18n-keys.test.mjs && node test/run-ai-tools-test.mjs && node test/run-ws-reconnect-test.mjs && node test/run-update-assets-test.mjs",
+    "test": "node --test test/i18n-keys.test.mjs && node test/run-ai-tools-test.mjs && node test/run-ws-reconnect-test.mjs && node test/run-update-assets-test.mjs && node test/run-glass-effect-test.mjs",
     "test:i18n": "node --test test/i18n-keys.test.mjs"
   },
   "dependencies": {

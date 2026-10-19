@@ -36,6 +36,8 @@
     "aiThemeSetupRequired": "先に AI アシスタント設定で API URL、キー、モデルを設定してください。",
     "aiThemeInvalidResponse": "AI が無効なテーマを返しました。再試行してください。",
     "aiThemePreviewHint": "まずプレビューし、気に入ったら保存してください。",
+    "glassEffect": "すりガラス効果",
+    "glassEffectHint": "半透明のすりガラス風パネル。どのテーマにも重ねて使えます",
     "resetUiTheme": "UI テーマをリセット",
     "saveUiTheme": "UI テーマを保存",
     "terminalFontFamily": "ターミナルフォント",

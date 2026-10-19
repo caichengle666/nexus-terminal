@@ -5,6 +5,7 @@ export interface AppearanceSettings {
   // 注意：前端可能不需要 _id, userId, updatedAt 等数据库相关的字段
   // 但为了与后端导入保持一致，暂时保留，后续可根据 API 精简
   customUiTheme?: string; // CSS 变量 JSON 字符串
+  uiGlassEnabled?: boolean; // 毛玻璃效果开关 (独立于 UI 主题)
   activeTerminalThemeId?: number | null; // 终端主题 ID
   terminalFontFamily?: string;
   terminalFontSize?: number;

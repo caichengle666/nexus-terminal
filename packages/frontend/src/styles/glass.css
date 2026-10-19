@@ -1,8 +1,9 @@
 /*
  * 毛玻璃 (Glass) 界面效果
  *
- * 仅在 UI 主题包含 '--ui-effect': 'glass' 时生效 —— appearance.store 的 applyUiTheme
- * 会据此给 <html> 加上 data-ui-effect="glass"。其它主题完全不受影响。
+ * 仅在 <html data-ui-effect="glass"> 时生效。是否启用由外观设置中的“毛玻璃效果”开关 (uiGlassEnabled)
+ * 决定：毛玻璃主题直接使用自带的 --glass-* 变量；普通主题由 features/appearance/glass-effect.ts
+ * 根据主题颜色推导 --glass-* 变量 (并把背景 / 顶栏变为半透明)。开关关闭时其它主题完全不受影响。
  *
  * 设计原则：
  *  1. 页面背景只有一层：body。未设置页面背景图时使用主题变量 --glass-backdrop 的渐变，

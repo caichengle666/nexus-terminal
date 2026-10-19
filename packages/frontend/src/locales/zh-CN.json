@@ -53,6 +53,8 @@
     "aiThemeSetupRequired": "请先在 AI 助手设置中配置 API 地址、密钥和模型。",
     "aiThemeInvalidResponse": "AI 返回的主题格式无效，请重试。",
     "aiThemePreviewHint": "生成后先预览，满意后再保存。",
+    "glassEffect": "毛玻璃效果",
+    "glassEffectHint": "半透明磨砂面板，可叠加在任意主题上",
     "resetUiTheme": "重置界面主题",
     "saveUiTheme": "保存界面主题",
     "terminalFontFamily": "终端字体",

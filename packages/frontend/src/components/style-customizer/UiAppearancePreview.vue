@@ -46,7 +46,9 @@ defineProps<{
   min-height: 210px;
   border: 1px solid var(--border-color);
   border-radius: 6px;
-  background: var(--app-bg-color);
+  /* 毛玻璃主题：半透明背景叠在主题自带的背景渐变上；实色主题背景不透明，渐变不可见 */
+  background: linear-gradient(var(--app-bg-color), var(--app-bg-color)), var(--glass-backdrop, none);
+  background-color: var(--glass-base-color, transparent);
   color: var(--text-color);
   font-family: var(--font-family-sans-serif, sans-serif);
   box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
