@@ -3,11 +3,15 @@ import { onMounted, onUnmounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from 'vue-i18n';
 import { useUiNotificationsStore } from '../stores/uiNotifications.store';
+import { useDeviceDetection } from '../composables/useDeviceDetection';
 
 const { t } = useI18n();
 const notificationsStore = useUiNotificationsStore();
 const { taskNotifications, unreadTaskCount } = storeToRefs(notificationsStore);
 const isOpen = ref(false);
+// 移动端不显示可拖动的悬浮铃铛（默认停在左上角，会盖住 Logo / 返回按钮 / AI 助手标题），
+// 改由 MobileAppHeader 的铃铛按钮触发 open-task-notification-center 事件打开面板。
+const { isMobile } = useDeviceDetection();
 const buttonPosition = ref({ x: 16, y: 16 });
 const isDragging = ref(false);
 const dragOffset = ref({ x: 0, y: 0 });
@@ -71,8 +75,15 @@ function showCenter() {
 </script>
 
 <template>
-  <div class="task-notification-center fixed z-[1090]" :style="{ left: buttonPosition.x + 'px', top: buttonPosition.y + 'px' }">
+  <div v-if="isMobile && isOpen" class="fixed inset-0 z-[1089]" aria-hidden="true" @click="isOpen = false" />
+  <div
+    v-if="!isMobile || isOpen"
+    class="task-notification-center fixed z-[1090]"
+    :class="isMobile ? 'right-2 top-[calc(3.25rem+env(safe-area-inset-top))]' : ''"
+    :style="isMobile ? undefined : { left: buttonPosition.x + 'px', top: buttonPosition.y + 'px' }"
+  >
     <button
+      v-if="!isMobile"
       type="button"
       class="relative flex h-10 w-10 items-center justify-center rounded-full border border-border bg-header text-foreground shadow-lg hover:bg-hover"
       :title="t('taskNotifications.title')"
@@ -91,7 +102,7 @@ function showCenter() {
       </span>
     </button>
 
-    <section v-if="isOpen" class="absolute left-0 top-12 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border bg-background text-foreground shadow-2xl" role="dialog" :aria-label="t('taskNotifications.title')">
+    <section v-if="isOpen" :class="isMobile ? 'relative' : 'absolute left-0 top-12'" class="w-[min(24rem,calc(100vw-1rem))] overflow-hidden rounded-lg border border-border bg-background text-foreground shadow-2xl" role="dialog" :aria-label="t('taskNotifications.title')">
       <header class="flex items-center justify-between border-b border-border bg-header px-3 py-2">
         <h2 class="text-sm font-semibold">{{ t('taskNotifications.title') }}</h2>
         <button type="button" class="text-xs text-text-secondary hover:text-foreground" @click="notificationsStore.clearTaskNotifications">

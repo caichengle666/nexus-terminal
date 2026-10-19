@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
+import { storeToRefs } from 'pinia';
 import logoUrl from '../assets/logo.png';
+import { useUiNotificationsStore } from '../stores/uiNotifications.store';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -28,6 +30,11 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const route = useRoute();
 const menuOpen = ref(false);
+const { unreadTaskCount } = storeToRefs(useUiNotificationsStore());
+const openTaskCenter = () => {
+  menuOpen.value = false;
+  window.dispatchEvent(new Event('open-task-notification-center'));
+};
 
 const navigationItems = computed(() => [
   { to: '/', label: t('nav.dashboard'), icon: 'fas fa-th-large' },
@@ -83,6 +90,19 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
         <span class="sr-only">{{ statusLabel }}</span>
       </div>
 
+      <button
+        v-if="isAuthenticated"
+        type="button"
+        class="relative flex h-11 w-11 flex-shrink-0 items-center justify-center rounded text-text-secondary hover:bg-hover hover:text-foreground"
+        :title="t('taskNotifications.title')"
+        :aria-label="t('taskNotifications.title')"
+        @click="openTaskCenter"
+      >
+        <i class="fas fa-bell" aria-hidden="true" />
+        <span v-if="unreadTaskCount > 0" class="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] leading-none text-white">
+          {{ unreadTaskCount > 99 ? '99+' : unreadTaskCount }}
+        </span>
+      </button>
       <button
         type="button"
         class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded text-text-secondary hover:bg-hover hover:text-foreground"
