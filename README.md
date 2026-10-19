@@ -74,7 +74,7 @@ Docker 一键部署到服务器，浏览器随处访问，支持 PWA；也可以
 
 ## 📸 实机截图
 
-> 以下截图由 CI 在 GitHub 的 macOS 与 Windows 虚拟机上安装正式发布版、连接本机 SSH 后自动拍摄，所见即所得。
+> 以下截图由 CI 在 GitHub 的 macOS 与 Windows 虚拟机上安装正式发布版、连接本机 SSH 后自动拍摄，所见即所得；界面为新安装默认的「毛玻璃·深」主题。
 
 <table>
 <tr>

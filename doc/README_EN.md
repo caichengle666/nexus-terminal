@@ -74,7 +74,7 @@ One-line Docker deployment with PWA support, or native builds for Windows (insta
 
 ## 📸 Real screenshots
 
-> Captured automatically in CI: the published release is installed on GitHub's macOS and Windows machines, connected to the local SSH server, and photographed.
+> Captured automatically in CI: the published release is installed on GitHub's macOS and Windows machines, connected to the local SSH server, and photographed in the default **Glass Dark** theme of a fresh install.
 
 <table>
 <tr>
