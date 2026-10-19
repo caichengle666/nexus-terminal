@@ -54,6 +54,7 @@
       "update-public-key.js",
       "security-utils.js",
       "window-state.js",
+      "gpu-mode.js",
       "main-i18n.js",
       "package.json"
     ],

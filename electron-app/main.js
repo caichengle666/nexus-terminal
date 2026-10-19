@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage, shell, screen } = require('electron');
 const { captureWindowState, resolveWindowState } = require('./window-state');
 const { createTranslator } = require('./main-i18n');
+const { HARDWARE_ACCELERATION_MODES, createGpuController, resolveDataDir } = require('./gpu-mode');
 
 const tMain = createTranslator(() => (app.isReady() ? app.getLocale() : ''));
 const path = require('path');
@@ -72,6 +73,7 @@ let backendRestartTimer = null;
 let frontendUrlForDownloads; // 用于IPC处理器访问前端URL
 let actualBackendUrlForFileDownloads; // 新增：用于文件下载的后端URL
 let tray = null;
+let trayMenu = null;
 let appStore = null;
 let floatingNotificationBellWindow = null;
 let floatingNotificationBellEnabled = true;
@@ -95,10 +97,32 @@ if (!hasSingleInstanceLock) {
   });
 }
 
-// Some Windows graphics drivers render Electron as a blank white window with GPU compositing enabled.
-app.disableHardwareAcceleration();
-app.commandLine.appendSwitch('disable-gpu');
-app.commandLine.appendSwitch('disable-gpu-compositing');
+// 硬件加速：默认自动 (GPU 开启)，GPU 崩溃 / 启动未完成 / 白屏时记录回退并以软件渲染重启。
+// 某些 Windows 显卡驱动开启 GPU 合成时窗口全白，因此保留回退与手动关闭 (设置、托盘、--disable-gpu、NEXUS_DISABLE_GPU=1)。
+const readGpuCompositing = () => {
+  try {
+    return String(app.getGPUFeatureStatus()?.gpu_compositing || '').startsWith('enabled');
+  } catch {
+    return false;
+  }
+};
+const relaunchApp = () => {
+  isQuitting = true;
+  app.relaunch();
+  app.quit();
+  setTimeout(() => app.exit(0), 8000).unref?.();
+};
+const gpuMode = hasSingleInstanceLock ? createGpuController({
+  app,
+  dataDir: resolveDataDir({ exeDir: path.dirname(app.getPath('exe')), defaultUserData: app.getPath('userData') }),
+  versions: { appVersion: require('./package.json').releaseVersion || app.getVersion(), electronVersion: process.versions.electron || '' },
+  readGpuCompositing,
+  onRelaunch: relaunchApp,
+  onCompositingChanged: enabled => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('gpu-compositing-changed', { enabled });
+  },
+}) : null;
+app.on('child-process-gone', (_event, details) => gpuMode?.onChildProcessGone(details));
 
 // 用于在 download-file-request 和 will-download 之间传递期望的文件名
 const pendingDownloadsInfo = new Map();
@@ -450,11 +474,27 @@ function createTray() {
   }
   tray = new Tray(trayImage);
   tray.setToolTip('Nexus Terminal');
-  tray.setContextMenu(Menu.buildFromTemplate([
+  tray.setContextMenu(trayMenu = Menu.buildFromTemplate([
     {
       label: tMain('trayShow'),
       click: showMainWindow,
     },
+    ...(gpuMode ? [{
+      label: tMain('trayHardwareAcceleration'),
+      submenu: HARDWARE_ACCELERATION_MODES.map(mode => ({
+        id: `hardware-acceleration-${mode}`,
+        label: tMain(`trayHardwareAcceleration_${mode}`),
+        type: 'radio',
+        checked: gpuMode.savedMode() === mode,
+        click: () => {
+          try {
+            if (gpuMode.setMode(mode).restartRequired) relaunchApp();
+          } catch (error) {
+            console.warn(`[GPU] ${error.message}`);
+          }
+        },
+      })),
+    }] : []),
     {
       label: tMain('trayQuit'),
       click: () => {
@@ -552,6 +592,7 @@ async function createWindow() {
     || isTrustedOrigin(navigationUrl, getTrustedFrontendOrigins())
   ));
   mainWindow.setAlwaysOnTop(isAlwaysOnTop);
+  gpuMode?.attachWindow(mainWindow);
   mainWindow.webContents.on('context-menu', (_event, params) => {
     const hasSelection = Boolean(params.selectionText);
     const isEditable = Boolean(params.isEditable);
@@ -1119,6 +1160,7 @@ app.on('window-all-closed', function () {
 // 在应用退出前关闭 express 服务器 (如果已启动)
 app.on('before-quit', () => {
   isQuitting = true;
+  gpuMode?.beforeQuit();
   console.log('Application is quitting...');
   for (const { terminal } of localTerminalSessions.values()) {
     try {
@@ -1179,12 +1221,25 @@ onTrusted('minimize-window', () => {
 handleTrusted('get-app-version', () => require('./package.json').releaseVersion || app.getVersion());
 handleTrusted('get-platform', () => process.platform);
 // 渲染进程据此决定毛玻璃是否走 lite 渲染 (无 GPU 合成时 backdrop-filter 软件渲染很慢)。调用时读取，反映当前实际状态。
-handleTrusted('get-gpu-compositing', () => {
-  try {
-    return String(app.getGPUFeatureStatus()?.gpu_compositing || '').startsWith('enabled');
-  } catch {
-    return false;
+handleTrusted('get-gpu-compositing', () => readGpuCompositing());
+handleTrusted('get-gpu-settings', () => gpuMode?.getStatus() ?? null);
+handleTrusted('set-gpu-settings', (_event, payload) => {
+  const mode = payload && typeof payload === 'object' ? payload.hardwareAcceleration : undefined;
+  if (!HARDWARE_ACCELERATION_MODES.includes(mode) || !gpuMode) throw new Error('Invalid hardwareAcceleration value.');
+  const status = gpuMode.setMode(mode);
+  const trayItem = trayMenu?.getMenuItemById(`hardware-acceleration-${mode}`);
+  if (trayItem && tray && !tray.isDestroyed()) {
+    trayItem.checked = true;
+    tray.setContextMenu(trayMenu);
   }
+  return status;
+});
+handleTrusted('relaunch-app', () => {
+  setTimeout(relaunchApp, 100);
+  return true;
+});
+onTrusted('app-rendered', event => {
+  if (mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents) gpuMode?.onRendered(mainWindow);
 });
 handleTrusted('get-architecture', () => process.arch);
 const getInstallationKind = () => {

@@ -753,6 +753,31 @@
       "loadFailed": "Failed to load the notification bell setting.",
       "saveFailed": "Failed to save the notification bell setting."
     },
+    "hardwareAcceleration": {
+      "title": "Hardware acceleration",
+      "selectLabel": "Hardware acceleration (GPU)",
+      "modeAuto": "Auto (recommended)",
+      "modeOn": "On",
+      "modeOff": "Off",
+      "description": "Auto uses the GPU by default. If a GPU crash, an unfinished startup or a blank window is detected, the app switches to software rendering and restarts. If the window is blank, you can also switch this from the tray menu.",
+      "statusEnabled": "GPU compositing: enabled",
+      "statusDisabled": "GPU compositing: off ({reason})",
+      "restartHint": "Saved. Takes effect after a restart.",
+      "restartButton": "Restart now",
+      "loadFailed": "Failed to load hardware acceleration settings.",
+      "saveFailed": "Failed to save hardware acceleration settings.",
+      "reasons": {
+        "settingOff": "turned off in settings",
+        "cliFlag": "--disable-gpu launch flag",
+        "env": "NEXUS_DISABLE_GPU environment variable",
+        "fallbackGpuCrash": "GPU process crashed, fell back automatically",
+        "fallbackStartup": "GPU startup did not finish, fell back automatically",
+        "fallbackBlank": "blank window detected, fell back automatically",
+        "unconfirmedLaunch": "last launch did not finish, using software rendering this time",
+        "driver": "not supported by the graphics driver or disabled by the system",
+        "unknown": "unknown reason"
+      }
+    },
     "changePassword": {
       "title": "Change Password",
       "currentPassword": "Current Password:",

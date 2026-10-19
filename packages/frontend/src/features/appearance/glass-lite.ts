@@ -11,7 +11,25 @@ const readOverride = (): string | null => {
   }
 };
 
-type ElectronGpuApi = { getGpuCompositingEnabled?: () => Promise<boolean> };
+type ElectronGpuApi = {
+  getGpuCompositingEnabled?: () => Promise<boolean>;
+  onGpuCompositingChanged?: (listener: (enabled: boolean) => void) => () => void;
+};
+
+let lastBackgroundUrl: string | null = null;
+
+/** 按 GPU 合成状态重新确定渲染模式；切到 lite 时为当前背景图补生成预模糊版本。 */
+const applyGpuCompositing = (isElectron: boolean, gpuCompositing: boolean, override: string | null) => {
+  const previous = document.documentElement.dataset.glassRender;
+  const actual = resolveGlassRenderMode({ isElectron, gpuCompositing, override });
+  document.documentElement.dataset.glassRender = actual;
+  if (actual !== 'lite') {
+    generation += 1; // 作废进行中的预模糊生成
+    clearBlurredBackground();
+  } else if (previous !== 'lite') {
+    void updateLiteBlurredBackground(lastBackgroundUrl);
+  }
+};
 
 /**
  * 在 <html> 上设置 data-glass-render。应在挂载应用前调用。
@@ -26,16 +44,11 @@ export const initGlassRenderMode = (): GlassRenderMode => {
   document.documentElement.dataset.glassRender = mode;
   if (isElectron && typeof electronApi?.getGpuCompositingEnabled === 'function') {
     electronApi.getGpuCompositingEnabled()
-      .then((gpuCompositing) => {
-        const actual = resolveGlassRenderMode({ isElectron, gpuCompositing: gpuCompositing === true, override });
-        document.documentElement.dataset.glassRender = actual;
-        if (actual !== 'lite') {
-          generation += 1; // 作废进行中的预模糊生成
-          clearBlurredBackground();
-        }
-      })
+      .then(gpuCompositing => applyGpuCompositing(isElectron, gpuCompositing === true, override))
       .catch(() => { /* 查询失败：保持 lite */ });
   }
+  // 运行中 GPU 进程崩溃 / 回退时主进程会通知，实时切换 (通常退回 lite)
+  electronApi?.onGpuCompositingChanged?.(enabled => applyGpuCompositing(isElectron, enabled === true, override));
   return mode;
 };
 
@@ -74,6 +87,7 @@ const readCssNumber = (name: string, fallback: number) => {
  */
 export const updateLiteBlurredBackground = async (imageUrl: string | null | undefined) => {
   const token = ++generation;
+  lastBackgroundUrl = imageUrl || null;
   if (!imageUrl || !isLiteGlassRender()) {
     clearBlurredBackground();
     return;

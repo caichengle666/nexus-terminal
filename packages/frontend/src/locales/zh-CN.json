@@ -746,6 +746,31 @@
       "loadFailed": "读取悬浮铃铛设置失败。",
       "saveFailed": "保存悬浮铃铛设置失败。"
     },
+    "hardwareAcceleration": {
+      "title": "硬件加速",
+      "selectLabel": "硬件加速 (GPU)",
+      "modeAuto": "自动（推荐）",
+      "modeOn": "开启",
+      "modeOff": "关闭",
+      "description": "自动模式默认启用 GPU；若检测到 GPU 崩溃、启动未完成或白屏，会自动改用软件渲染并重启。窗口白屏时也可在托盘菜单中切换。",
+      "statusEnabled": "GPU 合成：已启用",
+      "statusDisabled": "GPU 合成：已关闭（{reason}）",
+      "restartHint": "设置已保存，重启后生效。",
+      "restartButton": "重启生效",
+      "loadFailed": "读取硬件加速设置失败。",
+      "saveFailed": "保存硬件加速设置失败。",
+      "reasons": {
+        "settingOff": "已在设置中关闭",
+        "cliFlag": "启动参数 --disable-gpu",
+        "env": "环境变量 NEXUS_DISABLE_GPU",
+        "fallbackGpuCrash": "GPU 进程崩溃，已自动回退",
+        "fallbackStartup": "GPU 启动未完成，已自动回退",
+        "fallbackBlank": "检测到白屏，已自动回退",
+        "unconfirmedLaunch": "上次启动未完成，本次临时使用软件渲染",
+        "driver": "显卡驱动不支持或被系统禁用",
+        "unknown": "未知原因"
+      }
+    },
     "changePassword": {
       "title": "修改密码",
       "currentPassword": "当前密码:",

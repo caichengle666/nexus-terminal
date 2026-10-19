@@ -7,6 +7,10 @@ const MESSAGES = {
   zh: {
     trayShow: '显示主窗口',
     trayQuit: '退出',
+    trayHardwareAcceleration: '硬件加速',
+    trayHardwareAcceleration_auto: '自动',
+    trayHardwareAcceleration_on: '开启',
+    trayHardwareAcceleration_off: '关闭',
     updateTitle: '安装 Nexus Terminal 更新',
     updateMessage: '更新文件已下载：{file}',
     updateDetailPortable: '将解压便携版并启动新版本。当前程序会先退出，请保存正在进行的工作。',
@@ -21,6 +25,10 @@ const MESSAGES = {
   en: {
     trayShow: 'Show main window',
     trayQuit: 'Quit',
+    trayHardwareAcceleration: 'Hardware acceleration',
+    trayHardwareAcceleration_auto: 'Auto',
+    trayHardwareAcceleration_on: 'On',
+    trayHardwareAcceleration_off: 'Off',
     updateTitle: 'Install Nexus Terminal update',
     updateMessage: 'Update downloaded: {file}',
     updateDetailPortable: 'The portable version will be extracted and the new version started. Nexus Terminal will quit first, so save your work.',
@@ -35,6 +43,10 @@ const MESSAGES = {
   ja: {
     trayShow: 'メインウィンドウを表示',
     trayQuit: '終了',
+    trayHardwareAcceleration: 'ハードウェアアクセラレーション',
+    trayHardwareAcceleration_auto: '自動',
+    trayHardwareAcceleration_on: 'オン',
+    trayHardwareAcceleration_off: 'オフ',
     updateTitle: 'Nexus Terminal の更新をインストール',
     updateMessage: '更新ファイルをダウンロードしました：{file}',
     updateDetailPortable: 'ポータブル版を展開して新しいバージョンを起動します。現在のアプリは先に終了するため、作業内容を保存してください。',

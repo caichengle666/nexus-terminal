@@ -19,6 +19,13 @@ import { initGlassRenderMode } from './features/appearance/glass-lite';
 initGlassRenderMode();
 
 
+// 桌面版：界面真正绘制后通知主进程 (用于硬件加速自动模式的启动确认与白屏检测)
+const notifyAppRendered = () => {
+  const electronApi = (window as { electronAPI?: { notifyAppRendered?: () => void } }).electronAPI;
+  if (typeof electronApi?.notifyAppRendered !== 'function') return;
+  requestAnimationFrame(() => requestAnimationFrame(() => electronApi.notifyAppRendered?.()));
+};
+
 const updateBootStatus = (message: string) => {
   const statusElement = document.getElementById('app-loading-status');
   if (statusElement) {
@@ -87,6 +94,7 @@ app.use(i18n); // 使用 i18n
     await router.isReady(); // 等待路由初始化完成 (特别是异步路由加载)
     app.mount('#app');
     console.log("[main.ts] 应用已挂载。");
+    notifyAppRendered();
 
   } catch (error) {
     updateBootStatus('启动遇到问题，正在加载基础界面...');
@@ -103,6 +111,7 @@ app.use(i18n); // 使用 i18n
       console.error("[main.ts] 路由初始化失败:", routerError);
     }
     app.mount('#app');
+    notifyAppRendered();
   }
   // --- PWA Service Worker Registration ---
   if ('serviceWorker' in navigator) {

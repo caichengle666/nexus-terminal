@@ -736,6 +736,31 @@
       "loadFailed": "通知ベル設定の読み込みに失敗しました。",
       "saveFailed": "通知ベル設定の保存に失敗しました。"
     },
+    "hardwareAcceleration": {
+      "title": "ハードウェアアクセラレーション",
+      "selectLabel": "ハードウェアアクセラレーション (GPU)",
+      "modeAuto": "自動（推奨）",
+      "modeOn": "オン",
+      "modeOff": "オフ",
+      "description": "自動では既定で GPU を使用します。GPU のクラッシュ、起動の未完了、または白い画面を検出すると、ソフトウェアレンダリングに切り替えて再起動します。画面が真っ白な場合はトレイメニューからも切り替えられます。",
+      "statusEnabled": "GPU 合成：有効",
+      "statusDisabled": "GPU 合成：オフ（{reason}）",
+      "restartHint": "保存しました。再起動後に反映されます。",
+      "restartButton": "再起動して反映",
+      "loadFailed": "ハードウェアアクセラレーション設定の読み込みに失敗しました。",
+      "saveFailed": "ハードウェアアクセラレーション設定の保存に失敗しました。",
+      "reasons": {
+        "settingOff": "設定でオフ",
+        "cliFlag": "起動オプション --disable-gpu",
+        "env": "環境変数 NEXUS_DISABLE_GPU",
+        "fallbackGpuCrash": "GPU プロセスがクラッシュしたため自動で切り替え",
+        "fallbackStartup": "GPU での起動が完了しなかったため自動で切り替え",
+        "fallbackBlank": "白い画面を検出したため自動で切り替え",
+        "unconfirmedLaunch": "前回の起動が完了しなかったため今回はソフトウェアレンダリング",
+        "driver": "グラフィックドライバー非対応またはシステムで無効",
+        "unknown": "不明な理由"
+      }
+    },
     "changePassword": {
       "title": "パスワードの変更",
       "currentPassword": "現在のパスワード:",

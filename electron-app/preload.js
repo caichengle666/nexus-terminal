@@ -15,6 +15,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
   getGpuCompositingEnabled: () => ipcRenderer.invoke('get-gpu-compositing'),
+  getGpuSettings: () => ipcRenderer.invoke('get-gpu-settings'),
+  setGpuSettings: (hardwareAcceleration) => ipcRenderer.invoke('set-gpu-settings', { hardwareAcceleration }),
+  relaunchApp: () => ipcRenderer.invoke('relaunch-app'),
+  notifyAppRendered: () => ipcRenderer.send('app-rendered'),
+  onGpuCompositingChanged: (listener) => {
+    const handler = (_event, payload) => listener(Boolean(payload?.enabled));
+    ipcRenderer.on('gpu-compositing-changed', handler);
+    return () => ipcRenderer.removeListener('gpu-compositing-changed', handler);
+  },
   getArchitecture: () => ipcRenderer.invoke('get-architecture'),
   getInstallationKind: () => ipcRenderer.invoke('get-installation-kind'),
   downloadUpdate: (payload) => ipcRenderer.invoke('download-update', payload),
