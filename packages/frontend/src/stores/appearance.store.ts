@@ -7,6 +7,7 @@ import type { TerminalTheme } from '../types/terminal-theme.types';
 import type { AppearanceSettings, UpdateAppearanceDto } from '../types/appearance.types';
 import { defaultXtermTheme, defaultAppUiTheme } from '../features/appearance/config/default-themes';
 import { isGlassTheme, resolveEffectiveUiTheme } from '../features/appearance/glass-effect';
+import { updateLiteBlurredBackground } from '../features/appearance/glass-lite';
 
 // Helper function to safely parse JSON
 export const safeJsonParse = <T>(jsonString: string | undefined | null, defaultValue: T): T => { 
@@ -849,6 +850,7 @@ export const useAppearanceStore = defineStore('appearance', () => {
                 console.error(`[AppearanceStore applyPageBackground] Error constructing image URL:`, e);
                 // URL 构建失败，清除背景并退出
                 body.style.backgroundImage = 'none';
+                void updateLiteBlurredBackground(null);
                 return; // 停止执行
             }
             // --- 修改结束 ---
@@ -866,6 +868,8 @@ export const useAppearanceStore = defineStore('appearance', () => {
                     body.style.backgroundRepeat = 'no-repeat'; // 不重复
                     body.style.backgroundAttachment = 'fixed'; // 背景固定，不随滚动条滚动 (可选)
                     console.log(`[AppearanceStore applyPageBackground] Applied background image: ${fullImageUrl}`);
+                    // 桌面版 lite 毛玻璃：生成预模糊背景供玻璃区域使用 (非 lite 模式时只做清理)
+                    void updateLiteBlurredBackground(fullImageUrl);
                 } else {
                      console.warn(`[AppearanceStore applyPageBackground] Skipping background application due to invalid URL.`);
                      body.style.backgroundImage = 'none'; // 确保清除
@@ -874,6 +878,7 @@ export const useAppearanceStore = defineStore('appearance', () => {
         } else {
             // 如果没有设置背景图片，则清除内联背景，交由样式表决定 (毛玻璃主题会提供默认渐变背景)
             body.style.removeProperty('background-image');
+            void updateLiteBlurredBackground(null);
             console.log(`[AppearanceStore applyPageBackground] Cleared background image.`);
         }
          // 注意：直接设置 body 透明度会影响所有子元素，通常不建议。

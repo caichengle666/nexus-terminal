@@ -266,3 +266,62 @@ export const isSafeGlassShadow = (value: unknown): value is string => {
   const words = v.toLowerCase().match(/[a-z][a-z-]*/g) || [];
   return words.every(word => ['px', 'em', 'rem', 'rgb', 'rgba', 'hsl', 'hsla', 'inset', 'transparent', 'none'].includes(word) || /^[a-f]+$/.test(word));
 };
+
+// ---------- 轻量毛玻璃 (lite)：不使用实时 backdrop-filter ----------
+//
+// 桌面版 (Electron) 在 GPU 合成不可用 (被关闭或驱动回退) 时，backdrop-filter 只能软件渲染，
+// 每次重绘都要对大面积区域重新模糊，界面明显卡顿。lite 模式下 glass.css 去掉 backdrop-filter：
+// 无页面背景图时背后只是平滑渐变，几乎看不出差别；有页面背景图时用一张预先模糊好的背景图 (canvas 生成)
+// 以 fixed 方式铺在玻璃区域下面，与 body 上的清晰背景对齐，模拟毛玻璃。
+
+export type GlassRenderMode = 'full' | 'lite';
+
+export const GLASS_RENDER_OVERRIDE_KEY = 'nx-glass-render';
+
+/**
+ * 仅在 Electron 且 GPU 合成未启用时使用 lite (gpuCompositing 未知 / 旧版桌面端未提供该接口时按未启用处理)；
+ * 普通浏览器保留真实模糊。localStorage 覆盖值 'full' / 'lite' 优先 (便于排查 / 强制切换)。
+ */
+export const resolveGlassRenderMode = (input: {
+  isElectron: boolean;
+  gpuCompositing?: boolean | null;
+  override?: string | null;
+}): GlassRenderMode => {
+  const override = (input.override || '').trim().toLowerCase();
+  if (override === 'full' || override === 'lite') return override;
+  return input.isElectron && input.gpuCompositing !== true ? 'lite' : 'full';
+};
+
+export type LiteBlurPlan = {
+  /** 输出画布尺寸 (与原图同宽高比) */
+  width: number;
+  height: number;
+  /** 画布像素下的模糊半径 */
+  blurPx: number;
+  /** 绘制时四周外扩的像素，避免模糊后边缘发暗 / 透明 */
+  pad: number;
+};
+
+/**
+ * 计算预模糊背景图的画布尺寸与模糊半径。
+ * 背景图在页面上以 cover 方式铺满视口，屏幕上的 cssBlurPx 换算成缩小后画布上的像素。
+ */
+export const computeLiteBlurPlan = (input: {
+  imageWidth: number;
+  imageHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  cssBlurPx: number;
+  maxWidth?: number;
+}): LiteBlurPlan | null => {
+  const { imageWidth: iw, imageHeight: ih, viewportWidth: vw, viewportHeight: vh } = input;
+  if (!(iw > 0 && ih > 0 && vw > 0 && vh > 0)) return null;
+  const maxWidth = input.maxWidth && input.maxWidth > 0 ? input.maxWidth : 1280;
+  const width = Math.max(1, Math.round(Math.min(iw, maxWidth)));
+  const height = Math.max(1, Math.round(ih * (width / iw)));
+  const coverScale = Math.max(vw / iw, vh / ih);
+  const screenPxPerCanvasPx = coverScale * (iw / width);
+  const cssBlur = Number.isFinite(input.cssBlurPx) && input.cssBlurPx > 0 ? input.cssBlurPx : 22;
+  const blurPx = Math.max(1, Math.round((cssBlur / screenPxPerCanvasPx) * 10) / 10);
+  return { width, height, blurPx, pad: Math.ceil(blurPx * 2) };
+};

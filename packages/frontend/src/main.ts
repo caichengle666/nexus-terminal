@@ -13,6 +13,10 @@ import 'splitpanes/dist/splitpanes.css';
 import ElementPlus from 'element-plus';
 import 'element-plus/dist/index.css';
 import './styles/glass.css'; // 毛玻璃主题样式，仅在 html[data-ui-effect="glass"] 下生效
+import { initGlassRenderMode } from './features/appearance/glass-lite';
+
+// 桌面版 (Electron) 在 GPU 合成不可用时，毛玻璃改用不含实时 backdrop-filter 的 lite 渲染
+initGlassRenderMode();
 
 
 const updateBootStatus = (message: string) => {

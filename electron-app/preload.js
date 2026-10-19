@@ -14,6 +14,7 @@ const encodeBase64Utf8 = (value) => {
 contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
+  getGpuCompositingEnabled: () => ipcRenderer.invoke('get-gpu-compositing'),
   getArchitecture: () => ipcRenderer.invoke('get-architecture'),
   getInstallationKind: () => ipcRenderer.invoke('get-installation-kind'),
   downloadUpdate: (payload) => ipcRenderer.invoke('download-update', payload),

@@ -1178,6 +1178,14 @@ onTrusted('minimize-window', () => {
 
 handleTrusted('get-app-version', () => require('./package.json').releaseVersion || app.getVersion());
 handleTrusted('get-platform', () => process.platform);
+// 渲染进程据此决定毛玻璃是否走 lite 渲染 (无 GPU 合成时 backdrop-filter 软件渲染很慢)。调用时读取，反映当前实际状态。
+handleTrusted('get-gpu-compositing', () => {
+  try {
+    return String(app.getGPUFeatureStatus()?.gpu_compositing || '').startsWith('enabled');
+  } catch {
+    return false;
+  }
+});
 handleTrusted('get-architecture', () => process.arch);
 const getInstallationKind = () => {
   if (process.platform !== 'win32') return 'system';

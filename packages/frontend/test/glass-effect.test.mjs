@@ -70,3 +70,28 @@ test('backdrop / shadow validation rejects unsafe values', () => {
   assert.ok(glass.isSafeGlassShadow('0 10px 30px rgba(0, 0, 0, 0.35)'));
   assert.ok(!glass.isSafeGlassShadow('0 0 1px red; background: url(x)'));
 });
+
+test('glass render mode: lite only in Electron without GPU compositing; override wins', () => {
+  assert.equal(glass.resolveGlassRenderMode({ isElectron: true, gpuCompositing: false }), 'lite');
+  assert.equal(glass.resolveGlassRenderMode({ isElectron: true, gpuCompositing: null }), 'lite');
+  assert.equal(glass.resolveGlassRenderMode({ isElectron: true }), 'lite');
+  assert.equal(glass.resolveGlassRenderMode({ isElectron: true, gpuCompositing: true }), 'full');
+  assert.equal(glass.resolveGlassRenderMode({ isElectron: false }), 'full');
+  assert.equal(glass.resolveGlassRenderMode({ isElectron: false, gpuCompositing: false }), 'full');
+  assert.equal(glass.resolveGlassRenderMode({ isElectron: true, gpuCompositing: false, override: 'full' }), 'full');
+  assert.equal(glass.resolveGlassRenderMode({ isElectron: false, override: ' LITE ' }), 'lite');
+  assert.equal(glass.resolveGlassRenderMode({ isElectron: false, override: 'bogus' }), 'full');
+});
+
+test('lite blur plan scales the blur radius to the downscaled canvas', () => {
+  const plan = glass.computeLiteBlurPlan({ imageWidth: 3840, imageHeight: 2160, viewportWidth: 1920, viewportHeight: 1080, cssBlurPx: 22 });
+  assert.equal(plan.width, 1280);
+  assert.equal(plan.height, 720);
+  // cover scale 0.5, 3x downscale => 1.5 screen px per canvas px
+  assert.equal(plan.blurPx, 14.7);
+  assert.equal(plan.pad, 30);
+  const small = glass.computeLiteBlurPlan({ imageWidth: 800, imageHeight: 600, viewportWidth: 1440, viewportHeight: 900, cssBlurPx: 22 });
+  assert.equal(small.width, 800);
+  assert.ok(small.blurPx >= 1 && small.blurPx < 22);
+  assert.equal(glass.computeLiteBlurPlan({ imageWidth: 0, imageHeight: 600, viewportWidth: 1, viewportHeight: 1, cssBlurPx: 22 }), null);
+});

@@ -297,7 +297,69 @@ html[data-ui-effect="glass"] body .splitpanes__pane:not(:has(.splitpanes__pane))
   background-color: transparent;
 }
 
-/* ---------- 8. 无障碍：用户要求减少透明度时退回实色 ---------- */
+/* ---------- 8. 轻量模式 (lite)：桌面版无 GPU 合成时不使用实时 backdrop-filter ----------
+ * html[data-glass-render="lite"] 由 features/appearance/glass-lite.ts 在 Electron 且 GPU 合成未启用时设置。软件渲染下
+ * backdrop-filter 每次重绘都要重新模糊大面积区域，导致界面 (含原生下拉框) 卡顿。
+ *  - 无页面背景图：背后只是平滑渐变，去掉模糊几乎无差别，只把底色略微加实。
+ *  - 有页面背景图 (html[data-glass-bg="image"])：玻璃底层铺一张预先模糊好的背景图 (--glass-blurred-bg)，
+ *    与 body 一样 center / cover / fixed，从而与清晰背景对齐；上面再叠半透明色调。
+ */
+html[data-ui-effect="glass"][data-glass-render="lite"] body :is(
+  header.electron-titlebar,
+  .workspace-view > :first-child,
+  .splitpanes__pane:not(:has(.splitpanes__pane)),
+  .workspace-sidebar-strip,
+  .workspace-sidebar-drawer,
+  .glass-card
+)::before,
+html[data-ui-effect="glass"][data-glass-render="lite"] #app-container > main :is(.rounded-lg, .rounded-xl).border:is(.shadow, .shadow-sm, .shadow-md):not(.workspace-view *):not(.fixed *):not(.fixed)::before {
+  --glass-lite-tint: var(--glass-surface);
+  background-color: color-mix(in srgb, var(--glass-surface) 88%, var(--glass-base-color));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-ui-effect="glass"][data-glass-render="lite"] body :is(
+  .glass-float,
+  .fixed.inset-0 > :is(.bg-background, .bg-header),
+  .bg-background:is(.shadow-lg, .shadow-xl, .shadow-2xl),
+  :is(.absolute, .fixed):is(.bg-background, .bg-header)[class*="shadow"],
+  .file-manager-context-menu
+)::before {
+  --glass-lite-tint: var(--glass-surface-strong);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-ui-effect="glass"][data-glass-render="lite"] .fixed.inset-0.bg-overlay {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* 有页面背景图：预模糊背景 + 色调 */
+html[data-ui-effect="glass"][data-glass-render="lite"][data-glass-bg="image"] body :is(
+  header.electron-titlebar,
+  .workspace-view > :first-child,
+  .splitpanes__pane:not(:has(.splitpanes__pane)),
+  .workspace-sidebar-strip,
+  .workspace-sidebar-drawer,
+  .glass-card,
+  .glass-float,
+  .fixed.inset-0 > :is(.bg-background, .bg-header),
+  .bg-background:is(.shadow-lg, .shadow-xl, .shadow-2xl),
+  :is(.absolute, .fixed):is(.bg-background, .bg-header)[class*="shadow"],
+  .file-manager-context-menu
+)::before,
+html[data-ui-effect="glass"][data-glass-render="lite"][data-glass-bg="image"] #app-container > main :is(.rounded-lg, .rounded-xl).border:is(.shadow, .shadow-sm, .shadow-md):not(.workspace-view *):not(.fixed *):not(.fixed)::before {
+  background:
+    linear-gradient(var(--glass-lite-tint), var(--glass-lite-tint)),
+    var(--glass-blurred-bg) center / cover no-repeat;
+  background-attachment: fixed;
+}
+/* 承载终端的面板：色调由终端底色提供，这里只铺预模糊背景 */
+html[data-ui-effect="glass"][data-glass-render="lite"] body .splitpanes__pane:not(:has(.splitpanes__pane)):has(.terminal-pane-container)::before {
+  --glass-lite-tint: transparent;
+  background-color: transparent;
+}
+
+/* ---------- 9. 无障碍：用户要求减少透明度时退回实色 ---------- */
 @media (prefers-reduced-transparency: reduce) {
   html[data-ui-effect="glass"] body :is(
     header.electron-titlebar,
@@ -325,5 +387,21 @@ html[data-ui-effect="glass"] body .splitpanes__pane:not(:has(.splitpanes__pane))
   }
   html[data-ui-effect="glass"] body .terminal-pane-container:not(.has-global-terminal-background) {
     background-color: var(--nx-terminal-theme-bg, #0a0e16) !important;
+  }
+  html[data-ui-effect="glass"][data-glass-render="lite"][data-glass-bg="image"] body :is(
+    header.electron-titlebar,
+    .workspace-view > :first-child,
+    .splitpanes__pane:not(:has(.splitpanes__pane)),
+    .workspace-sidebar-strip,
+    .workspace-sidebar-drawer,
+    .glass-card,
+    .glass-float,
+    .fixed.inset-0 > :is(.bg-background, .bg-header),
+    .bg-background:is(.shadow-lg, .shadow-xl, .shadow-2xl),
+    :is(.absolute, .fixed):is(.bg-background, .bg-header)[class*="shadow"],
+    .file-manager-context-menu
+  )::before,
+  html[data-ui-effect="glass"][data-glass-render="lite"][data-glass-bg="image"] #app-container > main :is(.rounded-lg, .rounded-xl).border:is(.shadow, .shadow-sm, .shadow-md):not(.workspace-view *):not(.fixed *):not(.fixed)::before {
+    background: var(--glass-base-color);
   }
 }
