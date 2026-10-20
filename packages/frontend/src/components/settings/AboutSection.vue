@@ -56,7 +56,7 @@
           </span>
           <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'failed'" class="inline-flex flex-wrap items-center gap-2 text-xs text-error">
             <span>{{ $t('settings.about.downloadFailed') }}{{ updateDownloadError ? `：${updateDownloadError}` : '' }}</span>
-            <button v-if="updateDownloadUrl" type="button" class="text-primary hover:underline" @click="downloadUpdate(selectedProxy)">重试</button>
+            <button v-if="updateDownloadUrl" type="button" class="text-primary hover:underline" @click="downloadUpdate(selectedProxy)">{{ $t('settings.about.retryUpdate') }}</button>
           </span>
           <span class="opacity-50">|</span>
           <button type="button" @click="openExternal('https://github.com/caichengle666/nexus-terminal')" class="text-primary hover:underline inline-flex items-center">

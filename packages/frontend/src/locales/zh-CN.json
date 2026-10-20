@@ -1148,6 +1148,7 @@
       "installUpdate": "打开安装程序",
       "cancelUpdate": "取消",
       "downloadFailed": "更新下载失败",
+      "retryUpdate": "重试",
       "updateMirrorUrlsLabel": "更新加速地址",
       "updateMirrorUrlsPlaceholder": "每行一个 HTTPS 地址；可使用 {url} 占位符",
       "saveUpdateMirrorUrls": "保存加速地址",

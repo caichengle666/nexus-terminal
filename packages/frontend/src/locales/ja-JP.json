@@ -1150,6 +1150,7 @@
       "installUpdate": "インストーラーを開く",
       "cancelUpdate": "キャンセル",
       "downloadFailed": "アップデートのダウンロードに失敗しました",
+      "retryUpdate": "再試行",
       "dockerTitle": "Docker のアップデート",
       "dockerDescription": "デプロイディレクトリで次のコマンドを実行し、最新のイメージを取得して再起動してください。",
       "copyDockerCommand": "コマンドをコピー",

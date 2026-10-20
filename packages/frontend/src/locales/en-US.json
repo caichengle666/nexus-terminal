@@ -1155,6 +1155,7 @@
       "installUpdate": "Open installer",
       "cancelUpdate": "Cancel",
       "downloadFailed": "Update download failed",
+      "retryUpdate": "Retry",
       "updateMirrorUrlsLabel": "Update acceleration URLs",
       "updateMirrorUrlsPlaceholder": "One HTTPS URL per line; you may use the {url} placeholder",
       "saveUpdateMirrorUrls": "Save acceleration URLs",
