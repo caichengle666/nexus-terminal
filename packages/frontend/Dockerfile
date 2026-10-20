@@ -1,4 +1,4 @@
-FROM node:22 AS builder
+FROM node:22.23.3-bookworm AS builder
 
 WORKDIR /app
 
@@ -31,7 +31,7 @@ ENV VITE_DEPLOYMENT_MODE=${VITE_DEPLOYMENT_MODE}
 RUN npm run build --workspace=@nexus-terminal/frontend
 
 
-FROM nginx:stable-alpine
+FROM nginx:1.30.6-alpine3.24
 
 
 RUN rm -rf /usr/share/nginx/html/*
