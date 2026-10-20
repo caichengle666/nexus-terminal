@@ -10,6 +10,12 @@ import WebSocket from 'ws';
 import { installExecChannelLimiter } from '../../services/ssh-channel-limiter';
 import { appendDetachedOutput, canReattach, reattachClientConnection } from '../session-resume';
 import { applyWsBackpressure, clearWsBackpressure } from '../backpressure';
+import { isValidSessionId } from '../session-id';
+
+// 正在建立 SSH 连接的会话 ID：同一 ID 的并发 ssh:connect (重连风暴) 只允许一个进行，
+// 否则后完成的会覆盖先完成的 clientStates 条目，导致前一个 SSH 连接泄漏。
+const connectingSessionIds = new Set<string>();
+const connectingSockets = new WeakSet<AuthenticatedWebSocket>();
 
 export async function handleSshConnect(
     ws: AuthenticatedWebSocket,
@@ -17,9 +23,7 @@ export async function handleSshConnect(
     payload: any
 ): Promise<void> {
     const sessionId = ws.sessionId;
-    const requestedSessionId = typeof payload?.sessionId === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(payload.sessionId)
-        ? payload.sessionId
-        : undefined;
+    const requestedSessionId = isValidSessionId(payload?.sessionId) ? payload.sessionId : undefined;
     const existingState = sessionId
         ? clientStates.get(sessionId)
         : requestedSessionId
@@ -58,6 +62,30 @@ export async function handleSshConnect(
         return;
     }
 
+    // 同步预留：同一 WebSocket 或同一会话 ID 同时只能有一个 ssh:connect 在进行
+    if (connectingSockets.has(ws) || (requestedSessionId && connectingSessionIds.has(requestedSessionId))) {
+        console.warn(`WebSocket: 用户 ${ws.username} 的会话 ${requestedSessionId ?? '(new)'} 已有连接请求在进行，忽略重复的 ssh:connect。`);
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ssh:error', payload: '该会话已有连接请求正在进行，请稍候。' }));
+        return;
+    }
+    connectingSockets.add(ws);
+    if (requestedSessionId) connectingSessionIds.add(requestedSessionId);
+    try {
+        await establishAndRegisterSession(ws, request, payload, dbConnectionId, requestedSessionId);
+    } finally {
+        connectingSockets.delete(ws);
+        if (requestedSessionId) connectingSessionIds.delete(requestedSessionId);
+    }
+}
+
+async function establishAndRegisterSession(
+    ws: AuthenticatedWebSocket,
+    request: Request,
+    payload: any,
+    dbConnectionId: any,
+    requestedSessionId: string | undefined
+): Promise<void> {
+
     console.log(`WebSocket: 用户 ${ws.username} 请求连接到数据库 ID: ${dbConnectionId}`);
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ssh:status', payload: '正在处理连接请求...' }));
 
@@ -94,6 +122,18 @@ export async function handleSshConnect(
         installExecChannelLimiter(sshClient);
 
         const newSessionId = requestedSessionId || uuidv4();
+        // await 期间可能已有其他连接占用了该 ID (例如恢复挂起会话)：放弃本次连接，避免覆盖并泄漏对方
+        const occupant = clientStates.get(newSessionId);
+        if (occupant) {
+            console.warn(`WebSocket: 会话 ${newSessionId} 在建立 SSH 连接期间已被占用，关闭新建的 SSH 连接。`);
+            try { sshClient.end(); } catch { /* ignore */ }
+            if (occupant.ws.userId === ws.userId && canReattach(occupant, dbConnectionId)) {
+                reattachClientConnection(ws, newSessionId, occupant, payload);
+            } else if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ssh:error', payload: '会话 ID 已被占用。' }));
+            }
+            return;
+        }
         ws.sessionId = newSessionId; // Assign new sessionId to the WebSocket
 
         const dbConnectionIdAsNumber = parseInt(dbConnectionId, 10);
