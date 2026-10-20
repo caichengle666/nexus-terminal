@@ -1,6 +1,13 @@
 const https = require('https');
 
-const ALLOWED_HOSTS = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
+const GITHUB_HOST = 'github.com';
+// GitHub serves release assets from these CDNs; they are only reachable as a
+// redirect target of an official release download URL, never as a start URL.
+const GITHUB_ASSET_CDN_HOSTS = new Set(['objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
+const ALLOWED_HOSTS = new Set([GITHUB_HOST, ...GITHUB_ASSET_CDN_HOSTS]);
+// Manifest, signature, checksum and binary assets must come from this
+// repository's GitHub releases (any other github.com repository is refused).
+const RELEASE_DOWNLOAD_PATH_PREFIX = '/caichengle666/nexus-terminal/releases/download/';
 const USER_AGENT = 'Nexus-Terminal-Updater';
 const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_REDIRECTS = 5;
@@ -21,16 +28,38 @@ const validateMirrorUrl = value => {
 const resolveRedirectUrl = (location, baseUrl, allowedHosts = ALLOWED_HOSTS) => {
   try {
     const redirectUrl = new URL(location, baseUrl).href;
-    validateUpdateUrl(redirectUrl, allowedHosts);
+    validateUpdateUrl(redirectUrl, allowedHosts, { isRedirect: true });
     return redirectUrl;
   } catch {
     throw new Error('更新资源重定向地址无效。');
   }
 };
 
-const validateUpdateUrl = (value, allowedHosts = ALLOWED_HOSTS) => {
+const isReleaseDownloadPath = pathname => (
+  typeof pathname === 'string'
+  && pathname.startsWith(RELEASE_DOWNLOAD_PATH_PREFIX)
+  && pathname.length > RELEASE_DOWNLOAD_PATH_PREFIX.length
+  && !pathname.split('/').some(segment => segment === '..' || segment === '.')
+);
+
+// - github.com: only this repository's release downloads.
+// - GitHub asset CDNs: only when reached through a redirect.
+// - Any other host in allowedHosts (a user-configured mirror): host check only;
+//   the mirrored source URL itself is validated before the mirror URL is built.
+const validateUpdateUrl = (value, allowedHosts = ALLOWED_HOSTS, { isRedirect = false } = {}) => {
   const parsed = new URL(value);
-  if (parsed.protocol !== 'https:' || !allowedHosts.has(parsed.hostname)) throw new Error('更新资源必须来自受信任的 HTTPS 地址。');
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || !allowedHosts.has(parsed.hostname)) {
+    throw new Error('更新资源必须来自受信任的 HTTPS 地址。');
+  }
+  if (parsed.hostname === GITHUB_HOST || GITHUB_ASSET_CDN_HOSTS.has(parsed.hostname)) {
+    if (parsed.port) throw new Error('更新资源必须来自受信任的 HTTPS 地址。');
+    if (parsed.hostname === GITHUB_HOST && !isReleaseDownloadPath(parsed.pathname)) {
+      throw new Error('更新资源必须来自 Nexus Terminal 官方 GitHub Release。');
+    }
+    if (GITHUB_ASSET_CDN_HOSTS.has(parsed.hostname) && !isRedirect) {
+      throw new Error('更新资源必须来自 Nexus Terminal 官方 GitHub Release。');
+    }
+  }
   return parsed;
 };
 
@@ -38,7 +67,7 @@ const requestWithRedirect = (value, options = {}, redirectCount = 0) => new Prom
   if (redirectCount > MAX_REDIRECTS) return reject(new Error('更新资源重定向次数过多。'));
   const allowedHosts = options.allowedHosts || ALLOWED_HOSTS;
   let parsed;
-  try { parsed = validateUpdateUrl(value, allowedHosts); } catch (error) { return reject(error); }
+  try { parsed = validateUpdateUrl(value, allowedHosts, { isRedirect: redirectCount > 0 }); } catch (error) { return reject(error); }
   let settled = false;
   const fail = error => {
     if (settled) return;
@@ -124,6 +153,9 @@ const fetchUpdateText = async (value, agent = null, context = {}) => {
 
 module.exports = {
   ALLOWED_HOSTS,
+  GITHUB_ASSET_CDN_HOSTS,
+  RELEASE_DOWNLOAD_PATH_PREFIX,
+  isReleaseDownloadPath,
   USER_AGENT,
   REQUEST_TIMEOUT_MS,
   MAX_REDIRECTS,
