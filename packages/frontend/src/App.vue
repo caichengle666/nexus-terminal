@@ -438,7 +438,7 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
 
     <!-- 添加全局通知显示 -->
     <UINotificationDisplay />
-    <TaskNotificationCenter />
+    <TaskNotificationCenter v-if="isAuthenticated" />
 
     <!-- 根据设置条件渲染全局文件编辑器弹窗 -->
     <FileEditorOverlay v-if="showPopupFileEditorBoolean || isMobile" :is-mobile="isMobile" />

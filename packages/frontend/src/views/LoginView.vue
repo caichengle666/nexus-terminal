@@ -6,7 +6,8 @@ import { startAuthentication } from '@simplewebauthn/browser';
 import { useAuthStore } from '../stores/auth.store';
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha';
 import VueRecaptcha from 'vue3-recaptcha2'; // 使用默认导入
-import { uiThemePresets } from '../features/appearance/config/default-themes';
+import { useLoginTheme } from '../composables/useLoginTheme';
+import { useDeviceDetection } from '../composables/useDeviceDetection';
 
 const { t } = useI18n();
 const authStore = useAuthStore();
@@ -25,29 +26,9 @@ const captchaError = ref<string | null>(null); //  Store CAPTCHA specific error
 const hcaptchaWidget = ref<InstanceType<typeof VueHcaptcha> | null>(null); //  Ref for hCaptcha component instance
 const recaptchaWidget = ref<{ reset: () => void } | null>(null);
 
-const loginThemeStorageKey = 'nexus-terminal-login-theme';
-const loginThemeKey = ref('default');
-const activeLoginTheme = computed(() => uiThemePresets.find(theme => theme.key === loginThemeKey.value) ?? uiThemePresets[0]);
-const isDarkLoginTheme = computed(() => activeLoginTheme.value.mode === 'dark');
+const { isDark: isDarkLoginTheme, init: initLoginTheme, toggle: toggleLoginTheme } = useLoginTheme();
+const { isMobile } = useDeviceDetection();
 const recaptchaTheme = computed(() => isDarkLoginTheme.value ? 'dark' : 'light');
-
-const applyLoginTheme = (themeKey: string) => {
-  const theme = uiThemePresets.find(preset => preset.key === themeKey) ?? uiThemePresets[0];
-  loginThemeKey.value = theme.key;
-  for (const [name, value] of Object.entries(theme.theme)) {
-    document.documentElement.style.setProperty(name, value);
-  }
-  try {
-    localStorage.setItem(loginThemeStorageKey, theme.key);
-  } catch {
-    // 隐私模式或禁用存储时，主题仍保持当前页面有效。
-  }
-};
-
-const toggleLoginTheme = () => {
-  const nextTheme = isDarkLoginTheme.value ? uiThemePresets.find(theme => theme.mode === 'light') : uiThemePresets.find(theme => theme.mode === 'dark');
-  applyLoginTheme(nextTheme?.key ?? 'default');
-};
 
 // --- reCAPTCHA v3 Initialization ---
 // const recaptchaInstance = useReCaptcha(); // 移除 v3 实例，因为我们将使用 v2 组件
@@ -116,12 +97,7 @@ const handleSubmit = async () => {
 
  // Fetch CAPTCHA config and check passkey availability on component mount
 onMounted(async () => {
-  try {
-    const savedTheme = localStorage.getItem(loginThemeStorageKey);
-    applyLoginTheme(savedTheme ?? 'default');
-  } catch {
-    applyLoginTheme('default');
-  }
+  initLoginTheme();
   // console.log('[LoginView] Component mounted, calling fetchCaptchaConfig and checkHasPasskeysConfigured...');
   authStore.fetchCaptchaConfig();
   // Check if passkeys are available for login (uses the new public endpoint)
@@ -178,10 +154,11 @@ const handlePasskeyLogin = async () => {
 <template>
   <!-- Page Container -->
   <div class="relative flex items-center justify-center min-h-screen bg-background text-foreground p-4 transition-colors duration-200">
-    <button type="button" @click="toggleLoginTheme"
-            class="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-header text-foreground shadow-sm transition-colors hover:bg-nav-active-bg focus:outline-none focus:ring-2 focus:ring-primary/50"
-            :aria-label="isDarkLoginTheme ? '切换到亮色模式' : '切换到暗色模式'"
-            :title="isDarkLoginTheme ? '切换到亮色模式' : '切换到暗色模式'">
+    <!-- 桌面端：右上角固定；移动端：切换按钮在 MobileAppHeader 顶栏里 -->
+    <button v-if="!isMobile" type="button" @click="toggleLoginTheme" data-login-theme-toggle
+            class="fixed right-4 top-[4.25rem] z-20 inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-header text-foreground shadow-sm transition-colors hover:bg-nav-active-bg focus:outline-none focus:ring-2 focus:ring-primary/50"
+            :aria-label="isDarkLoginTheme ? t('login.switchToLight') : t('login.switchToDark')"
+            :title="isDarkLoginTheme ? t('login.switchToLight') : t('login.switchToDark')">
       <i :class="isDarkLoginTheme ? 'fas fa-sun' : 'fas fa-moon'" aria-hidden="true"></i>
     </button>
     <!-- Login Card -->

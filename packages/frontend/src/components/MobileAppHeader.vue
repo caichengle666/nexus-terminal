@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import { storeToRefs } from 'pinia';
 import logoUrl from '../assets/logo.png';
 import { useUiNotificationsStore } from '../stores/uiNotifications.store';
+import { useLoginTheme } from '../composables/useLoginTheme';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -35,6 +36,10 @@ const openTaskCenter = () => {
   menuOpen.value = false;
   window.dispatchEvent(new Event('open-task-notification-center'));
 };
+
+const { isDark: isDarkLoginTheme, toggle: toggleLoginTheme } = useLoginTheme();
+// 未登录（登录页）时在顶栏提供亮/暗切换，替代页面里悬浮的月亮按钮
+const showLoginThemeToggle = computed(() => !props.isAuthenticated && route.path === '/login');
 
 const navigationItems = computed(() => [
   { to: '/', label: t('nav.dashboard'), icon: 'fas fa-th-large' },
@@ -90,6 +95,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
         <span class="sr-only">{{ statusLabel }}</span>
       </div>
 
+      <button
+        v-if="showLoginThemeToggle"
+        type="button"
+        data-login-theme-toggle
+        class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded text-text-secondary hover:bg-hover hover:text-foreground"
+        :title="isDarkLoginTheme ? t('login.switchToLight') : t('login.switchToDark')"
+        :aria-label="isDarkLoginTheme ? t('login.switchToLight') : t('login.switchToDark')"
+        @click="toggleLoginTheme"
+      >
+        <i :class="isDarkLoginTheme ? 'fas fa-sun' : 'fas fa-moon'" aria-hidden="true" />
+      </button>
       <button
         v-if="isAuthenticated"
         type="button"

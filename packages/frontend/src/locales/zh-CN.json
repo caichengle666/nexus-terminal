@@ -227,6 +227,8 @@
     "remotePresetScriptWarning": "该远程 HTML 主题来自第三方仓库并包含脚本。脚本会在隔离的沙箱中运行，无法访问你的会话或数据，但会持续在后台执行。仅在信任该来源时应用。确定要应用吗？"
   },
   "login": {
+    "switchToLight": "切换到亮色模式",
+    "switchToDark": "切换到暗色模式",
     "title": "用户登录",
     "username": "用户名",
     "password": "密码",

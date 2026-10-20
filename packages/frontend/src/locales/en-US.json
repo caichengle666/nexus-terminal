@@ -227,6 +227,8 @@
     "remotePresetScriptWarning": "This remote HTML theme comes from a third-party repository and contains scripts. They run in an isolated sandbox without access to your sessions or data, but keep running in the background. Only apply it if you trust the source. Apply anyway?"
   },
   "login": {
+    "switchToLight": "Switch to light mode",
+    "switchToDark": "Switch to dark mode",
     "title": "User Login",
     "username": "Username",
     "password": "Password",
