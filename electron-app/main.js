@@ -1420,6 +1420,12 @@ handleTrusted('download-update', async (event, payload = {}) => {
   } catch (error) {
     return { ok: false, message: error.message };
   }
+  // A ZIP is the portable build: it may only replace a portable copy (which has
+  // the .Portable marker). Never extract it over / next to an installed copy.
+  const isZipUpdate = /\.zip$/i.test(safeFilename);
+  if (isZipUpdate && (process.platform !== 'win32' || getInstallationKind() !== 'portable')) {
+    return { ok: false, message: '便携版更新包只能用于便携版，请下载安装包进行更新。' };
+  }
   const updaterDir = path.join(app.getPath('temp'), 'nexus-terminal-updater');
   const targetPath = path.join(updaterDir, safeFilename);
   try {
@@ -1441,7 +1447,7 @@ handleTrusted('download-update', async (event, payload = {}) => {
   completedUpdateKind = null;
   completedUpdateSha256 = null;
   completedUpdateManifestSignatureVerified = false;
-  if (process.platform === 'win32' && /\.zip$/i.test(safeFilename)) completedUpdateKind = 'portable';
+  if (isZipUpdate) completedUpdateKind = 'portable';
   try {
     const explicitProxy = payload.proxy && payload.proxy.host && payload.proxy.port ? payload.proxy : null;
     const proxy = explicitProxy || await resolveSystemUpdateProxy(payload.url);
@@ -1642,7 +1648,10 @@ handleTrusted('install-update', async () => {
       completedUpdateSha256 = null;
       return { ok: false, message: `安装包签名无效：${signature.detail}` };
     }
-    const isPortable = completedUpdateKind === 'portable';
+    const isPortable = completedUpdateKind === 'portable' || /\.zip$/i.test(updatePath);
+    if (isPortable && (process.platform !== 'win32' || getInstallationKind() !== 'portable')) {
+      return { ok: false, message: '便携版更新包只能用于便携版，请下载安装包进行更新。' };
+    }
     const isDiskImage = /\.dmg$/i.test(updatePath);
     const confirmation = await dialog.showMessageBox(mainWindow, {
       type: 'question',
@@ -1655,10 +1664,8 @@ handleTrusted('install-update', async () => {
     });
     if (confirmation.response !== 0) return { ok: false, cancelled: true, message: tMain('updateCancelled') };
     if (isPortable && process.platform === 'win32') {
-      const currentExecutableDirectory = path.dirname(app.getPath('exe'));
-      const targetDirectory = fs.existsSync(path.join(currentExecutableDirectory, '.Portable'))
-        ? currentExecutableDirectory
-        : null;
+      // getInstallationKind() === 'portable' was checked above, so the marker exists here.
+      const targetDirectory = path.dirname(app.getPath('exe'));
       const result = await installPortableUpdate({
         archivePath: updatePath,
         updaterDir: path.dirname(updatePath),
