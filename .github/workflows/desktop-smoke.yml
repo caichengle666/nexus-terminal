@@ -30,7 +30,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          # same image as the arm64 build job (macos-latest arm64 runners are often out of capacity)
+          - os: macos-14
             platform: macos
           - os: windows-latest
             platform: windows
