@@ -9,7 +9,7 @@ const url = require('url');
 const express = require('express'); 
 const http = require('http'); 
 const { spawn } = require('child_process');
-const { randomUUID } = require('crypto');
+const { randomBytes, randomUUID } = require('crypto');
 const getBackendNodeModulesPath = () => {
   if (app.isPackaged) return path.join(process.resourcesPath, 'packages', 'backend', 'dist', 'node_modules');
   return path.join(__dirname, '..', 'packages', 'backend', 'node_modules');
@@ -57,6 +57,9 @@ const {
 const { UPDATE_PUBLIC_KEY_PEM } = require('./update-public-key');
 const {
   buildRdpFileContent,
+  isAllowedLocalHostHeader,
+  isAllowedSubframeNavigation,
+  isRendererPermissionAllowed,
   isSafeExternalUrl,
   isTrustedOrigin,
   sanitizeRdpConnection,
@@ -86,6 +89,14 @@ let previousCpuTimes = null;
 const localTerminalSessions = new Map();
 const PROD_FRONTEND_PORT = 22457;
 const PROD_BACKEND_PORT = 22458;
+// Both local servers bind to loopback only; nothing on the LAN may reach them.
+const LOCAL_BIND_ADDRESS = '127.0.0.1';
+// Per-launch secret shared only between this process and the backend child.
+// The local proxy injects it on proxied /api and websocket requests so the
+// backend can tell "desktop app on this machine" apart from anything else
+// (it replaces the old blind loopback trust for the initial admin setup).
+const DESKTOP_PROXY_TOKEN = randomBytes(32).toString('hex');
+const DESKTOP_PROXY_TOKEN_HEADER = 'x-nexus-desktop-token';
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -826,8 +837,12 @@ async function createWindow() {
           ...process.env,
           APP_BACKEND_DATA_PATH: backendDataPath,
           PORT: String(PROD_BACKEND_PORT),
-          // 桌面端用户不便查看后端日志：允许来自本机回环地址的初始管理员设置无需设置令牌
-          SETUP_ALLOW_LOOPBACK_WITHOUT_TOKEN: 'true'
+          // 仅监听本机回环，局域网无法直接访问后端
+          HOST: LOCAL_BIND_ADDRESS,
+          BIND_ADDRESS: LOCAL_BIND_ADDRESS,
+          // 桌面端用户不便查看后端日志：仅携带本次启动随机令牌 (由本地代理注入) 的请求可免设置令牌创建管理员
+          NEXUS_DESKTOP_PROXY_TOKEN: DESKTOP_PROXY_TOKEN,
+          SETUP_ALLOW_LOOPBACK_WITHOUT_TOKEN: '',
         },
       });
       backendProcess = child;
@@ -935,8 +950,22 @@ async function createWindow() {
 
     // 启动 express 前端服务器
     expressApp = express();
+    // DNS rebinding guard: only answer requests addressed to localhost/127.0.0.1:PORT.
+    expressApp.use((req, res, next) => {
+      if (!isAllowedLocalHostHeader(req.headers.host, PROD_FRONTEND_PORT)) {
+        console.warn(`[Security] Rejected request with unexpected Host header: ${String(req.headers.host).slice(0, 200)}`);
+        res.status(403).type('text/plain').send('Forbidden');
+        return;
+      }
+      next();
+    });
     expressApp.use((req, res, next) => {
       res.setHeader('Content-Security-Policy', FRONTEND_CSP);
+      next();
+    });
+    // Mark proxied requests as coming from this desktop app (overwrites any client-supplied value).
+    expressApp.use((req, _res, next) => {
+      req.headers[DESKTOP_PROXY_TOKEN_HEADER] = DESKTOP_PROXY_TOKEN;
       next();
     });
     const backendTarget = `http://127.0.0.1:${PROD_BACKEND_PORT}`;
@@ -960,10 +989,18 @@ async function createWindow() {
     });
 
     httpServer = http.createServer(expressApp);
-    httpServer.on('upgrade', backendProxy.upgrade);
+    httpServer.on('upgrade', (req, socket, head) => {
+      if (!isAllowedLocalHostHeader(req.headers.host, PROD_FRONTEND_PORT)) {
+        console.warn(`[Security] Rejected websocket upgrade with unexpected Host header: ${String(req.headers.host).slice(0, 200)}`);
+        socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+        return;
+      }
+      req.headers[DESKTOP_PROXY_TOKEN_HEADER] = DESKTOP_PROXY_TOKEN;
+      backendProxy.upgrade(req, socket, head);
+    });
 
     const frontendServerReadyPromise = new Promise((resolveFrontend, rejectFrontend) => {
-      httpServer.listen(PROD_FRONTEND_PORT, () => {
+      httpServer.listen(PROD_FRONTEND_PORT, LOCAL_BIND_ADDRESS, () => {
         frontendUrl = `http://localhost:${PROD_FRONTEND_PORT}`;
         frontendUrlForDownloads = frontendUrl;
         actualBackendUrlForFileDownloads = `http://localhost:${PROD_BACKEND_PORT}`; // 生产模式下，直接指向后端服务

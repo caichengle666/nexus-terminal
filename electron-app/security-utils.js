@@ -168,7 +168,61 @@ const buildRdpFileContent = ({ server, username }) => [
   'screen mode id:i:2',
 ].filter(Boolean).join('\n');
 
+
+// ---------------------------------------------------------------------------
+// Local servers (frontend express proxy)
+// ---------------------------------------------------------------------------
+
+// The local express server only answers requests addressed to itself by a
+// loopback name. Any other Host header (e.g. a DNS-rebinding attacker's domain
+// that now resolves to 127.0.0.1) is refused.
+const isAllowedLocalHostHeader = (hostHeader, port) => {
+  if (typeof hostHeader !== 'string') return false;
+  const value = hostHeader.trim().toLowerCase();
+  const expectedPort = String(port);
+  return value === `localhost:${expectedPort}` || value === `127.0.0.1:${expectedPort}`;
+};
+
+// ---------------------------------------------------------------------------
+// Renderer permissions
+// ---------------------------------------------------------------------------
+
+// Everything else (media, geolocation, midi, hid, serial, usb, openExternal,
+// pointerLock, display-capture, ...) is denied. clipboard-read is needed for
+// terminal / remote-desktop paste (navigator.clipboard.readText).
+const ALLOWED_RENDERER_PERMISSIONS = new Set([
+  'clipboard-read',
+  'clipboard-sanitized-write',
+  'notifications',
+  'fullscreen',
+]);
+
+const isRendererPermissionAllowed = (permission, requestingUrl, trustedOrigins) => (
+  typeof permission === 'string'
+  && ALLOWED_RENDERER_PERMISSIONS.has(permission)
+  && isTrustedOrigin(requestingUrl, trustedOrigins)
+);
+
+// Sub-frame (iframe) navigations: the bundled frontend itself, blank/srcdoc
+// frames and https pages (captcha widgets) only. file:, data:, foreign blob:,
+// plain http: to other hosts and custom schemes are refused.
+const isAllowedSubframeNavigation = (value, trustedOrigins) => {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  if (value === 'about:blank' || value === 'about:srcdoc') return true;
+  if (isTrustedOrigin(value, trustedOrigins)) return true;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+};
+
 module.exports = {
+  isAllowedSubframeNavigation,
+  ALLOWED_RENDERER_PERMISSIONS,
+  isAllowedLocalHostHeader,
+  isRendererPermissionAllowed,
   BLOCKED_OPEN_PATH_EXTENSIONS,
   buildRdpFileContent,
   getUrlOrigin,
