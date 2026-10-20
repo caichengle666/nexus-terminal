@@ -13,11 +13,23 @@ CREATE TABLE IF NOT EXISTS migrations (
 // 注意：这里的迁移应该代表数据库模式从某个已知状态到下一个状态的变化。
 // 初始模式通常在 database.ts 中通过 schema.registry.ts 创建。
 // 这里的迁移应该从版本 1 开始，代表初始模式创建后的第一个变更。
+export interface ColumnSpec {
+    table: string;
+    column: string;
+    definition: string; // 例如 'TEXT NULL'
+}
+
 interface Migration {
     id: number;
     name: string;
-    sql: string; // 可以是多条 SQL 语句，用 ; 分隔。db.exec 会处理。
-    check?: (db: Database) => Promise<boolean>; // 可选的前置检查函数
+    sql?: string; // 可以是多条 SQL 语句，用 ; 分隔。db.exec 会处理。仅在 check 通过 (或无 check) 时执行。
+    /**
+     * 需要新增的列：每一列单独执行 ALTER TABLE ... ADD COLUMN，并先用 columnExists 判断，
+     * 已存在的列直接跳过。不要把多个 ADD COLUMN 写进 sql：db.exec 会在第一条失败语句处停止，
+     * 后面的语句不会执行。
+     */
+    addColumns?: ColumnSpec[];
+    check?: (db: Database) => Promise<boolean>; // 可选的前置检查函数 (只控制 sql)
 }
 
 // 辅助函数：检查表是否存在
@@ -30,14 +42,37 @@ const tableExists = async (db: Database, tableName: string): Promise<boolean> =>
     });
 };
 
+const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const assertIdentifier = (name: string): string => {
+    if (!IDENTIFIER_RE.test(name)) throw new Error(`非法的 SQL 标识符: ${name}`);
+    return name;
+};
+
 // 辅助函数：检查列是否存在
-const columnExists = async (db: Database, tableName: string, columnName: string): Promise<boolean> => {
+export const columnExists = async (db: Database, tableName: string, columnName: string): Promise<boolean> => {
     return new Promise((resolve, reject) => {
-        db.all(`PRAGMA table_info(${tableName})`, (err, columns: any[]) => {
+        db.all(`PRAGMA table_info(${assertIdentifier(tableName)})`, (err, columns: any[]) => {
             if (err) reject(err);
-            else resolve(columns.some(col => col.name === columnName));
+            else resolve((columns || []).some(col => col.name === columnName));
         });
     });
+};
+
+/**
+ * 列不存在时新增列；已存在时跳过。返回是否实际新增。
+ * 表不存在时抛错 (不再静默吞掉迁移错误)。
+ */
+export const addColumnIfMissing = async (db: Database, spec: ColumnSpec): Promise<boolean> => {
+    const table = assertIdentifier(spec.table);
+    const column = assertIdentifier(spec.column);
+    if (!(await tableExists(db, table))) {
+        throw new Error(`表 ${table} 不存在，无法新增列 ${column}`);
+    }
+    if (await columnExists(db, table, column)) return false;
+    await new Promise<void>((resolve, reject) => {
+        db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${spec.definition}`, (err) => err ? reject(err) : resolve());
+    });
+    return true;
 };
 
 // 辅助函数：获取表的创建 SQL
@@ -50,6 +85,16 @@ const getTableCreateSQL = async (db: Database, tableName: string): Promise<strin
     });
 };
 
+
+const TERMINAL_THEME_EXTENDED_COLUMNS: ColumnSpec[] = [
+    'selection_foreground',
+    'selection_inactive_background',
+    'scrollbar_slider_background',
+    'scrollbar_slider_hover_background',
+    'scrollbar_slider_active_background',
+    'overview_ruler_border',
+    'extended_ansi',
+].map(column => ({ table: 'terminal_themes', column, definition: 'TEXT NULL' }));
 
 const definedMigrations: Migration[] = [
     {
@@ -73,15 +118,10 @@ const definedMigrations: Migration[] = [
                 updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
             );
 
-            -- 为 connections 表添加 ssh_key_id 列及外键 (如果列不存在)
-            -- 注意: 直接 ALTER TABLE 添加列在列已存在时会抛出 "duplicate column name" 错误。
-            --       迁移运行器 (runMigrations) 已配置为忽略此特定错误。
-            ALTER TABLE connections ADD COLUMN ssh_key_id INTEGER NULL REFERENCES ssh_keys(id) ON DELETE SET NULL;
-
-            -- 可选: 对旧数据进行清理或更新
-            -- UPDATE connections SET encrypted_private_key = NULL WHERE encrypted_private_key = ''; -- 示例
-            -- UPDATE connections SET encrypted_passphrase = NULL WHERE encrypted_passphrase = ''; -- 示例
-        `
+        `,
+        addColumns: [
+            { table: 'connections', column: 'ssh_key_id', definition: 'INTEGER NULL REFERENCES ssh_keys(id) ON DELETE SET NULL' },
+        ]
     },
     // --- Quick Command Tags Migrations ---
     {
@@ -125,10 +165,9 @@ const definedMigrations: Migration[] = [
             const notesColumnExists = await columnExists(db, 'connections', 'notes');
             return !notesColumnExists;
         },
-        sql: `
-            -- Add the notes column to the connections table, allowing NULL values
-            ALTER TABLE connections ADD COLUMN notes TEXT NULL;
-        `
+        addColumns: [
+            { table: 'connections', column: 'notes', definition: 'TEXT NULL' },
+        ]
     },
     {
         id: 5,
@@ -277,7 +316,7 @@ const definedMigrations: Migration[] = [
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NULL,
                 path TEXT NOT NULL,
-                last_used_at INTEGER NULL;
+                last_used_at INTEGER NULL,
                 created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
             );
@@ -286,10 +325,10 @@ const definedMigrations: Migration[] = [
     {
         id: 9,
         name: 'Add jump_chain and proxy_type columns to connections table',
-        sql: `
-            ALTER TABLE connections ADD COLUMN jump_chain TEXT NULL;
-            ALTER TABLE connections ADD COLUMN proxy_type TEXT NULL;
-        `,
+        addColumns: [
+            { table: 'connections', column: 'jump_chain', definition: 'TEXT NULL' },
+            { table: 'connections', column: 'proxy_type', definition: 'TEXT NULL' },
+        ],
         check: async (db: Database): Promise<boolean> => {
             const jumpChainColumnExists = await columnExists(db, 'connections', 'jump_chain');
             const proxyTypeColumnExists = await columnExists(db, 'connections', 'proxy_type');
@@ -303,26 +342,20 @@ const definedMigrations: Migration[] = [
             const columnAlreadyExists = await columnExists(db, 'quick_commands', 'variables');
             return !columnAlreadyExists;
         },
-        sql: `
-            ALTER TABLE quick_commands ADD COLUMN variables TEXT NULL;
-        `
+        addColumns: [
+            { table: 'quick_commands', column: 'variables', definition: 'TEXT NULL' },
+        ]
     },
     {
         id: 11,
         name: 'Add extended xterm theme fields to terminal_themes table',
         check: async (db: Database): Promise<boolean> => {
-            const selectionForegroundExists = await columnExists(db, 'terminal_themes', 'selection_foreground');
-            return !selectionForegroundExists;
+            for (const spec of TERMINAL_THEME_EXTENDED_COLUMNS) {
+                if (!(await columnExists(db, spec.table, spec.column))) return true;
+            }
+            return false;
         },
-        sql: `
-            ALTER TABLE terminal_themes ADD COLUMN selection_foreground TEXT NULL;
-            ALTER TABLE terminal_themes ADD COLUMN selection_inactive_background TEXT NULL;
-            ALTER TABLE terminal_themes ADD COLUMN scrollbar_slider_background TEXT NULL;
-            ALTER TABLE terminal_themes ADD COLUMN scrollbar_slider_hover_background TEXT NULL;
-            ALTER TABLE terminal_themes ADD COLUMN scrollbar_slider_active_background TEXT NULL;
-            ALTER TABLE terminal_themes ADD COLUMN overview_ruler_border TEXT NULL;
-            ALTER TABLE terminal_themes ADD COLUMN extended_ansi TEXT NULL;
-        `
+        addColumns: TERMINAL_THEME_EXTENDED_COLUMNS
     },
     {
         id: 12,
@@ -331,9 +364,21 @@ const definedMigrations: Migration[] = [
             const columnAlreadyExists = await columnExists(db, 'connections', 'host_key_fingerprint');
             return !columnAlreadyExists;
         },
-        sql: `
-            ALTER TABLE connections ADD COLUMN host_key_fingerprint TEXT NULL;
-        `
+        addColumns: [
+            { table: 'connections', column: 'host_key_fingerprint', definition: 'TEXT NULL' },
+        ]
+    },
+    {
+        id: 13,
+        name: 'Repair columns skipped by earlier multi-statement migrations; add users.session_version',
+        // 旧版本迁移 #9/#11 在第一条 ADD COLUMN 失败 (列已存在) 后不会执行后续语句，却仍被记为已应用。
+        // 这里逐列补齐；已存在的列会被跳过。
+        addColumns: [
+            { table: 'connections', column: 'jump_chain', definition: 'TEXT NULL' },
+            { table: 'connections', column: 'proxy_type', definition: 'TEXT NULL' },
+            ...TERMINAL_THEME_EXTENDED_COLUMNS,
+            { table: 'users', column: 'session_version', definition: 'INTEGER NOT NULL DEFAULT 0' },
+        ]
     }
 ];
 
@@ -403,25 +448,25 @@ export const runMigrations = (db: Database): Promise<void> => {
                                     console.log(`[Migrations] 迁移 #${migration.id} 前置检查结果: ${needsSqlExecution ? '需要执行 SQL' : '跳过 SQL 执行'}`);
                                 }
 
-                                if (needsSqlExecution) {
-                                    // 步骤 4.2: 执行迁移 SQL
+                                if (needsSqlExecution && migration.sql && migration.sql.trim()) {
+                                    // 步骤 4.2: 执行迁移 SQL (任何错误都会导致回滚并中止，不再静默吞掉)
                                     console.log(`[Migrations] 执行迁移 #${migration.id} 的 SQL...`);
                                     await new Promise<void>((resolveSql, rejectSql) => {
-                                        db.exec(migration.sql, (execErr) => {
+                                        db.exec(migration.sql as string, (execErr) => {
                                             if (execErr) {
-                                                // 特别处理 "duplicate column name" 错误
-                                                if (execErr.message.includes('duplicate column name')) {
-                                                    console.warn(`[Migrations] 迁移 #${migration.id} SQL 执行时出现 'duplicate column name' 错误，视为可接受并继续。`);
-                                                    resolveSql();
-                                                } else {
-                                                    console.error(`[Migrations] 执行迁移 #${migration.id} SQL 失败:`, execErr);
-                                                    rejectSql(execErr);
-                                                }
+                                                console.error(`[Migrations] 执行迁移 #${migration.id} SQL 失败:`, execErr);
+                                                rejectSql(execErr);
                                             } else {
                                                 resolveSql();
                                             }
                                         });
                                     });
+                                }
+
+                                // 步骤 4.2b: 逐列新增 (已存在的列跳过)
+                                for (const spec of migration.addColumns ?? []) {
+                                    const added = await addColumnIfMissing(db, spec);
+                                    if (added) console.log(`[Migrations] 迁移 #${migration.id}: 已新增列 ${spec.table}.${spec.column}`);
                                 }
 
                                 // 步骤 4.3: 记录迁移到 migrations 表
