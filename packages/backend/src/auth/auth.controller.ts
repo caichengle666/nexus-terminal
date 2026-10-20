@@ -13,6 +13,7 @@ import { passkeyService } from '../passkey/passkey.service'; // +++ Passkey Serv
 import { passkeyRepository } from '../passkey/passkey.repository'; // +++ Passkey Repository
 import { userRepository } from '../user/user.repository'; // For passkey auth success
 import { getOrCreateSetupToken, invalidateSetupToken, isLoopbackBypassAllowed, verifySetupToken } from './setup-token';
+import { bumpSessionVersion, emitSessionRevoked, getCurrentSessionVersion, isSessionVersionCurrent } from './session-version';
 
 const notificationService = new NotificationService();
 const auditLogService = new AuditLogService();
@@ -38,6 +39,31 @@ const regenerateSession = (req: Request): Promise<void> => new Promise((resolve,
     req.session.regenerate((error) => error ? reject(error) : resolve());
 });
 
+/** 登录成功后写入会话版本号 */
+const stampSessionVersion = async (req: Request, userId: number): Promise<void> => {
+    req.session.sessionVersion = (await getCurrentSessionVersion(userId)) ?? 0;
+};
+
+/**
+ * 修改密码 / 启用或禁用 2FA 后调用：递增会话版本使其他会话失效，
+ * 重新生成当前会话 (写入新版本号，保持登录)，并关闭该用户其他会话的 WebSocket 与 SSH 连接。
+ */
+const revokeOtherSessions = async (req: Request, userId: number, reason: string): Promise<void> => {
+    const previousExpressSessionId = req.sessionID;
+    const username = req.session.username;
+    const rememberMe = req.session.rememberMe;
+    const maxAge = req.session.cookie.maxAge;
+    const newVersion = await bumpSessionVersion(userId);
+    await regenerateSession(req);
+    req.session.userId = userId;
+    req.session.username = username;
+    req.session.requiresTwoFactor = false;
+    req.session.rememberMe = rememberMe;
+    req.session.sessionVersion = newVersion;
+    req.session.cookie.maxAge = maxAge ?? undefined;
+    emitSessionRevoked({ userId, exceptExpressSessionId: previousExpressSessionId, reason });
+};
+
 export interface User { 
     id: number;
     username: string;
@@ -55,6 +81,8 @@ declare module 'express-session' {
         currentChallenge?: string; // +++ For Passkey challenge storage
         passkeyUserHandle?: string; // +++ For Passkey user handle (user ID as string)
         rememberMe?: boolean;
+        sessionVersion?: number;
+        twoFactorFailedAttempts?: number;
     }
 }
 
@@ -206,6 +234,8 @@ export const verifyPasskeyAuthenticationHandler = async (req: Request, res: Resp
             req.session.userId = user.id;
             req.session.username = user.username;
             req.session.requiresTwoFactor = false; // Passkey implies 2FA characteristics
+            req.session.rememberMe = !!rememberMe;
+            await stampSessionVersion(req, user.id);
 
             if (rememberMe) {
                 req.session.cookie.maxAge = REMEMBER_ME_MAX_AGE_MS;
@@ -449,6 +479,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             req.session.userId = user.id;
             req.session.username = user.username;
             req.session.requiresTwoFactor = false; 
+            req.session.rememberMe = !!rememberMe;
+            await stampSessionVersion(req, user.id);
 
             if (rememberMe) {
                 req.session.cookie.maxAge = REMEMBER_ME_MAX_AGE_MS;
@@ -487,6 +519,11 @@ export const getAuthStatus = async (req: Request, res: Response): Promise<void> 
         if (!user) {
              res.status(401).json({ isAuthenticated: false });
              return;
+        }
+        if (!isSessionVersionCurrent(req.session.sessionVersion, await getCurrentSessionVersion(userId))) {
+            req.session.destroy(() => { /* ignore */ });
+            res.status(401).json({ isAuthenticated: false, code: 'SESSION_REVOKED' });
+            return;
         }
 
         res.status(200).json({
@@ -554,6 +591,8 @@ export const verifyLogin2FA = async (req: Request, res: Response): Promise<void>
             notificationService.sendNotification('LOGIN_SUCCESS', { userId: user.id, username: user.username, ip: clientIp, twoFactor: true }); 
             req.session.username = user.username;
             req.session.requiresTwoFactor = false; 
+            req.session.rememberMe = !!rememberMe;
+            await stampSessionVersion(req, user.id);
 
             if (rememberMe) {
                 req.session.cookie.maxAge = REMEMBER_ME_MAX_AGE_MS;
@@ -644,6 +683,7 @@ export const changePassword = async (req: Request, res: Response): Promise<void>
         const clientIp = req.ip || req.socket?.remoteAddress || 'unknown'; 
         auditLogService.logAction('PASSWORD_CHANGED', { userId, ip: clientIp });
         notificationService.sendNotification('PASSWORD_CHANGED', { userId, ip: clientIp }); 
+        await revokeOtherSessions(req, userId, 'password_changed');
 
         res.status(200).json({ message: '密码已成功修改。' });
 
@@ -758,6 +798,7 @@ export const verifyAndActivate2FA = async (req: Request, res: Response): Promise
             notificationService.sendNotification('2FA_ENABLED', { userId, ip: clientIp }); 
 
             delete req.session.tempTwoFactorSecret;
+            await revokeOtherSessions(req, userId, '2fa_enabled');
 
             res.status(200).json({ message: '两步验证已成功激活！' });
         } else {
@@ -815,6 +856,7 @@ export const disable2FA = async (req: Request, res: Response): Promise<void> => 
         const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
         auditLogService.logAction('2FA_DISABLED', { userId, ip: clientIp });
         notificationService.sendNotification('2FA_DISABLED', { userId, ip: clientIp }); 
+        await revokeOtherSessions(req, userId, '2fa_disabled');
 
         res.status(200).json({ message: '两步验证已成功禁用。' });
 
@@ -936,6 +978,7 @@ export const setupAdmin = async (req: Request, res: Response): Promise<void> => 
 export const logout = (req: Request, res: Response): void => {
     const userId = req.session.userId;
     const username = req.session.username;
+    const expressSessionId = req.sessionID;
 
     req.session.destroy((err) => {
         if (err) {
@@ -945,6 +988,8 @@ export const logout = (req: Request, res: Response): void => {
             console.log(`用户 ${userId} (${username}) 已成功登出。`);
             res.clearCookie('connect.sid'); 
             if (userId) { 
+                 // 关闭这个会话打开的 WebSocket 及其 SSH 连接
+                 emitSessionRevoked({ userId, onlyExpressSessionId: expressSessionId, reason: 'logout' });
                  const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
                  auditLogService.logAction('LOGOUT', { userId, username, ip: clientIp });
                  notificationService.sendNotification('LOGOUT', { userId, username, ip: clientIp }); 
