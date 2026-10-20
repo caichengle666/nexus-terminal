@@ -29,9 +29,15 @@ const isLoopbackHost = (host: string | undefined) => host === '127.0.0.1' || hos
 
 if (!REMOTE_GATEWAY_SECRET) {
     if (isLoopbackHost(REMOTE_GATEWAY_API_HOST)) {
-        console.warn(`[Remote Gateway] 警告：未设置 REMOTE_GATEWAY_SECRET，令牌 API 仅监听 ${API_HOST_LABEL}。如需供其他主机/容器访问，请在后端与网关两侧配置相同的 REMOTE_GATEWAY_SECRET。`);
+        console.warn(`[Remote Gateway] 警告：未设置 REMOTE_GATEWAY_SECRET，令牌 API 仅监听 ${API_HOST_LABEL}。如需供其他主机/容器 (例如 Docker 中的后端) 访问，请在后端与网关两侧配置相同的 REMOTE_GATEWAY_SECRET。`);
     } else {
-        console.warn(`[Remote Gateway] !!! 安全警告：未设置 REMOTE_GATEWAY_SECRET，但令牌 API 监听在 ${API_HOST_LABEL}。任何能访问该端口的客户端都可以申请远程桌面令牌。请尽快在 .env 中设置 REMOTE_GATEWAY_SECRET (重新运行 install.sh 会自动生成)。 !!!`);
+        // 未设置共享密钥时拒绝在非回环地址上开放令牌 API：否则任何能访问该端口的客户端都能申请远程桌面令牌
+        // (令牌中包含目标主机与凭据，网关会替其连接内网中的任意 RDP/VNC 主机)。
+        console.error(`[Remote Gateway] 错误：未设置 REMOTE_GATEWAY_SECRET，拒绝在 ${API_HOST_LABEL} 上开放令牌 API。`);
+        console.error('[Remote Gateway] 解决方法：在 .env 中设置 REMOTE_GATEWAY_SECRET (例如 `openssl rand -hex 32` 的输出；重新运行 install.sh 会自动生成)，后端与网关使用同一个值；');
+        console.error('[Remote Gateway] 或将 REMOTE_GATEWAY_API_HOST 设置为 127.0.0.1 (仅本机访问)。');
+        console.error('[Remote Gateway] Error: REMOTE_GATEWAY_SECRET is empty; refusing to expose the token API on a non-loopback address. Set REMOTE_GATEWAY_SECRET (same value for backend and gateway) or set REMOTE_GATEWAY_API_HOST=127.0.0.1.');
+        process.exit(1);
     }
 }
 
@@ -139,10 +145,13 @@ const verifyClient = (
         const expiresAt = issuedTokens.get(jti);
         if (!jti || expiresAt === undefined || expiresAt <= Date.now() || typeof payload.exp !== 'number' || payload.exp <= Date.now()) {
             if (jti) issuedTokens.delete(jti);
-            console.warn('[Remote Gateway] 拒绝 WebSocket 连接：令牌已过期或无效。');
+            console.warn('[Remote Gateway] 拒绝 WebSocket 连接：令牌已过期、已使用或无效。');
             callback(false, 401, 'Token expired or invalid');
             return;
         }
+        // 令牌一次性使用：首次握手成功即作废，泄露的令牌 (例如出现在日志中的 URL) 无法被重放。
+        // 前端每次连接 / 重连都会重新申请令牌。
+        issuedTokens.delete(jti);
         callback(true);
     } catch (error) {
         console.warn('[Remote Gateway] 拒绝 WebSocket 连接：令牌解析失败。');
@@ -248,7 +257,9 @@ app.post('/api/remote-desktop/token', requireGatewaySecret, (req: Request, res: 
         settings.username = username as string;
         settings.password = password as string;
         settings.security = security || 'any'; // RDP 特有，使用默认值 'any'
-        settings['ignore-cert'] = String(ignoreCert || 'true'); // RDP 特有
+        // RDP 特有：是否忽略服务器证书。缺省为 false (校验证书)；仅当后端明确传入 true 时才忽略
+        // (后端按连接设置 / RDP_IGNORE_CERT 环境变量决定，Windows 默认自签名证书通常需要忽略)。
+        settings['ignore-cert'] = (ignoreCert === true || String(ignoreCert).toLowerCase() === 'true') ? 'true' : 'false';
         settings.dpi = String(dpi || '96'); // RDP 特有
     } else if (protocol === 'vnc') {
         if (typeof password === 'undefined') {

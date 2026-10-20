@@ -88,7 +88,7 @@ export const getRemoteDesktopToken = async (
         connectionConfig.password = decryptedPassword || ''; // RDP 通常需要密码
         connectionConfig.dpi = dpi || '96';
         connectionConfig.security = (connection as any).rdp_security || 'any';
-        connectionConfig.ignoreCert = String((connection as any).rdp_ignore_cert ?? true);
+        connectionConfig.ignoreCert = String((connection as any).rdp_ignore_cert ?? ((process.env.RDP_IGNORE_CERT || 'true').trim().toLowerCase() !== 'false'));
     } else if (protocol === 'vnc') {
         connectionConfig.password = decryptedPassword || ''; // VNC 通常需要密码
         if (connection.username) { // VNC 用户名是可选的
