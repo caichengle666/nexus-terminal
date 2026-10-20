@@ -11,8 +11,17 @@ services:
     ports:
       - "18111:80"
     depends_on:
-      - backend
-      - remote-gateway
+      backend:
+        condition: service_healthy
+      # 前端不代理网关流量；网关未就绪 (例如未配置 REMOTE_GATEWAY_SECRET) 时不应阻止前端启动
+      remote-gateway:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/nginx-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - nexus-terminal-network
     restart: unless-stopped
@@ -35,6 +44,12 @@ services:
       REMOTE_GATEWAY_SECRET: ${REMOTE_GATEWAY_SECRET:-}
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3001/api/v1/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     networks:
       - nexus-terminal-network
     restart: unless-stopped
@@ -53,14 +68,26 @@ services:
       FRONTEND_URL: http://frontend
       MAIN_BACKEND_URL: http://backend:3001
       NODE_ENV: production
-      # 令牌 API 仅在 Docker 内部网络中可达 (未映射端口)；'*' = 监听所有接口
-      REMOTE_GATEWAY_API_HOST: "*"
+      # 令牌 API 监听地址。留空 (默认) 时：设置了 REMOTE_GATEWAY_SECRET 则监听所有接口
+      # (后端需通过 Docker 网络以服务名 remote-gateway 访问，因此不能只监听 127.0.0.1)，
+      # 未设置密钥则仅监听 127.0.0.1 (后端无法访问，远程桌面不可用)。
+      # 显式设置为非回环地址 (如 '*') 但未设置密钥时，网关会拒绝启动。
+      REMOTE_GATEWAY_API_HOST: ${REMOTE_GATEWAY_API_HOST:-}
       REMOTE_GATEWAY_SECRET: ${REMOTE_GATEWAY_SECRET:-}
+    healthcheck:
+      # /api/health 在 guacd 不可达时返回 503
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks:
       - nexus-terminal-network
     depends_on:
-      - guacd
-      - backend
+      guacd:
+        condition: service_started
+      backend:
+        condition: service_started
     restart: unless-stopped
 
   guacd:
