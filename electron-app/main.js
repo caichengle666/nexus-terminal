@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage, shell, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage, shell, screen, net, Notification } = require('electron');
 const { captureWindowState, resolveWindowState } = require('./window-state');
 const { createTranslator } = require('./main-i18n');
 const { HARDWARE_ACCELERATION_MODES, createGpuController, resolveDataDir } = require('./gpu-mode');
@@ -9,7 +9,7 @@ const url = require('url');
 const express = require('express'); 
 const http = require('http'); 
 const { spawn } = require('child_process');
-const { randomUUID } = require('crypto');
+const { randomBytes, randomUUID } = require('crypto');
 const getBackendNodeModulesPath = () => {
   if (app.isPackaged) return path.join(process.resourcesPath, 'packages', 'backend', 'dist', 'node_modules');
   return path.join(__dirname, '..', 'packages', 'backend', 'node_modules');
@@ -57,6 +57,9 @@ const {
 const { UPDATE_PUBLIC_KEY_PEM } = require('./update-public-key');
 const {
   buildRdpFileContent,
+  isAllowedLocalHostHeader,
+  isAllowedSubframeNavigation,
+  isRendererPermissionAllowed,
   isSafeExternalUrl,
   isTrustedOrigin,
   sanitizeRdpConnection,
@@ -64,6 +67,7 @@ const {
 } = require('./security-utils');
 const updateNetwork = require('./update-network');
 const updateDownloadService = require('./update-download-service');
+const { STARTUP_UPDATE_CHECK_DELAY_MS, checkForStartupUpdate } = require('./update-startup-check');
 
 let mainWindow;
 let expressApp;
@@ -86,13 +90,27 @@ let previousCpuTimes = null;
 const localTerminalSessions = new Map();
 const PROD_FRONTEND_PORT = 22457;
 const PROD_BACKEND_PORT = 22458;
+// Both local servers bind to loopback only; nothing on the LAN may reach them.
+const LOCAL_BIND_ADDRESS = '127.0.0.1';
+// Per-launch secret shared only between this process and the backend child.
+// The local proxy injects it on proxied /api and websocket requests so the
+// backend can tell "desktop app on this machine" apart from anything else
+// (it replaces the old blind loopback trust for the initial admin setup).
+const DESKTOP_PROXY_TOKEN = randomBytes(32).toString('hex');
+const DESKTOP_PROXY_TOKEN_HEADER = 'x-nexus-desktop-token';
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
   // A second launch just brings the running window to the front.
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv = []) => {
+    // node-pty (Windows, ConPTY) kills a terminal via child_process.fork(
+    // 'conpty_console_list_agent'), which relies on ELECTRON_RUN_AS_NODE. The
+    // runAsNode fuse is deliberately kept ON for that reason (turning it off makes
+    // every local-terminal close spawn a throwaway app instance + 5 s node-pty
+    // timeout). This guard stays in case the fuse is ever turned off.
+    if (Array.isArray(argv) && argv.some(arg => /conpty_console_list_agent/i.test(String(arg)))) return;
     showMainWindow();
   });
 }
@@ -134,6 +152,10 @@ let completedUpdateManifestSignatureVerified = false;
 let updateInstallInProgress = false;
 let updateProxyAgent = null;
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
+// DevTools only for unpackaged builds. A packaged build started with an explicit
+// --remote-debugging-port (README screenshot CI) already grants full CDP access
+// to whoever launched it, so keep its targets inspectable there as well.
+const isDevToolsAllowed = () => !app.isPackaged || app.commandLine.hasSwitch('remote-debugging-port');
 
 const isUpdaterNetworkError = error => {
   const code = error?.code;
@@ -300,7 +322,79 @@ app.on('web-contents-created', (_event, contents) => {
     openExternalSafely(targetUrl, 'window.open');
     return { action: 'deny' };
   });
+  // Main-frame navigation is handled per window by lockDownNavigation (will-navigate);
+  // this guards iframes, which will-navigate does not cover.
+  contents.on('will-frame-navigate', event => {
+    if (event.isMainFrame) return;
+    if (isAllowedSubframeNavigation(event.url, getTrustedFrontendOrigins())) return;
+    event.preventDefault();
+    console.warn(`[Security] Blocked sub-frame navigation to ${String(event.url).slice(0, 200)}`);
+  });
 });
+
+// Deny every permission by default; allow only the few the trusted frontend
+// actually needs (clipboard for terminal paste, notifications, fullscreen).
+// 'openExternal' and everything else is refused.
+const installSessionPermissionPolicy = targetSession => {
+  if (!targetSession) return;
+  targetSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestingUrl = details?.requestingUrl || webContents?.getURL?.() || '';
+    const allowed = isRendererPermissionAllowed(permission, requestingUrl, getTrustedFrontendOrigins());
+    if (!allowed) console.warn(`[Security] Denied permission request '${permission}' from ${String(requestingUrl).slice(0, 200)}`);
+    callback(allowed);
+  });
+  targetSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    const requestingUrl = requestingOrigin || details?.requestingUrl || webContents?.getURL?.() || '';
+    return isRendererPermissionAllowed(permission, requestingUrl, getTrustedFrontendOrigins());
+  });
+  targetSession.setDevicePermissionHandler?.(() => false);
+};
+
+// No default application menu on Windows/Linux (it exposes DevTools / reload
+// accelerators). macOS keeps a minimal menu so Cmd+C/V/X/A/Z and Cmd+Q work.
+const installApplicationMenu = () => {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null);
+    return;
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { role: 'togglefullscreen' },
+        { type: 'separator' },
+        { role: 'front' },
+      ],
+    },
+  ]));
+};
 
 if (isUpdatePublicKeyConfigured(UPDATE_PUBLIC_KEY_PEM)) {
   try {
@@ -311,6 +405,37 @@ if (isUpdatePublicKeyConfigured(UPDATE_PUBLIC_KEY_PEM)) {
 } else {
   console.warn('[Updater] UPDATE_PUBLIC_KEY_PEM is not configured: update manifests are NOT signature-verified (SHA-256 only).');
 }
+
+// Silent update check once, ~10 s after the frontend is loaded. Only an
+// available update is surfaced (native notification); downloading and
+// installing stay in Settings > About with checksum/signature verification.
+let startupUpdateCheckScheduled = false;
+const scheduleStartupUpdateCheck = () => {
+  if (startupUpdateCheckScheduled || isDev) return;
+  startupUpdateCheckScheduled = true;
+  setTimeout(async () => {
+    if (isQuitting) return;
+    const currentVersion = require('./package.json').releaseVersion || app.getVersion();
+    const update = await checkForStartupUpdate({
+      fetchImpl: (target, options) => net.fetch(target, options),
+      currentVersion,
+    });
+    if (!update || isQuitting) return;
+    console.log(`[Updater] Startup check: ${update.version} is available (current ${currentVersion}).`);
+    try {
+      if (!Notification.isSupported()) return;
+      const notification = new Notification({
+        title: tMain('updateAvailableTitle'),
+        body: tMain('updateAvailableBody', { version: update.version, current: currentVersion }),
+        silent: false,
+      });
+      notification.on('click', () => showMainWindow());
+      notification.show();
+    } catch (error) {
+      console.warn(`[Updater] Unable to show update notification: ${error.message}`);
+    }
+  }, STARTUP_UPDATE_CHECK_DELAY_MS).unref?.();
+};
 
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -401,6 +526,7 @@ function createFloatingNotificationBell() {
       contextIsolation: true,
       sandbox: true,
       webviewTag: false,
+      devTools: isDevToolsAllowed(),
       preload: path.join(__dirname, 'preload.js'),
     },
   });
@@ -584,6 +710,7 @@ async function createWindow() {
       contextIsolation: true, // 启用上下文隔离
       sandbox: true, // preload 只使用 contextBridge/ipcRenderer
       webviewTag: false,
+      devTools: isDevToolsAllowed(),
     },
   });
   // Only the startup screen and the trusted local frontend may be shown here.
@@ -826,8 +953,12 @@ async function createWindow() {
           ...process.env,
           APP_BACKEND_DATA_PATH: backendDataPath,
           PORT: String(PROD_BACKEND_PORT),
-          // 桌面端用户不便查看后端日志：允许来自本机回环地址的初始管理员设置无需设置令牌
-          SETUP_ALLOW_LOOPBACK_WITHOUT_TOKEN: 'true'
+          // 仅监听本机回环，局域网无法直接访问后端
+          HOST: LOCAL_BIND_ADDRESS,
+          BIND_ADDRESS: LOCAL_BIND_ADDRESS,
+          // 桌面端用户不便查看后端日志：仅携带本次启动随机令牌 (由本地代理注入) 的请求可免设置令牌创建管理员
+          NEXUS_DESKTOP_PROXY_TOKEN: DESKTOP_PROXY_TOKEN,
+          SETUP_ALLOW_LOOPBACK_WITHOUT_TOKEN: '',
         },
       });
       backendProcess = child;
@@ -935,8 +1066,22 @@ async function createWindow() {
 
     // 启动 express 前端服务器
     expressApp = express();
+    // DNS rebinding guard: only answer requests addressed to localhost/127.0.0.1:PORT.
+    expressApp.use((req, res, next) => {
+      if (!isAllowedLocalHostHeader(req.headers.host, PROD_FRONTEND_PORT)) {
+        console.warn(`[Security] Rejected request with unexpected Host header: ${String(req.headers.host).slice(0, 200)}`);
+        res.status(403).type('text/plain').send('Forbidden');
+        return;
+      }
+      next();
+    });
     expressApp.use((req, res, next) => {
       res.setHeader('Content-Security-Policy', FRONTEND_CSP);
+      next();
+    });
+    // Mark proxied requests as coming from this desktop app (overwrites any client-supplied value).
+    expressApp.use((req, _res, next) => {
+      req.headers[DESKTOP_PROXY_TOKEN_HEADER] = DESKTOP_PROXY_TOKEN;
       next();
     });
     const backendTarget = `http://127.0.0.1:${PROD_BACKEND_PORT}`;
@@ -960,10 +1105,18 @@ async function createWindow() {
     });
 
     httpServer = http.createServer(expressApp);
-    httpServer.on('upgrade', backendProxy.upgrade);
+    httpServer.on('upgrade', (req, socket, head) => {
+      if (!isAllowedLocalHostHeader(req.headers.host, PROD_FRONTEND_PORT)) {
+        console.warn(`[Security] Rejected websocket upgrade with unexpected Host header: ${String(req.headers.host).slice(0, 200)}`);
+        socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+        return;
+      }
+      req.headers[DESKTOP_PROXY_TOKEN_HEADER] = DESKTOP_PROXY_TOKEN;
+      backendProxy.upgrade(req, socket, head);
+    });
 
     const frontendServerReadyPromise = new Promise((resolveFrontend, rejectFrontend) => {
-      httpServer.listen(PROD_FRONTEND_PORT, () => {
+      httpServer.listen(PROD_FRONTEND_PORT, LOCAL_BIND_ADDRESS, () => {
         frontendUrl = `http://localhost:${PROD_FRONTEND_PORT}`;
         frontendUrlForDownloads = frontendUrl;
         actualBackendUrlForFileDownloads = `http://localhost:${PROD_BACKEND_PORT}`; // 生产模式下，直接指向后端服务
@@ -994,6 +1147,7 @@ async function createWindow() {
       mainWindow.loadURL(frontendUrl);
       mainWindow.show();
       mainWindow.focus();
+      scheduleStartupUpdateCheck();
     } catch (error) {
       console.error('[Main Process] Error waiting for services to start:', error);
       dialog.showErrorBox("应用启动错误", `一个或多个服务启动失败: ${error.message}。请检查日志获取详细信息。`);
@@ -1136,6 +1290,11 @@ async function createWindow() {
 // 部分 API 在 ready 事件触发后才能使用。
 app.on('ready', () => {
   if (!hasSingleInstanceLock) return;
+  installSessionPermissionPolicy(session.defaultSession);
+  installApplicationMenu();
+  // Same id as the NSIS shortcut (build.appId) so Windows toasts (startup update
+  // notification) are attributed to the app, including the portable build.
+  if (process.platform === 'win32') app.setAppUserModelId('com.caichengle666.nexus-terminal');
   createWindow().catch(err => {
     console.error('Error during createWindow:', err);
     // 发生严重错误，可能需要退出应用
@@ -1303,6 +1462,12 @@ handleTrusted('download-update', async (event, payload = {}) => {
   } catch (error) {
     return { ok: false, message: error.message };
   }
+  // A ZIP is the portable build: it may only replace a portable copy (which has
+  // the .Portable marker). Never extract it over / next to an installed copy.
+  const isZipUpdate = /\.zip$/i.test(safeFilename);
+  if (isZipUpdate && (process.platform !== 'win32' || getInstallationKind() !== 'portable')) {
+    return { ok: false, message: '便携版更新包只能用于便携版，请下载安装包进行更新。' };
+  }
   const updaterDir = path.join(app.getPath('temp'), 'nexus-terminal-updater');
   const targetPath = path.join(updaterDir, safeFilename);
   try {
@@ -1324,7 +1489,7 @@ handleTrusted('download-update', async (event, payload = {}) => {
   completedUpdateKind = null;
   completedUpdateSha256 = null;
   completedUpdateManifestSignatureVerified = false;
-  if (process.platform === 'win32' && /\.zip$/i.test(safeFilename)) completedUpdateKind = 'portable';
+  if (isZipUpdate) completedUpdateKind = 'portable';
   try {
     const explicitProxy = payload.proxy && payload.proxy.host && payload.proxy.port ? payload.proxy : null;
     const proxy = explicitProxy || await resolveSystemUpdateProxy(payload.url);
@@ -1525,7 +1690,10 @@ handleTrusted('install-update', async () => {
       completedUpdateSha256 = null;
       return { ok: false, message: `安装包签名无效：${signature.detail}` };
     }
-    const isPortable = completedUpdateKind === 'portable';
+    const isPortable = completedUpdateKind === 'portable' || /\.zip$/i.test(updatePath);
+    if (isPortable && (process.platform !== 'win32' || getInstallationKind() !== 'portable')) {
+      return { ok: false, message: '便携版更新包只能用于便携版，请下载安装包进行更新。' };
+    }
     const isDiskImage = /\.dmg$/i.test(updatePath);
     const confirmation = await dialog.showMessageBox(mainWindow, {
       type: 'question',
@@ -1538,10 +1706,8 @@ handleTrusted('install-update', async () => {
     });
     if (confirmation.response !== 0) return { ok: false, cancelled: true, message: tMain('updateCancelled') };
     if (isPortable && process.platform === 'win32') {
-      const currentExecutableDirectory = path.dirname(app.getPath('exe'));
-      const targetDirectory = fs.existsSync(path.join(currentExecutableDirectory, '.Portable'))
-        ? currentExecutableDirectory
-        : null;
+      // getInstallationKind() === 'portable' was checked above, so the marker exists here.
+      const targetDirectory = path.dirname(app.getPath('exe'));
       const result = await installPortableUpdate({
         archivePath: updatePath,
         updaterDir: path.dirname(updatePath),
@@ -2053,6 +2219,3 @@ onTrusted('download-file-request', (event, { url: relativeUrl, encodedFilename }
     });
   }
 });
-
-// 为了允许 localhost 加载，如果前端和后端都通过 localhost 提供服务
-app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors');

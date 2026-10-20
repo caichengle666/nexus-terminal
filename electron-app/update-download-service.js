@@ -50,6 +50,7 @@ const cleanupPartial = targetPath => {
 };
 
 const buildMirrorUrl = (mirror, sourceUrl) => {
+  validateUpdateUrl(sourceUrl);
   const parsedMirror = validateMirrorUrl(mirror);
   const result = mirror.includes('{url}')
     ? mirror.replaceAll('{url}', sourceUrl)
@@ -120,7 +121,7 @@ const downloadSegment = (value, start, end, totalBytes, fd, context, onData, red
     return;
   }
   let parsed;
-  try { parsed = validateUpdateUrl(value, context.allowedHosts); } catch (error) { reject(error); return; }
+  try { parsed = validateUpdateUrl(value, context.allowedHosts, { isRedirect: redirectCount > 0 }); } catch (error) { reject(error); return; }
   let settled = false;
   let redirected = false;
   let response;
@@ -198,7 +199,7 @@ const downloadStream = (value, targetPath, context, onProgress, redirectCount = 
     return;
   }
   let parsed;
-  try { parsed = validateUpdateUrl(value, context.allowedHosts); } catch (error) { reject(error); return; }
+  try { parsed = validateUpdateUrl(value, context.allowedHosts, { isRedirect: redirectCount > 0 }); } catch (error) { reject(error); return; }
   const partPath = `${targetPath}.part`;
   let settled = false;
   let redirected = false;

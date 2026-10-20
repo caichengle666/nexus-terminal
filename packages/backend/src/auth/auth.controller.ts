@@ -837,8 +837,7 @@ export const needsSetup = async (req: Request, res: Response): Promise<void> => 
         if (userCount === 0) {
             // 确保存在一次性设置令牌 (已存在时不会重复打印)
             getOrCreateSetupToken();
-            const clientIp = req.ip || req.socket?.remoteAddress;
-            res.status(200).json({ needsSetup: true, setupTokenRequired: !isLoopbackBypassAllowed(clientIp) });
+            res.status(200).json({ needsSetup: true, setupTokenRequired: !isLoopbackBypassAllowed(req) });
             return;
         }
 
@@ -886,7 +885,7 @@ export const setupAdmin = async (req: Request, res: Response): Promise<void> => 
 
         // 确保令牌存在 (例如进程启动后用户被清空的情况)
         getOrCreateSetupToken();
-        if (!isLoopbackBypassAllowed(clientIp) && !verifySetupToken(setupToken)) {
+        if (!isLoopbackBypassAllowed(req) && !verifySetupToken(setupToken)) {
             console.warn(`初始设置请求的设置令牌无效 (IP: ${clientIp})。`);
             res.status(403).json({ message: '设置令牌无效。请在后端日志中查看初始设置令牌 (docker compose logs backend)。', code: 'INVALID_SETUP_TOKEN' });
             return;

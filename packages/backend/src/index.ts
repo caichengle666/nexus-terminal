@@ -304,13 +304,20 @@ const startServer = () => {
     // --- 结束 API 路由 ---
 
 
-    server.listen(port, () => {
-        console.log(`后端服务器正在监听 http://localhost:${port}`);
+    // 监听地址：默认所有接口 (Docker 容器内需要)；桌面端 (Electron) 通过 BIND_ADDRESS/HOST=127.0.0.1 仅监听本机回环。
+    const bindAddress = (process.env.BIND_ADDRESS || process.env.HOST || '').trim() || undefined;
+    const onListening = () => {
+        console.log(`后端服务器正在监听 http://${bindAddress || 'localhost'}:${port}`);
         // Signal to Electron main process that the backend is ready
         process.stdout.write("BACKEND_READY_SIGNAL\n"); // 绕过日志级别，供 Electron 主进程检测
         initializeWebSocket(server, sessionMiddleware as RequestHandler); // Initialize existing WebSocket
 
-    });
+    };
+    if (bindAddress) {
+        server.listen(Number(port), bindAddress, onListening);
+    } else {
+        server.listen(port, onListening);
+    }
 };
 
 // --- 主程序启动流程 ---

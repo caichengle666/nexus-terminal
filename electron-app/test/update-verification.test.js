@@ -111,7 +111,7 @@ test('rejects when the update request reports socket hang up', async () => {
   };
   try {
     await assert.rejects(
-      requestWithRedirect('https://github.com/example/update.zip'),
+      requestWithRedirect('https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip'),
       /socket hang up/,
     );
   } finally {
@@ -142,7 +142,7 @@ test('rejects when the checksum response is aborted', async () => {
   };
   try {
     await assert.rejects(
-      require('../update-network').fetchUpdateText('https://github.com/example/checksums.txt'),
+      require('../update-network').fetchUpdateText('https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/checksums.txt'),
       /更新请求连接中断/,
     );
   } finally {
@@ -169,7 +169,7 @@ test('does not pass updater-only callbacks into HTTPS request options', async ()
     return request;
   };
   try {
-    await require('../update-network').fetchUpdateText('https://github.com/example/checksums.txt', null, {
+    await require('../update-network').fetchUpdateText('https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/checksums.txt', null, {
       registerRequest: () => {},
       unregisterRequest: () => {},
     });
@@ -183,28 +183,28 @@ test('does not pass updater-only callbacks into HTTPS request options', async ()
 
 test('builds and validates mirror URLs', () => {
   assert.equal(
-    buildMirrorUrl('https://mirror.example/{url}', 'https://github.com/example/update.zip'),
-    'https://mirror.example/https://github.com/example/update.zip',
+    buildMirrorUrl('https://mirror.example/{url}', 'https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip'),
+    'https://mirror.example/https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip',
   );
   assert.equal(
-    buildMirrorUrl('https://mirror.example/files', 'https://github.com/example/update.zip'),
-    'https://mirror.example/files/https://github.com/example/update.zip',
+    buildMirrorUrl('https://mirror.example/files', 'https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip'),
+    'https://mirror.example/files/https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip',
   );
   assert.throws(
-    () => buildMirrorUrl('http://mirror.example/{url}', 'https://github.com/example/update.zip'),
+    () => buildMirrorUrl('http://mirror.example/{url}', 'https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip'),
     /HTTPS/,
   );
 });
 
 test('tries configured mirrors before the official update source', () => {
   const result = buildDownloadSources(
-    'https://github.com/example/update.zip',
+    'https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip',
     ['https://mirror.example/files'],
     true,
   );
   assert.deepEqual(result.sources, [
-    'https://mirror.example/files/https://github.com/example/update.zip',
-    'https://github.com/example/update.zip',
+    'https://mirror.example/files/https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip',
+    'https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip',
   ]);
   assert.equal(result.allowedHosts.has('mirror.example'), true);
 });
@@ -247,7 +247,7 @@ test('downloads a ranged asset with the complete segment arguments', async () =>
     return request;
   };
   try {
-    const result = await downloadAsset('https://github.com/example/update.zip', targetPath, {
+    const result = await downloadAsset('https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip', targetPath, {
       agent: null,
       isCancelled: () => false,
       registerRequest: () => {},
@@ -308,7 +308,7 @@ test('falls back to a stream download when ranged downloading fails', async () =
     return request;
   };
   try {
-    const result = await downloadAsset('https://github.com/example/update.zip', targetPath, {
+    const result = await downloadAsset('https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip', targetPath, {
       agent: null,
       isCancelled: () => false,
       registerRequest: () => {},
@@ -334,7 +334,7 @@ test('keeps partial update files available after a network failure', async () =>
   const partialPath = `${targetPath}.part`;
   const metadataPath = `${targetPath}.meta.json`;
   fs.writeFileSync(partialPath, 'partial');
-  fs.writeFileSync(metadataPath, '{"url":"https://github.com/example/update.zip"}');
+  fs.writeFileSync(metadataPath, '{"url":"https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip"}');
   https.request = (_url, _options, _callback) => {
     const request = new EventEmitter();
     request.setTimeout = () => {};
@@ -344,7 +344,7 @@ test('keeps partial update files available after a network failure', async () =>
   };
   try {
     await assert.rejects(
-      downloadAsset('https://github.com/example/update.zip', targetPath, {
+      downloadAsset('https://github.com/caichengle666/nexus-terminal/releases/download/v1.0.0/update.zip', targetPath, {
         agent: null,
         isCancelled: () => false,
         registerRequest: () => {},
