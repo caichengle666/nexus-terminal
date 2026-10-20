@@ -288,10 +288,18 @@ html[data-ui-effect="glass"] ::-webkit-scrollbar-thumb {
   background-clip: padding-box;
 }
 
-/* ---------- 7. 终端 ---------- */
+/* ---------- 7. 终端 ----------
+ * 终端面板不使用 backdrop-filter：xterm 每输出一帧都会重绘，面板上的实时模糊会让合成器在每一帧重新模糊整块区域
+ * (大量输出 / 滚动时 GPU 占用高、掉帧)。这里改为纯半透明底色：不透明度比其它面板略高 (+12%)，
+ * 以弥补没有模糊时背景细节更清晰的观感，整体效果与带模糊时接近。
+ */
 /* 没有终端背景图 / 自定义 HTML 时：终端区域使用更深的半透明底色 (取自当前终端主题背景色)，保证文字可读 */
 html[data-ui-effect="glass"] body .terminal-pane-container:not(.has-global-terminal-background) {
-  background-color: color-mix(in srgb, var(--nx-terminal-theme-bg, #0a0e16) var(--glass-terminal-alpha, 76%), transparent) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--nx-terminal-theme-bg, #0a0e16) min(100%, calc(var(--glass-terminal-alpha, 76%) + 12%)),
+    transparent
+  ) !important;
 }
 html[data-ui-effect="glass"] .terminal-pane-container:not(.has-global-terminal-background) .terminal-outer-wrapper,
 html[data-ui-effect="glass"] .terminal-pane-container:not(.has-global-terminal-background) .terminal-inner-container .xterm,
@@ -300,9 +308,11 @@ html[data-ui-effect="glass"] .terminal-pane-container:not(.has-global-terminal-b
 html[data-ui-effect="glass"] .terminal-pane-container:not(.has-global-terminal-background) .terminal-inner-container .xterm-scrollable-element {
   background-color: transparent !important;
 }
-/* 承载终端的面板只保留模糊，底色完全由终端色调提供，避免两层半透明叠加 */
+/* 承载终端的面板：不模糊 (见上)，底色完全由终端色调提供，避免两层半透明叠加 */
 html[data-ui-effect="glass"] body .splitpanes__pane:not(:has(.splitpanes__pane)):has(.terminal-pane-container)::before {
   background-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* ---------- 8. 轻量模式 (lite)：桌面版无 GPU 合成时不使用实时 backdrop-filter ----------
