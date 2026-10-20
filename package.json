@@ -28,7 +28,7 @@
   "description": "",
   "dependencies": {
     "archiver-zip-encrypted": "^2.0.0",
-    "axios": "^1.18.1",
+    "axios": "^1.20.0",
     "element-plus": "^2.14.3",
     "fs-extra": "^11.3.6",
     "pinia-plugin-persistedstate": "^4.7.1",
@@ -60,7 +60,7 @@
     "path-to-regexp": "8.4.2",
     "rollup": "4.62.2",
     "tar-fs": "^2.1.5",
-    "vue": "3.5.40",
+    "vue": "3.5.44",
     "brace-expansion@1.1.11": "1.1.16",
     "brace-expansion@2": "2.1.7",
     "diff@4.0.2": "4.0.4",
