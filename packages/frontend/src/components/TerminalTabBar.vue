@@ -319,23 +319,24 @@ onMounted(() => {
     // 初始加载时，不需要在这里加载 Header 状态，App.vue 会处理
     console.log('[TabBar] Mounted on /workspace route. Header toggle button is now active.');
   }
-  // 监听连接事件
-  onWorkspaceEvent('connection:connect', (payload) => {
-    console.log('[TabBar] Received connection:connect event:', payload);
-    handlePopupConnect(payload.connectionId);
-  });
-
-  // +++ 监听打开传输进度模态框事件 +++
-  const handleOpenTransferProgressModal = () => {
-    console.log('[TabBar] Received ui:openTransferProgressModal event, opening modal.');
-    showTransferProgressModal.value = true;
-  };
+  // 监听连接事件 / 打开传输进度模态框事件 (全局事件总线：卸载时必须取消订阅，否则重复挂载会重复连接)
+  onWorkspaceEvent('connection:connect', handleWorkspaceConnect);
   onWorkspaceEvent('ui:openTransferProgressModal', handleOpenTransferProgressModal);
+});
 
-  // 在组件卸载前取消订阅
-  onBeforeUnmount(() => {
-    offWorkspaceEvent('ui:openTransferProgressModal', handleOpenTransferProgressModal); // +++ 正确取消订阅 +++
-  });
+const handleWorkspaceConnect = (payload: { connectionId: number }) => {
+  console.log('[TabBar] Received connection:connect event:', payload);
+  handlePopupConnect(payload.connectionId);
+};
+
+const handleOpenTransferProgressModal = () => {
+  console.log('[TabBar] Received ui:openTransferProgressModal event, opening modal.');
+  showTransferProgressModal.value = true;
+};
+
+onBeforeUnmount(() => {
+  offWorkspaceEvent('connection:connect', handleWorkspaceConnect);
+  offWorkspaceEvent('ui:openTransferProgressModal', handleOpenTransferProgressModal);
 });
 
 // +++ 组件卸载前移除全局监听器 +++
@@ -443,21 +444,21 @@ const handleWheel: EventListener = (event: Event) => {
   }
 };
 
+// 标签条容器 (模板 ref，避免 document.querySelector 命中页面中其他 .overflow-x-auto 元素)
+const tabStripRef = ref<HTMLElement | null>(null);
+let wheelTarget: HTMLElement | null = null;
+
 // 在组件挂载时添加滚轮事件监听
 onMounted(() => {
-  const tabContainer = document.querySelector('.overflow-x-auto');
-  if (tabContainer) {
-    tabContainer.addEventListener('wheel', handleWheel as EventListener, { passive: false });
-  }
+  wheelTarget = tabStripRef.value;
+  wheelTarget?.addEventListener('wheel', handleWheel, { passive: false });
 });
 
 // 在组件卸载时移除滚轮事件监听
 onBeforeUnmount(() => {
   cancelTouchHold();
-  const tabContainer = document.querySelector('.overflow-x-auto');
-  if (tabContainer) {
-    tabContainer.removeEventListener('wheel', handleWheel as EventListener);
-  }
+  wheelTarget?.removeEventListener('wheel', handleWheel);
+  wheelTarget = null;
 });
 
 </script>
@@ -471,7 +472,7 @@ onBeforeUnmount(() => {
                  ? (isHeaderVisible ? 'h-11' : 'h-[calc(2.75rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]')
                  : 'h-10'
               ]">
-    <div class="flex items-center overflow-x-auto flex-shrink min-w-0 h-full"> <!-- Ensure inner div has h-full -->
+    <div ref="tabStripRef" class="flex items-center overflow-x-auto flex-shrink min-w-0 h-full"> <!-- Ensure inner div has h-full -->
       <draggable
         v-model="draggableSessions"
         item-key="sessionId"

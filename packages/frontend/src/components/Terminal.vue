@@ -269,7 +269,18 @@ onMounted(() => {
     fitAddon = new FitAddon();
     searchAddon = new SearchAddon(); // *** 创建 SearchAddon 实例 ***
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon());
+    // 默认处理器使用 window.open() 打开空白页再跳转，Electron 会拒绝 about:blank，链接因此失效；
+    // 桌面端交给主进程 shell.openExternal (仅允许安全协议)，Web 端以 noopener 新标签页打开。
+    terminal.loadAddon(new WebLinksAddon((_event: MouseEvent, uri: string) => {
+      const electronApi = (window as any).electronAPI;
+      if (typeof electronApi?.openExternal === 'function') {
+        void Promise.resolve(electronApi.openExternal(uri)).catch((error: unknown) => {
+          console.warn('[Terminal] 打开外部链接失败:', error);
+        });
+        return;
+      }
+      window.open(uri, '_blank', 'noopener,noreferrer');
+    }));
     terminal.loadAddon(searchAddon); // *** 加载 SearchAddon ***
 
     // 将终端附加到 DOM

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ConnectionInfo } from '../stores/connections.store';
-import { computed, defineAsyncComponent, type PropType, type Component, ref, watch, onMounted, onBeforeUnmount, nextTick, type CSSProperties } from 'vue'; // Added onBeforeUnmount, nextTick and CSSProperties
+import { computed, defineAsyncComponent, type PropType, type Component, ref, watch, onMounted, onBeforeUnmount, type CSSProperties } from 'vue'; // Added onBeforeUnmount, nextTick and CSSProperties
 import { useI18n } from 'vue-i18n';
 import { useWorkspaceEventSubscriber, useWorkspaceEventOff } from '../composables/workspaceEvents';
 import '@fortawesome/fontawesome-free/css/all.min.css';
@@ -9,6 +9,7 @@ import { useLayoutStore, type LayoutNode, type PaneName } from '../stores/layout
 import { useSessionStore } from '../stores/session.store';
 import { useFileEditorStore } from '../stores/fileEditor.store'; 
 import { useSettingsStore } from '../stores/settings.store';
+import SandboxedHtmlFrame from './common/SandboxedHtmlFrame.vue';
 import { useAppearanceStore } from '../stores/appearance.store'; // +++ Import appearance store +++
 import { useSidebarResize } from '../composables/useSidebarResize';
 import { storeToRefs } from 'pinia';
@@ -485,42 +486,7 @@ const terminalBackgroundImageStyle = computed((): CSSProperties => {
   };
 });
 
-// +++ Function to execute scripts (migrated from Terminal.vue) +++
-const executeScriptsInElement = (container: HTMLElement) => {
-  if (!container) return;
-  const scripts = Array.from(container.getElementsByTagName('script'));
-  scripts.forEach((oldScript) => {
-    const newScript = document.createElement('script');
-    Array.from(oldScript.attributes).forEach(attr => {
-      newScript.setAttribute(attr.name, attr.value);
-    });
-    if (oldScript.textContent) {
-      newScript.textContent = oldScript.textContent;
-    }
-    if (oldScript.parentNode) {
-      oldScript.parentNode.replaceChild(newScript, oldScript);
-    } else {
-       container.appendChild(newScript); // Fallback, though less likely if script was in container
-    }
-  });
-};
-
-// +++ Watch for changes in terminalCustomHTML and execute scripts (migrated) +++
-watch(terminalCustomHTML, (newHtmlContent, oldHtmlContent) => {
-  if (props.layoutNode.component !== 'terminal') return; // Only for terminal panes
-
-  if (newHtmlContent === oldHtmlContent && oldHtmlContent !== undefined) {
-    return;
-  }
-  nextTick(() => {
-    const container = customHtmlLayerRef.value;
-    if (container) {
-      if (newHtmlContent) {
-        executeScriptsInElement(container);
-      }
-    }
-  });
-}, { immediate: true });
+// 自定义 HTML 背景在沙箱 iframe (SandboxedHtmlFrame) 中渲染，脚本运行于不透明源，不再注入应用文档。
 
 
 onBeforeUnmount(() => {
@@ -609,8 +575,9 @@ onBeforeUnmount(() => {
                                class="terminal-custom-html-layer"
                                :class="{ 'is-over-image': Boolean(terminalBackgroundImage) }"
                                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;"
-                               v-html="terminalCustomHTML"
-                           ></div>
+                           >
+                               <SandboxedHtmlFrame :html="terminalCustomHTML" />
+                           </div>
                             <!-- Dim Overlay (applies to both image and HTML) -->
                             <div
                                 v-if="currentTerminalBackgroundOverlayOpacity > 0"

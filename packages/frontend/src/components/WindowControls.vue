@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 /**
  * 自绘窗口按钮（最小化 / 最大化 / 置顶 / 关闭）。
@@ -8,6 +9,8 @@ import { onMounted, onUnmounted, ref } from 'vue';
  */
 withDefaults(defineProps<{ compact?: boolean }>(), { compact: false });
 
+const { t } = useI18n();
+// 注: preload 目前没有提供读取当前置顶状态的接口，初始状态依赖主进程推送的 always-on-top-changed 事件。
 const electronApi = (window as any).electronAPI;
 const isElectron = Boolean(electronApi?.minimizeWindow);
 const isAlwaysOnTop = ref(false);
@@ -28,24 +31,24 @@ const closeWindow = () => electronApi?.closeWindow?.();
 
 <template>
   <div v-if="isElectron" class="window-control-group" :class="{ compact }">
-    <button class="window-control-button" type="button" title="最小化" aria-label="最小化" @click="minimizeWindow">
+    <button class="window-control-button" type="button" :title="t('windowControls.minimize')" :aria-label="t('windowControls.minimize')" @click="minimizeWindow">
       <span class="window-control-icon minimize-icon"></span>
     </button>
-    <button class="window-control-button" type="button" title="最大化/还原" aria-label="最大化/还原" @click="toggleMaximizeWindow">
+    <button class="window-control-button" type="button" :title="t('windowControls.maximizeRestore')" :aria-label="t('windowControls.maximizeRestore')" @click="toggleMaximizeWindow">
       <span class="window-control-icon maximize-icon"></span>
     </button>
     <button
       class="window-control-button"
       type="button"
       :class="{ 'always-on-top-active': isAlwaysOnTop }"
-      :title="isAlwaysOnTop ? '取消置顶' : '窗口置顶'"
-      :aria-label="isAlwaysOnTop ? '取消置顶' : '窗口置顶'"
+      :title="isAlwaysOnTop ? t('windowControls.unpin') : t('windowControls.pin')"
+      :aria-label="isAlwaysOnTop ? t('windowControls.unpin') : t('windowControls.pin')"
       :aria-pressed="isAlwaysOnTop"
       @click="toggleAlwaysOnTop"
     >
       <i class="fas fa-thumbtack text-xs" aria-hidden="true"></i>
     </button>
-    <button class="window-control-button close-window-button" type="button" title="关闭" aria-label="关闭" @click="closeWindow">
+    <button class="window-control-button close-window-button" type="button" :title="t('windowControls.close')" :aria-label="t('windowControls.close')" @click="closeWindow">
       <span class="window-control-icon close-icon"></span>
     </button>
   </div>

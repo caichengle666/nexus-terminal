@@ -3,6 +3,10 @@ import apiClient from '../utils/apiClient';
 import router from '../router'; 
 import i18n, { setLocale } from '../i18n'; 
 import { getSafeRedirectPath } from '../utils/safeRedirect';
+import { clearSensitiveClientData } from '../utils/sensitiveStorage';
+
+// 防止 401 拦截器在登出过程中重入 logout
+let logoutInProgress = false;
 
 // 登录成功后整页刷新跳转：优先使用路由 query.redirect (仅站内路径)，否则回到根路径
 const redirectAfterLogin = () => {
@@ -187,6 +191,11 @@ export const useAuthStore = defineStore('auth', {
 
         // 登出 Action
         async logout() {
+            // 401 拦截器可能在登出请求本身失败时再次调用 logout，避免重入
+            if (logoutInProgress) return;
+            logoutInProgress = true;
+            // 先清除本地敏感数据 (AI 会话记忆、连接/命令历史缓存等)，即使后端请求失败也要清除
+            clearSensitiveClientData();
             this.isLoading = true;
             this.error = null;
             this.loginRequires2FA = false; // 重置 2FA 状态
@@ -203,6 +212,7 @@ export const useAuthStore = defineStore('auth', {
                 this.isAuthenticated = false;
                 this.user = null;
                 this.isLoading = false;
+                logoutInProgress = false;
                 try {
                     await router.push({ name: 'Login' });
                 } catch (navErr) {
@@ -226,6 +236,8 @@ export const useAuthStore = defineStore('auth', {
                         setLocale(this.user.language);
                     }
                 } else {
+                    // 之前处于登录状态 (持久化) 但会话已失效：清除本地敏感数据
+                    if (this.isAuthenticated) clearSensitiveClientData();
                     this.isAuthenticated = false;
                     this.user = null;
                     this.loginRequires2FA = false;
@@ -234,6 +246,8 @@ export const useAuthStore = defineStore('auth', {
             } catch (error: any) {
                 // 如果获取状态失败 (例如 session 过期)，则认为未认证
                 console.warn('检查认证状态失败:', error.response?.data?.message || error.message);
+                // 仅在明确的 401 (会话失效) 时清除；网络错误不清除，保留离线缓存
+                if (this.isAuthenticated && error.response?.status === 401) clearSensitiveClientData();
                 this.isAuthenticated = false;
                 this.user = null;
                 this.loginRequires2FA = false;

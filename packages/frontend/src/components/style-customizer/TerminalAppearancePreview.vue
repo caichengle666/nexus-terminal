@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import type { CSSProperties } from 'vue';
 import type { ITheme } from '@xterm/xterm';
 import { defaultXtermTheme } from '../../features/appearance/config/default-themes';
+import SandboxedHtmlFrame from '../common/SandboxedHtmlFrame.vue';
 
 const props = withDefaults(defineProps<{
   theme?: ITheme;
@@ -85,8 +86,9 @@ const terminalStyle = computed<CSSProperties>(() => ({
         v-if="hasCustomHtml"
         class="pointer-events-none absolute inset-0 z-[1] overflow-hidden"
         :class="{ 'opacity-60': hasBackgroundImage }"
-        v-html="customHtml"
-      ></div>
+      >
+        <SandboxedHtmlFrame :html="customHtml" />
+      </div>
       <div
         v-if="hasBackgroundContent && overlayOpacity > 0"
         class="absolute inset-0 z-[2]"

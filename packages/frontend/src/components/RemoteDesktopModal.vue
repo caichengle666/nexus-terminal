@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { guacStatusKey } from '../utils/guacamoleStatus';
 import { ref, onMounted, onUnmounted, watch, nextTick, computed, watchEffect } from 'vue'; 
 import { useI18n } from 'vue-i18n';
 import { useSettingsStore } from '../stores/settings.store';
@@ -91,7 +92,7 @@ const tryOpenExternalRdpClient = async (reason: string): Promise<boolean> => {
 
   const status = await electronApi.getRdpClientStatus();
   if (!status?.available) {
-    statusMessage.value = `${reason}\n未检测到外部 RDP 客户端。macOS 请安装 Windows App / Microsoft Remote Desktop；Linux 请安装 FreeRDP 或 Remmina。`;
+    statusMessage.value = `${reason}\n${t('remoteDesktopModal.externalClient.notFound')}`;
     return false;
   }
 
@@ -100,7 +101,7 @@ const tryOpenExternalRdpClient = async (reason: string): Promise<boolean> => {
     port: props.connection.port || 3389,
     username: props.connection.username,
   });
-  statusMessage.value = result?.message || '已尝试打开外部 RDP 客户端。';
+  statusMessage.value = result?.message || t('remoteDesktopModal.externalClient.opened');
   return Boolean(result?.ok);
 };
 
@@ -144,7 +145,7 @@ const handleConnection = async (isReconnect = false) => {
   try {
     let token: string | null = null;
     let tunnelUrl: string = '';
-    statusMessage.value = '正在检查远程桌面网关...';
+    statusMessage.value = t('remoteDesktopModal.status.checkingGateway');
     await checkRemoteGateway();
 
     if (props.connection.type === 'RDP') {
@@ -237,7 +238,7 @@ const handleConnection = async (isReconnect = false) => {
           if (!manualDisconnect) scheduleReconnect();
           break;
       }
-      statusMessage.value = t(`remoteDesktopModal.status.${i18nKeyPart}`, { state });
+      statusMessage.value = t(guacStatusKey(i18nKeyPart), { state });
       if (currentStatus && currentStatus !== 'reconnecting') connectionStatus.value = currentStatus as 'disconnected' | 'connecting' | 'connected' | 'error';
     };
 
@@ -330,7 +331,7 @@ const downloadReceivedFile = (stream: any, mimetype: string, filename: string) =
     rdpTransferStore.updateRecord(transferId, {
       transferredBytes: bytes,
       speedBytesPerSecond: Math.round((bytes - lastProgressBytes) / elapsedSeconds),
-      message: '正在接收文件',
+      message: t('remoteDesktopModal.files.receiving'),
     });
     lastProgressAt = now;
     lastProgressBytes = bytes;
@@ -385,7 +386,7 @@ const handleFileDrop = (event: DragEvent) => {
           transferredBytes: bytes,
           progress: file.size > 0 ? Math.min(99, Math.floor((bytes / file.size) * 100)) : 100,
           speedBytesPerSecond: Math.round((bytes - lastProgressBytes) / elapsedSeconds),
-          message: '正在发送文件',
+          message: t('remoteDesktopModal.files.sending'),
         });
         lastProgressAt = now;
         lastProgressBytes = bytes;

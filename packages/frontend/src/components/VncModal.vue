@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { guacStatusKey } from '../utils/guacamoleStatus';
 import { ref, onMounted, onUnmounted, watch, nextTick, computed, watchEffect } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useSettingsStore } from '../stores/settings.store';
@@ -144,7 +145,7 @@ const handleConnection = async () => {
 
   try {
     const connectionsStore = useConnectionsStore();
-    statusMessage.value = '正在检查远程桌面网关...';
+    statusMessage.value = t('remoteDesktopModal.status.checkingGateway');
     await checkRemoteGateway();
     // Pass width and height to the token generation, backend will forward to gateway
     const token = await connectionsStore.getVncSessionToken(props.connection.id, desiredModalWidth.value, desiredModalHeight.value);
@@ -215,7 +216,7 @@ const handleConnection = async () => {
         case 4: i18nKeyPart = 'disconnecting'; currentStatus = 'disconnected'; break;
         case 5: i18nKeyPart = 'disconnected'; currentStatus = 'disconnected'; break;
       }
-      statusMessage.value = t(`remoteDesktopModal.status.${i18nKeyPart}`, { state });
+      statusMessage.value = t(guacStatusKey(i18nKeyPart), { state });
       if (currentStatus) connectionStatus.value = currentStatus as 'disconnected' | 'connecting' | 'connected' | 'error';
     };
 
