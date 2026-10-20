@@ -2,7 +2,8 @@ name: Build Desktop App
 
 on:
   push:
-    branches: [main]
+    # release/** branches build (and smoke-test) the desktop apps before anything is tagged
+    branches: [main, "release/**"]
     tags:
       - "v*"
       - "0.*"
@@ -144,6 +145,13 @@ jobs:
           path: electron-app/dist/*.dmg
           if-no-files-found: error
           compression-level: 0
+
+  smoke:
+    needs: [build-windows, build-macos]
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/desktop-smoke.yml
 
   release:
     if: startsWith(github.ref, 'refs/tags/')

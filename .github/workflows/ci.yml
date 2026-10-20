@@ -31,3 +31,42 @@ jobs:
       - name: Electron unit tests
         working-directory: electron-app
         run: node --test test/*.test.js
+
+  docker-smoke:
+    # Builds the three images from this commit, upgrades a deployment that was
+    # started from the published images, and drives it with a real browser.
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Log in to GHCR (pull published images)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Install browser tooling
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools" && cd "$RUNNER_TEMP/tools"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --save-exact playwright@1.64.1
+          npx playwright install --with-deps chromium
+
+      - name: Upgrade + smoke test
+        env:
+          NODE_PATH: ${{ runner.temp }}/tools/node_modules
+        run: bash .github/smoke/docker-smoke.sh
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: docker-smoke
+          path: smoke
+          retention-days: 7

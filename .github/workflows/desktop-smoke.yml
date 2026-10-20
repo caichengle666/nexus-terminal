@@ -1,0 +1,177 @@
+name: Desktop Smoke Test
+
+# Launches the desktop builds produced by a "Build Electron" run (any branch,
+# before anything is tagged) on real macOS and Windows runners and drives them
+# end to end: loopback-only listeners, Host/setup-token guards, node-pty local
+# terminal, setup/login, SSH terminal, SFTP listing, sandboxed HTML background,
+# logout, plus the Electron fuse configuration.
+
+on:
+  # Called by build-electron.yml after its build jobs (tests that run's artifacts).
+  workflow_call:
+    inputs:
+      run_id:
+        type: string
+        required: false
+        default: ""
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Run id of a Build Desktop App run whose artifacts are tested
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+    runs-on: ${{ matrix.os }}
+    env:
+      SMOKE_PLATFORM: ${{ matrix.platform }}
+    steps:
+      - name: Validate input
+        shell: bash
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+        run: '[[ -z "$RUN_ID" || "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::run_id must be numeric"; exit 1; }'
+
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Install smoke tooling
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools" && cd "$RUNNER_TEMP/tools"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --save-exact playwright-core@1.64.1 @electron/fuses@1.8.0
+
+      - name: Download build (macOS)
+        if: matrix.platform == 'macos'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Nexus-Terminal-macOS-arm64
+          path: ${{ runner.temp }}/build
+          run-id: ${{ inputs.run_id || github.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download build (Windows)
+        if: matrix.platform == 'windows'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Nexus-Terminal-Windows-Portable-Unpacked
+          path: ${{ runner.temp }}/build
+          run-id: ${{ inputs.run_id || github.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Enable local SSH (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist || sudo systemsetup -setremotelogin on || true
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keygen -t ed25519 -N "" -f "$RUNNER_TEMP/demo_key" -q
+          cat "$RUNNER_TEMP/demo_key.pub" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+          sleep 3
+          ssh -i "$RUNNER_TEMP/demo_key" -o StrictHostKeyChecking=no -o BatchMode=yes "$USER@127.0.0.1" 'echo ssh-ok' || echo "::warning::macOS ssh to localhost failed"
+          echo "SSH_USER=$USER" >> "$GITHUB_ENV"
+          echo "SSH_KEY_FILE=$RUNNER_TEMP/demo_key" >> "$GITHUB_ENV"
+
+      - name: Enable local SSH (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          trap { Write-Output "::error::windows ssh setup: $_"; continue }
+          $cap = Get-WindowsCapability -Online -Name 'OpenSSH.Server*' | Select-Object -First 1
+          if ($cap.State -ne 'Installed') { Add-WindowsCapability -Online -Name $cap.Name | Out-Null }
+          New-Item -Path 'HKLM:\SOFTWARE\OpenSSH' -Force | Out-Null
+          New-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell -Value "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force | Out-Null
+          Start-Service sshd
+          $key = Join-Path $env:RUNNER_TEMP 'demo_key'
+          ssh-keygen -t ed25519 -N '' -f $key -q
+          $auth = 'C:\ProgramData\ssh\administrators_authorized_keys'
+          Get-Content "$key.pub" | Add-Content -Path $auth
+          icacls $auth /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
+          Start-Sleep 3
+          ssh -i $key -o StrictHostKeyChecking=no -o BatchMode=yes "$env:USERNAME@127.0.0.1" 'echo ssh-ok'
+          if ($LASTEXITCODE -ne 0) { Write-Output "::warning::Windows ssh to localhost failed" }
+          "SSH_USER=$env:USERNAME" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SSH_KEY_FILE=$key" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install the app (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          hdiutil attach "$RUNNER_TEMP"/build/*.dmg -nobrowse -noautoopen -mountpoint /Volumes/NexusTerminal
+          cp -R /Volumes/NexusTerminal/*.app /Applications/
+          APP="$(ls -d /Applications/Nexus*Terminal*.app | head -1)"
+          xattr -cr "$APP" || true
+          echo "APP_PATH=$APP" >> "$GITHUB_ENV"
+          echo "APP_BIN=$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")" >> "$GITHUB_ENV"
+
+      - name: Install the app (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'build') -Filter '*.zip' -Recurse | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP 'nexus'
+          Expand-Archive $zip.FullName -DestinationPath $dir
+          $exe = Get-ChildItem $dir -Recurse -Filter '*.exe' | Where-Object { $_.Name -like 'Nexus*' } | Select-Object -First 1
+          Write-Output "found $($exe.FullName)"
+          "APP_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "APP_BIN=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Read Electron fuses
+        shell: bash
+        run: |
+          OUT="$(node "$RUNNER_TEMP/tools/node_modules/@electron/fuses/dist/bin.js" read --app "$APP_PATH" 2>&1 || true)"
+          echo "$OUT"
+          echo "$OUT" | grep -q "RunAsNode is Enabled" && echo "::notice::$SMOKE_PLATFORM PASS fuse RunAsNode enabled (node-pty helper)" || echo "::error::$SMOKE_PLATFORM FAIL fuse RunAsNode not enabled"
+          echo "$OUT" | grep -q "EnableNodeOptionsEnvironmentVariable is Disabled" && echo "::notice::$SMOKE_PLATFORM PASS fuse NODE_OPTIONS disabled" || echo "::error::$SMOKE_PLATFORM FAIL fuse NODE_OPTIONS not disabled"
+          echo "$OUT" | grep -q "EnableNodeCliInspectArguments is Disabled" && echo "::notice::$SMOKE_PLATFORM PASS fuse --inspect disabled" || echo "::error::$SMOKE_PLATFORM FAIL fuse --inspect not disabled"
+          echo "$OUT" | grep -q "OnlyLoadAppFromAsar is Enabled" && echo "::notice::$SMOKE_PLATFORM PASS fuse OnlyLoadAppFromAsar enabled" || echo "::error::$SMOKE_PLATFORM FAIL fuse OnlyLoadAppFromAsar not enabled"
+
+      - name: Launch and run the smoke test
+        shell: bash
+        env:
+          NODE_PATH: ${{ runner.temp }}/tools/node_modules
+          SMOKE_DIR: smoke/${{ matrix.platform }}
+        run: |
+          # Windows kills processes a step leaves behind, so the app is started
+          # in the same step that tests it.
+          "$APP_BIN" --remote-debugging-port=9222 --lang=zh-CN > "$RUNNER_TEMP/app.log" 2>&1 &
+          node electron-app/scripts/desktop-smoke.js
+
+      - name: Inspect the app log
+        if: always()
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/app.log"
+          [ -f "$LOG" ] || exit 0
+          grep -iE "error|fatal|crash|refused|EADDR" "$LOG" | head -40 || true
+          if grep -qiE "Uncaught|FATAL|ERR_DLOPEN|NODE_MODULE_VERSION" "$LOG"; then
+            echo "::error::$SMOKE_PLATFORM app log contains fatal errors"
+          fi
+          mkdir -p "smoke/${{ matrix.platform }}"
+          cp "$LOG" "smoke/${{ matrix.platform }}/" || true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: smoke-${{ matrix.platform }}
+          path: smoke/${{ matrix.platform }}
+          retention-days: 7
