@@ -1429,7 +1429,8 @@
       "connecting": "Connecting...",
       "standby": "Remote desktop is on standby. Connect to start a session.",
       "reconnecting": "Reconnecting (attempt {attempt}, in {delay}s)...",
-      "error": "Error"
+      "error": "Error",
+      "checkingGateway": "Checking the remote desktop gateway..."
     },
     "errors": {
       "missingInfo": "Connection info or display element missing.",
@@ -1464,7 +1465,13 @@
       "sent": "Sent {count} file(s) to the remote desktop.",
       "sendFailed": "Remote file upload failed.",
       "receiveFailed": "Failed to receive the remote file.",
-      "received": "Downloaded remote file: {filename}"
+      "received": "Downloaded remote file: {filename}",
+      "receiving": "Receiving file",
+      "sending": "Sending file"
+    },
+    "externalClient": {
+      "notFound": "No external RDP client found. On macOS install Windows App / Microsoft Remote Desktop; on Linux install FreeRDP or Remmina.",
+      "opened": "Tried to open the external RDP client."
     }
   },
   "remoteDesktopPane": {
@@ -2426,5 +2433,31 @@
   "term": {
     "sshSuspend": "SSH Suspend",
     "unknownError": "Unknown error"
+  },
+  "localTerminal": {
+    "desktopOnly": "The local terminal is only available in the Nexus desktop app.",
+    "exited": "Local shell exited with code {code}."
+  },
+  "windowControls": {
+    "minimize": "Minimize",
+    "maximizeRestore": "Maximize / Restore",
+    "pin": "Keep on top",
+    "unpin": "Stop keeping on top",
+    "close": "Close"
+  },
+  "mobileHeader": {
+    "more": "More",
+    "status": {
+      "connected": "Connected",
+      "connecting": "Connecting",
+      "error": "Connection error",
+      "disconnected": "Disconnected"
+    }
+  },
+  "boot": {
+    "checkingAuth": "Checking setup and sign-in...",
+    "loadingSettings": "Loading your settings and theme...",
+    "loadingUi": "Loading interface...",
+    "recovering": "Startup ran into a problem, loading the basic interface..."
   }
 }

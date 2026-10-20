@@ -26,6 +26,9 @@ const notifyAppRendered = () => {
   requestAnimationFrame(() => requestAnimationFrame(() => electronApi.notifyAppRendered?.()));
 };
 
+// 启动状态文案按当前语言显示 (i18n 在启动前即按已保存的语言 / 浏览器语言初始化)
+const bootT = (key: string): string => i18n.global.t(key) as string;
+
 const updateBootStatus = (message: string) => {
   const statusElement = document.getElementById('app-loading-status');
   if (statusElement) {
@@ -53,7 +56,7 @@ app.use(i18n); // 使用 i18n
   const appearanceStore = useAppearanceStore(pinia);
 
   try {
-    updateBootStatus('正在检查设置和认证...');
+    updateBootStatus(bootT('boot.checkingAuth'));
     console.log("[main.ts] 开始检查设置和认证状态...");
     // 1. 同时检查设置和认证状态，并等待它们完成
     // 确保 checkAuthStatus 可以在 needsSetup=true 时也能安全运行并返回正确状态
@@ -65,7 +68,7 @@ app.use(i18n); // 使用 i18n
 
     // 2. 如果不需要设置且用户已认证，则加载用户特定数据
     if (!authStore.needsSetup && authStore.isAuthenticated) {
-      updateBootStatus('正在加载用户设置和主题...');
+      updateBootStatus(bootT('boot.loadingSettings'));
       console.log("[main.ts] 用户已认证且无需设置，加载设置和外观数据...");
       const settingsStore = useSettingsStore(pinia);
       try {
@@ -87,7 +90,7 @@ app.use(i18n); // 使用 i18n
     }
 
     // 3. 状态和数据准备就绪后，再启用路由并挂载应用
-    updateBootStatus('正在加载界面...');
+    updateBootStatus(bootT('boot.loadingUi'));
     console.log("[main.ts] 状态准备就绪，启用路由并挂载应用...");
     app.use(router); // 在这里启用路由，确保守卫能获取到最新状态
     routerInstalled = true;
@@ -97,7 +100,7 @@ app.use(i18n); // 使用 i18n
     notifyAppRendered();
 
   } catch (error) {
-    updateBootStatus('启动遇到问题，正在加载基础界面...');
+    updateBootStatus(bootT('boot.recovering'));
     // 捕获初始化过程中的意外错误
     console.error("[main.ts] 应用初始化过程中发生严重错误:", error);
     // 即使发生严重错误，也尝试启用路由并挂载应用，可能显示错误页面或回退状态

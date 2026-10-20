@@ -1412,7 +1412,8 @@
       "connecting": "接続中...",
       "error": "エラー",
       "standby": "リモートデスクトップは待機中です。接続するとセッションを開始します。",
-      "reconnecting": "再接続中（{attempt} 回目、{delay} 秒後）..."
+      "reconnecting": "再接続中（{attempt} 回目、{delay} 秒後）...",
+      "checkingGateway": "リモートデスクトップゲートウェイを確認しています..."
     },
     "errors": {
       "missingInfo": "接続情報または表示要素がありません。",
@@ -1447,7 +1448,13 @@
       "sent": "{count} 個のファイルをリモートデスクトップに送信しました。",
       "sendFailed": "リモートへのファイルのアップロードに失敗しました。",
       "receiveFailed": "リモートファイルの受信に失敗しました。",
-      "received": "リモートファイルをダウンロードしました: {filename}"
+      "received": "リモートファイルをダウンロードしました: {filename}",
+      "receiving": "ファイルを受信しています",
+      "sending": "ファイルを送信しています"
+    },
+    "externalClient": {
+      "notFound": "外部 RDP クライアントが見つかりません。macOS では Windows App / Microsoft Remote Desktop、Linux では FreeRDP または Remmina をインストールしてください。",
+      "opened": "外部 RDP クライアントを開こうとしました。"
     }
   },
   "vncModal": {
@@ -2426,5 +2433,31 @@
   "term": {
     "sshSuspend": "SSH 一時停止",
     "unknownError": "不明なエラー"
+  },
+  "localTerminal": {
+    "desktopOnly": "ローカルターミナルは Nexus デスクトップアプリでのみ利用できます。",
+    "exited": "ローカルシェルが終了しました (終了コード {code})。"
+  },
+  "windowControls": {
+    "minimize": "最小化",
+    "maximizeRestore": "最大化 / 元に戻す",
+    "pin": "常に手前に表示",
+    "unpin": "手前表示を解除",
+    "close": "閉じる"
+  },
+  "mobileHeader": {
+    "more": "その他",
+    "status": {
+      "connected": "接続済み",
+      "connecting": "接続中",
+      "error": "接続エラー",
+      "disconnected": "切断済み"
+    }
+  },
+  "boot": {
+    "checkingAuth": "設定と認証を確認しています...",
+    "loadingSettings": "ユーザー設定とテーマを読み込んでいます...",
+    "loadingUi": "画面を読み込んでいます...",
+    "recovering": "起動中に問題が発生しました。基本画面を読み込んでいます..."
   }
 }

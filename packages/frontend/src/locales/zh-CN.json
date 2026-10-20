@@ -1429,7 +1429,8 @@
       "connected": "已连接",
       "disconnecting": "正在断开连接...",
       "disconnected": "已断开连接",
-      "unknownState": "未知状态"
+      "unknownState": "未知状态",
+      "checkingGateway": "正在检查远程桌面网关..."
     },
     "errors": {
       "missingInfo": "连接信息或显示元素丢失。",
@@ -1464,7 +1465,13 @@
       "sent": "已向远程桌面发送 {count} 个文件。",
       "sendFailed": "远程文件上传失败。",
       "receiveFailed": "远程文件接收失败。",
-      "received": "已下载远程文件：{filename}"
+      "received": "已下载远程文件：{filename}",
+      "receiving": "正在接收文件",
+      "sending": "正在发送文件"
+    },
+    "externalClient": {
+      "notFound": "未检测到外部 RDP 客户端。macOS 请安装 Windows App / Microsoft Remote Desktop；Linux 请安装 FreeRDP 或 Remmina。",
+      "opened": "已尝试打开外部 RDP 客户端。"
     }
   },
   "remoteDesktopPane": {
@@ -2426,5 +2433,31 @@
   "term": {
     "sshSuspend": "SSH 挂起",
     "unknownError": "未知错误"
+  },
+  "localTerminal": {
+    "desktopOnly": "本地终端仅在 Nexus 桌面端可用。",
+    "exited": "本地 Shell 已退出，退出码 {code}。"
+  },
+  "windowControls": {
+    "minimize": "最小化",
+    "maximizeRestore": "最大化/还原",
+    "pin": "窗口置顶",
+    "unpin": "取消置顶",
+    "close": "关闭"
+  },
+  "mobileHeader": {
+    "more": "更多",
+    "status": {
+      "connected": "已连接",
+      "connecting": "连接中",
+      "error": "连接异常",
+      "disconnected": "已断开"
+    }
+  },
+  "boot": {
+    "checkingAuth": "正在检查设置和认证...",
+    "loadingSettings": "正在加载用户设置和主题...",
+    "loadingUi": "正在加载界面...",
+    "recovering": "启动遇到问题，正在加载基础界面..."
   }
 }

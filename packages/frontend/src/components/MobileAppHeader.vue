@@ -47,10 +47,10 @@ const navigationItems = computed(() => [
 ]);
 
 const statusLabel = computed(() => {
-  if (props.connectionStatus === 'connected') return '已连接';
-  if (props.connectionStatus === 'connecting') return '连接中';
-  if (props.connectionStatus === 'error') return '连接异常';
-  return '已断开';
+  if (props.connectionStatus === 'connected') return t('mobileHeader.status.connected');
+  if (props.connectionStatus === 'connecting') return t('mobileHeader.status.connecting');
+  if (props.connectionStatus === 'error') return t('mobileHeader.status.error');
+  return t('mobileHeader.status.disconnected');
 });
 
 const statusClass = computed(() => {
@@ -106,8 +106,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
       <button
         type="button"
         class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded text-text-secondary hover:bg-hover hover:text-foreground"
-        title="更多"
-        aria-label="更多"
+        :title="t('mobileHeader.more')"
+        :aria-label="t('mobileHeader.more')"
         aria-haspopup="menu"
         :aria-expanded="menuOpen"
         @click="menuOpen = !menuOpen"

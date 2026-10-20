@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
+const { t } = useI18n();
 const terminalHost = ref<HTMLElement | null>(null);
 const error = ref<string | null>(null);
 let terminal: Terminal | null = null;
@@ -12,6 +14,8 @@ let terminalId: string | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let stopOutputListener: (() => void) | null = null;
 let stopExitListener: (() => void) | null = null;
+// 组件在 await createLocalTerminal 期间被卸载时置为 true，用于关闭随后才创建成功的 pty，避免泄漏
+let disposed = false;
 
 const electronApi = () => (window as any).electronAPI;
 
@@ -24,7 +28,7 @@ const fitTerminal = () => {
 
 onMounted(async () => {
   if (!electronApi()?.createLocalTerminal) {
-    error.value = '本地终端仅在 Nexus 桌面端可用。';
+    error.value = t('localTerminal.desktopOnly');
     return;
   }
 
@@ -36,12 +40,17 @@ onMounted(async () => {
 
   try {
     const result = await electronApi().createLocalTerminal({ cols: terminal.cols, rows: terminal.rows });
+    if (disposed) {
+      // 已卸载：立即关闭刚创建的本地 shell (onBeforeUnmount 运行时 terminalId 还不存在)
+      if (result?.terminalId) void electronApi()?.closeLocalTerminal?.(result.terminalId);
+      return;
+    }
     terminalId = result.terminalId;
     stopOutputListener = electronApi().onLocalTerminalOutput((payload: { terminalId: string; data: string }) => {
       if (payload.terminalId === terminalId) terminal?.write(payload.data);
     });
     stopExitListener = electronApi().onLocalTerminalExit((payload: { terminalId: string; exitCode: number }) => {
-      if (payload.terminalId === terminalId) terminal?.writeln(`\r\n[Nexus] Local shell exited with code ${payload.exitCode}.`);
+      if (payload.terminalId === terminalId) terminal?.writeln(`\r\n[Nexus] ${t('localTerminal.exited', { code: payload.exitCode })}`);
     });
     terminal.onData((data) => {
       if (terminalId) void electronApi().writeLocalTerminal({ terminalId, data });
@@ -51,18 +60,22 @@ onMounted(async () => {
     fitTerminal();
     terminal.focus();
   } catch (reason: any) {
+    if (disposed) return;
     error.value = reason?.message || String(reason);
-    terminal.dispose();
+    terminal?.dispose();
     terminal = null;
   }
 });
 
 onBeforeUnmount(() => {
+  disposed = true;
   resizeObserver?.disconnect();
   stopOutputListener?.();
   stopExitListener?.();
   if (terminalId) void electronApi()?.closeLocalTerminal?.(terminalId);
+  terminalId = null;
   terminal?.dispose();
+  terminal = null;
 });
 </script>
 
