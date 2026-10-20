@@ -8,6 +8,7 @@ import { getClientIp } from '../utils/client-ip';
 import { isIpAllowed } from '../auth/ipWhitelist.middleware';
 import { checkWsOrigin } from './origin-check';
 import { isSessionStillValid } from '../auth/session-version';
+import { shouldRejectDesktopHost } from '../auth/desktop-host-guard';
 
 const rejectUpgrade = (socket: Duplex, status: number, message: string): void => {
     try {
@@ -33,6 +34,13 @@ export function initializeUpgradeHandler(
         const ipAddress = getClientIp(request) || 'unknown';
 
         console.log(`WebSocket: 升级请求来自 IP: ${ipAddress}, Path: ${pathname}`);
+
+        // --- 桌面端 Host 校验 (DNS rebinding 防护) ---
+        if (shouldRejectDesktopHost(request)) {
+            console.warn(`WebSocket: 已拒绝 Host 非回环主机名的升级请求 (Host: ${String(request.headers.host).slice(0, 200)})`);
+            rejectUpgrade(socket, 403, 'Forbidden');
+            return;
+        }
 
         // --- Origin 校验 (防止跨站 WebSocket 劫持) ---
         if (!checkWsOrigin(request)) {

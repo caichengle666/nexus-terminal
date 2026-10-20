@@ -33,6 +33,7 @@ if (dataConfigResultGlobal.error && (dataConfigResultGlobal.error as NodeJS.Errn
 
 import express = require('express');
 import { Request, Response, NextFunction, RequestHandler } from 'express';
+import { shouldRejectDesktopHost } from './auth/desktop-host-guard';
 import http from 'http';
 
 
@@ -182,6 +183,15 @@ const server = http.createServer(app);
 app.set('trust proxy', getTrustProxyHops() || false); // TRUST_PROXY=true => 1 跳；=N => N 跳；未设置 => 不信任
 
 // --- 中间件 ---
+// 桌面端：拒绝 Host 不是回环主机名的请求 (DNS rebinding 防护)；其他部署方式不受影响
+app.use((req: Request, res: Response, next: NextFunction) => {
+    if (shouldRejectDesktopHost(req)) {
+        console.warn(`[Security] Rejected request with unexpected Host header: ${String(req.headers.host).slice(0, 200)}`);
+        res.status(403).json({ message: 'Forbidden' });
+        return;
+    }
+    next();
+});
 app.use(ipWhitelistMiddleware as RequestHandler);
 // 安全响应头（后端只提供 JSON API，前端由 nginx / Electron 提供）
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'same-origin' } }));
