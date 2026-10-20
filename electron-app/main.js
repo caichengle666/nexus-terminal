@@ -145,6 +145,10 @@ let completedUpdateManifestSignatureVerified = false;
 let updateInstallInProgress = false;
 let updateProxyAgent = null;
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
+// DevTools only for unpackaged builds. A packaged build started with an explicit
+// --remote-debugging-port (README screenshot CI) already grants full CDP access
+// to whoever launched it, so keep its targets inspectable there as well.
+const isDevToolsAllowed = () => !app.isPackaged || app.commandLine.hasSwitch('remote-debugging-port');
 
 const isUpdaterNetworkError = error => {
   const code = error?.code;
@@ -311,7 +315,79 @@ app.on('web-contents-created', (_event, contents) => {
     openExternalSafely(targetUrl, 'window.open');
     return { action: 'deny' };
   });
+  // Main-frame navigation is handled per window by lockDownNavigation (will-navigate);
+  // this guards iframes, which will-navigate does not cover.
+  contents.on('will-frame-navigate', event => {
+    if (event.isMainFrame) return;
+    if (isAllowedSubframeNavigation(event.url, getTrustedFrontendOrigins())) return;
+    event.preventDefault();
+    console.warn(`[Security] Blocked sub-frame navigation to ${String(event.url).slice(0, 200)}`);
+  });
 });
+
+// Deny every permission by default; allow only the few the trusted frontend
+// actually needs (clipboard for terminal paste, notifications, fullscreen).
+// 'openExternal' and everything else is refused.
+const installSessionPermissionPolicy = targetSession => {
+  if (!targetSession) return;
+  targetSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestingUrl = details?.requestingUrl || webContents?.getURL?.() || '';
+    const allowed = isRendererPermissionAllowed(permission, requestingUrl, getTrustedFrontendOrigins());
+    if (!allowed) console.warn(`[Security] Denied permission request '${permission}' from ${String(requestingUrl).slice(0, 200)}`);
+    callback(allowed);
+  });
+  targetSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    const requestingUrl = requestingOrigin || details?.requestingUrl || webContents?.getURL?.() || '';
+    return isRendererPermissionAllowed(permission, requestingUrl, getTrustedFrontendOrigins());
+  });
+  targetSession.setDevicePermissionHandler?.(() => false);
+};
+
+// No default application menu on Windows/Linux (it exposes DevTools / reload
+// accelerators). macOS keeps a minimal menu so Cmd+C/V/X/A/Z and Cmd+Q work.
+const installApplicationMenu = () => {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null);
+    return;
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { role: 'togglefullscreen' },
+        { type: 'separator' },
+        { role: 'front' },
+      ],
+    },
+  ]));
+};
 
 if (isUpdatePublicKeyConfigured(UPDATE_PUBLIC_KEY_PEM)) {
   try {
@@ -412,6 +488,7 @@ function createFloatingNotificationBell() {
       contextIsolation: true,
       sandbox: true,
       webviewTag: false,
+      devTools: isDevToolsAllowed(),
       preload: path.join(__dirname, 'preload.js'),
     },
   });
@@ -595,6 +672,7 @@ async function createWindow() {
       contextIsolation: true, // 启用上下文隔离
       sandbox: true, // preload 只使用 contextBridge/ipcRenderer
       webviewTag: false,
+      devTools: isDevToolsAllowed(),
     },
   });
   // Only the startup screen and the trusted local frontend may be shown here.
@@ -1173,6 +1251,8 @@ async function createWindow() {
 // 部分 API 在 ready 事件触发后才能使用。
 app.on('ready', () => {
   if (!hasSingleInstanceLock) return;
+  installSessionPermissionPolicy(session.defaultSession);
+  installApplicationMenu();
   createWindow().catch(err => {
     console.error('Error during createWindow:', err);
     // 发生严重错误，可能需要退出应用
@@ -2090,6 +2170,3 @@ onTrusted('download-file-request', (event, { url: relativeUrl, encodedFilename }
     });
   }
 });
-
-// 为了允许 localhost 加载，如果前端和后端都通过 localhost 提供服务
-app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors');

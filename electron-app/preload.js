@@ -10,6 +10,19 @@ const encodeBase64Utf8 = (value) => {
   return btoa(binary);
 };
 
+// Channels the renderer may subscribe to through receiveMessage(). Listeners
+// registered there are tracked so removeListener/removeAllListeners only ever
+// touch those listeners (never preload-internal ones or other channels).
+const RECEIVE_CHANNELS = ['fromMain', 'download-progress', 'download-reply', 'always-on-top-changed'];
+const receiveSubscriptions = new Map(RECEIVE_CHANNELS.map(channel => [channel, new Set()]));
+
+const unsubscribe = (channel, entry) => {
+  const entries = receiveSubscriptions.get(channel);
+  if (!entries || !entries.has(entry)) return;
+  entries.delete(entry);
+  ipcRenderer.removeListener(channel, entry.listener);
+};
+
 // 将选择的 API 暴露给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
@@ -79,14 +92,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 从主进程接收消息
   receiveMessage: (channel, func) => {
     // 添加了 'download-progress' 和 'download-reply' 用于下载状态
-    const validChannels = ['fromMain', 'download-progress', 'download-reply', 'always-on-top-changed'];
+    const validChannels = RECEIVE_CHANNELS;
     if (validChannels.includes(channel)) {
       // 确保 func 是一个函数
       if (typeof func === 'function') {
-        const listener = (event, ...args) => func(...args);
-        ipcRenderer.on(channel, listener);
+        const entry = { func, listener: (_event, ...args) => func(...args) };
+        receiveSubscriptions.get(channel).add(entry);
+        ipcRenderer.on(channel, entry.listener);
         // 返回一个取消订阅的函数
-        return () => ipcRenderer.removeListener(channel, listener);
+        return () => unsubscribe(channel, entry);
       } else {
         console.warn(`[Preload] receiveMessage: Provided callback for channel ${channel} is not a function.`);
         return () => {}; // 返回一个空函数
@@ -96,13 +110,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => {}; // 返回一个空函数
     }
   },
-  // 移除监听器，防止内存泄漏
+  // 移除通过 receiveMessage 注册的监听器 (receiveMessage 返回的取消函数是首选方式)
   removeListener: (channel, func) => {
-    ipcRenderer.removeListener(channel, func);
+    const entries = receiveSubscriptions.get(channel);
+    if (!entries) return;
+    for (const entry of [...entries]) {
+      if (entry.func === func) unsubscribe(channel, entry);
+    }
   },
-  // 移除所有特定频道的监听器
+  // 移除某个允许频道上通过 receiveMessage 注册的全部监听器
   removeAllListeners: (channel) => {
-    ipcRenderer.removeAllListeners(channel);
+    const entries = receiveSubscriptions.get(channel);
+    if (!entries) return;
+    for (const entry of [...entries]) unsubscribe(channel, entry);
   },
   // 窗口控制
   minimizeWindow: () => {
