@@ -136,3 +136,51 @@ test('sub-frame navigations: trusted origin, blank and https only', () => {
   assert.equal(isAllowedSubframeNavigation('ms-settings:', TRUSTED), false);
   assert.equal(isAllowedSubframeNavigation('', TRUSTED), false);
 });
+
+// ---------------------------------------------------------------------------
+// Startup update check
+// ---------------------------------------------------------------------------
+
+const {
+  LATEST_RELEASE_API_URL,
+  checkForStartupUpdate,
+  getAvailableUpdate,
+  isVersionNewer,
+} = require('../update-startup-check');
+
+test('startup check compares versions like the About page', () => {
+  assert.equal(isVersionNewer('v0.9.22.47', '0.9.22.46'), true);
+  assert.equal(isVersionNewer('v0.9.23', '0.9.22.46'), true);
+  assert.equal(isVersionNewer('v0.9.22.46', '0.9.22.46'), false);
+  assert.equal(isVersionNewer('v0.9.22', '0.9.22.46'), false);
+});
+
+test('startup check only reports a newer, published, well-formed release', () => {
+  const release = { tag_name: 'v0.9.22.47', html_url: 'https://github.com/caichengle666/nexus-terminal/releases/tag/v0.9.22.47' };
+  assert.deepEqual(getAvailableUpdate(release, '0.9.22.46'), { version: 'v0.9.22.47', url: release.html_url });
+  assert.equal(getAvailableUpdate(release, '0.9.22.47'), null);
+  assert.equal(getAvailableUpdate({ ...release, prerelease: true }, '0.9.22.46'), null);
+  assert.equal(getAvailableUpdate({ ...release, draft: true }, '0.9.22.46'), null);
+  assert.equal(getAvailableUpdate({ ...release, tag_name: '<img src=x>' }, '0.9.22.46'), null);
+  assert.equal(getAvailableUpdate({ ...release, html_url: 'https://evil.example.com/' }, '0.9.22.46').url,
+    'https://github.com/caichengle666/nexus-terminal/releases/latest');
+  assert.equal(getAvailableUpdate(null, '0.9.22.46'), null);
+});
+
+test('startup check is silent on network or HTTP errors', async () => {
+  const quiet = { warn() {} };
+  let requested;
+  const ok = await checkForStartupUpdate({
+    currentVersion: '0.9.22.46',
+    log: quiet,
+    fetchImpl: async target => {
+      requested = target;
+      return { status: 200, text: async () => JSON.stringify({ tag_name: 'v0.9.22.50', html_url: 'https://github.com/caichengle666/nexus-terminal/releases/tag/v0.9.22.50' }) };
+    },
+  });
+  assert.equal(requested, LATEST_RELEASE_API_URL);
+  assert.equal(ok.version, 'v0.9.22.50');
+  assert.equal(await checkForStartupUpdate({ currentVersion: '0.9.22.46', log: quiet, fetchImpl: async () => ({ status: 403, text: async () => '' }) }), null);
+  assert.equal(await checkForStartupUpdate({ currentVersion: '0.9.22.46', log: quiet, fetchImpl: async () => { throw new Error('offline'); } }), null);
+  assert.equal(await checkForStartupUpdate({ currentVersion: '0.9.22.46', log: quiet, fetchImpl: async () => ({ status: 200, text: async () => 'not json' }) }), null);
+});

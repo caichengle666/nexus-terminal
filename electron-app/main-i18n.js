@@ -21,6 +21,8 @@ const MESSAGES = {
     updateButtonDmg: '关闭并打开磁盘映像',
     cancel: '取消',
     updateCancelled: '已取消安装。',
+    updateAvailableTitle: 'Nexus Terminal 有新版本',
+    updateAvailableBody: '新版本 {version} 已发布（当前 {current}）。请在 设置 → 关于 中下载更新。',
   },
   en: {
     trayShow: 'Show main window',
@@ -39,6 +41,8 @@ const MESSAGES = {
     updateButtonDmg: 'Quit and open disk image',
     cancel: 'Cancel',
     updateCancelled: 'Installation cancelled.',
+    updateAvailableTitle: 'Nexus Terminal update available',
+    updateAvailableBody: 'Version {version} is available (current {current}). Open Settings → About to download it.',
   },
   ja: {
     trayShow: 'メインウィンドウを表示',
@@ -57,6 +61,8 @@ const MESSAGES = {
     updateButtonDmg: '終了してディスクイメージを開く',
     cancel: 'キャンセル',
     updateCancelled: 'インストールをキャンセルしました。',
+    updateAvailableTitle: 'Nexus Terminal の新しいバージョン',
+    updateAvailableBody: 'バージョン {version} が公開されました（現在 {current}）。設定 → バージョン情報 から更新をダウンロードしてください。',
   },
 };
 

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage, shell, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage, shell, screen, net, Notification } = require('electron');
 const { captureWindowState, resolveWindowState } = require('./window-state');
 const { createTranslator } = require('./main-i18n');
 const { HARDWARE_ACCELERATION_MODES, createGpuController, resolveDataDir } = require('./gpu-mode');
@@ -67,6 +67,7 @@ const {
 } = require('./security-utils');
 const updateNetwork = require('./update-network');
 const updateDownloadService = require('./update-download-service');
+const { STARTUP_UPDATE_CHECK_DELAY_MS, checkForStartupUpdate } = require('./update-startup-check');
 
 let mainWindow;
 let expressApp;
@@ -403,6 +404,37 @@ if (isUpdatePublicKeyConfigured(UPDATE_PUBLIC_KEY_PEM)) {
 } else {
   console.warn('[Updater] UPDATE_PUBLIC_KEY_PEM is not configured: update manifests are NOT signature-verified (SHA-256 only).');
 }
+
+// Silent update check once, ~10 s after the frontend is loaded. Only an
+// available update is surfaced (native notification); downloading and
+// installing stay in Settings > About with checksum/signature verification.
+let startupUpdateCheckScheduled = false;
+const scheduleStartupUpdateCheck = () => {
+  if (startupUpdateCheckScheduled || isDev) return;
+  startupUpdateCheckScheduled = true;
+  setTimeout(async () => {
+    if (isQuitting) return;
+    const currentVersion = require('./package.json').releaseVersion || app.getVersion();
+    const update = await checkForStartupUpdate({
+      fetchImpl: (target, options) => net.fetch(target, options),
+      currentVersion,
+    });
+    if (!update || isQuitting) return;
+    console.log(`[Updater] Startup check: ${update.version} is available (current ${currentVersion}).`);
+    try {
+      if (!Notification.isSupported()) return;
+      const notification = new Notification({
+        title: tMain('updateAvailableTitle'),
+        body: tMain('updateAvailableBody', { version: update.version, current: currentVersion }),
+        silent: false,
+      });
+      notification.on('click', () => showMainWindow());
+      notification.show();
+    } catch (error) {
+      console.warn(`[Updater] Unable to show update notification: ${error.message}`);
+    }
+  }, STARTUP_UPDATE_CHECK_DELAY_MS).unref?.();
+};
 
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1114,6 +1146,7 @@ async function createWindow() {
       mainWindow.loadURL(frontendUrl);
       mainWindow.show();
       mainWindow.focus();
+      scheduleStartupUpdateCheck();
     } catch (error) {
       console.error('[Main Process] Error waiting for services to start:', error);
       dialog.showErrorBox("应用启动错误", `一个或多个服务启动失败: ${error.message}。请检查日志获取详细信息。`);
@@ -1258,6 +1291,9 @@ app.on('ready', () => {
   if (!hasSingleInstanceLock) return;
   installSessionPermissionPolicy(session.defaultSession);
   installApplicationMenu();
+  // Same id as the NSIS shortcut (build.appId) so Windows toasts (startup update
+  // notification) are attributed to the app, including the portable build.
+  if (process.platform === 'win32') app.setAppUserModelId('com.caichengle666.nexus-terminal');
   createWindow().catch(err => {
     console.error('Error during createWindow:', err);
     // 发生严重错误，可能需要退出应用
