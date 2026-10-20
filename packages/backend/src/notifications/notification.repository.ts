@@ -1,13 +1,22 @@
 import { getDbInstance, runDb, getDb as getDbRow, allDb } from '../database/connection';
 import { NotificationSetting, RawNotificationSetting, NotificationChannelType, NotificationEvent, NotificationChannelConfig } from '../types/notification.types';
+import { hasLegacyPlaintextSecrets, openNotificationConfig, sealNotificationConfig } from './notification-secrets';
+
+const reSealedIds = new Set<number>();
 
 
 const parseRawSetting = (raw: RawNotificationSetting): NotificationSetting => {
     try {
+        const storedConfig = JSON.parse(raw.config || '{}');
+        // 历史明文敏感字段：透明加密回写 (每个进程每行只尝试一次)
+        if (hasLegacyPlaintextSecrets(storedConfig) && !reSealedIds.has(raw.id)) {
+            reSealedIds.add(raw.id);
+            void reSealConfig(raw.id, storedConfig);
+        }
         return {
             ...raw,
             enabled: Boolean(raw.enabled),
-            config: JSON.parse(raw.config || '{}'),
+            config: openNotificationConfig(storedConfig) as NotificationChannelConfig,
             enabled_events: JSON.parse(raw.enabled_events || '[]'),
         };
     } catch (error: any) {
@@ -20,6 +29,16 @@ const parseRawSetting = (raw: RawNotificationSetting): NotificationSetting => {
         };
     }
 };
+
+async function reSealConfig(id: number, storedConfig: unknown): Promise<void> {
+    try {
+        const db = await getDbInstance();
+        await runDb(db, 'UPDATE notification_settings SET config = ? WHERE id = ?', [JSON.stringify(sealNotificationConfig(storedConfig)), id]);
+        console.log(`[通知仓库] 已加密通知设置 ID ${id} 中的历史明文敏感字段。`);
+    } catch (error: any) {
+        console.error(`[通知仓库] 加密通知设置 ID ${id} 的历史明文敏感字段失败:`, error.message);
+    }
+}
 
 export class NotificationSettingsRepository {
 
@@ -67,7 +86,7 @@ export class NotificationSettingsRepository {
             setting.channel_type,
             setting.name ?? '',
             setting.enabled ? 1 : 0,
-            JSON.stringify(setting.config || {}),
+            JSON.stringify(sealNotificationConfig(setting.config || {})),
             JSON.stringify(setting.enabled_events || [])
         ];
         try {
@@ -91,7 +110,7 @@ export class NotificationSettingsRepository {
         if (setting.channel_type !== undefined) { fields.push('channel_type = ?'); params.push(setting.channel_type); }
         if (setting.name !== undefined) { fields.push('name = ?'); params.push(setting.name); }
         if (setting.enabled !== undefined) { fields.push('enabled = ?'); params.push(setting.enabled ? 1 : 0); }
-        if (setting.config !== undefined) { fields.push('config = ?'); params.push(JSON.stringify(setting.config || {})); }
+        if (setting.config !== undefined) { fields.push('config = ?'); params.push(JSON.stringify(sealNotificationConfig(setting.config || {}))); }
         if (setting.enabled_events !== undefined) { fields.push('enabled_events = ?'); params.push(JSON.stringify(setting.enabled_events || [])); }
 
         if (fields.length === 0) {

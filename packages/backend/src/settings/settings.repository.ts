@@ -1,3 +1,4 @@
+import { isLegacyPlaintextSecret, openSecret, sealSecret } from '../utils/secret-field';
 import { getDbInstance, runDb, getDb as getDbRow, allDb } from '../database/connection';
 import { SidebarConfig, LayoutNode, PaneName } from '../types/settings.types';
 import { CaptchaSettings } from '../types/settings.types';
@@ -146,18 +147,26 @@ export const getCaptchaConfig = async (): Promise<CaptchaSettings> => {
             try {
                 const config = JSON.parse(jsonString);
                 if (config && typeof config.enabled === 'boolean' && typeof config.provider === 'string') {
+                     // 历史明文密钥：透明加密回写
+                     if (isLegacyPlaintextSecret(config.hcaptchaSecretKey) || isLegacyPlaintextSecret(config.recaptchaSecretKey)) {
+                         void settingsRepository.setSetting(CAPTCHA_CONFIG_KEY, JSON.stringify({
+                             ...config,
+                             hcaptchaSecretKey: sealSecret(config.hcaptchaSecretKey ?? ''),
+                             recaptchaSecretKey: sealSecret(config.recaptchaSecretKey ?? ''),
+                         })).catch(err => console.error('[设置仓库] 加密历史 CAPTCHA 密钥失败:', err));
+                     }
                      return {
                         enabled: config.enabled ?? defaultValue.enabled,
                         provider: config.provider ?? defaultValue.provider,
                         hcaptchaSiteKey: config.hcaptchaSiteKey ?? defaultValue.hcaptchaSiteKey,
-                        hcaptchaSecretKey: config.hcaptchaSecretKey ?? defaultValue.hcaptchaSecretKey,
+                        hcaptchaSecretKey: openSecret(config.hcaptchaSecretKey ?? defaultValue.hcaptchaSecretKey),
                         recaptchaSiteKey: config.recaptchaSiteKey ?? defaultValue.recaptchaSiteKey,
-                        recaptchaSecretKey: config.recaptchaSecretKey ?? defaultValue.recaptchaSecretKey,
+                        recaptchaSecretKey: openSecret(config.recaptchaSecretKey ?? defaultValue.recaptchaSecretKey),
                      } as CaptchaSettings;
                 }
-                console.warn(`[设置仓库] 在数据库中发现无效的 captchaConfig 格式: ${jsonString}。返回默认值。`);
+                console.warn('[设置仓库] 在数据库中发现无效的 captchaConfig 格式。返回默认值。');
             } catch (parseError) {
-                console.error(`[设置仓库] 从数据库解析 captchaConfig JSON 失败: ${jsonString}`, parseError);
+                console.error('[设置仓库] 从数据库解析 captchaConfig JSON 失败。', parseError);
             }
         }
     } catch (error) {
@@ -179,7 +188,11 @@ export const setCaptchaConfig = async (config: CaptchaSettings): Promise<void> =
         config.hcaptchaSiteKey = config.hcaptchaSiteKey || '';
         config.recaptchaSiteKey = config.recaptchaSiteKey || '';
 
-        const jsonString = JSON.stringify(config);
+        const jsonString = JSON.stringify({
+            ...config,
+            hcaptchaSecretKey: sealSecret(config.hcaptchaSecretKey),
+            recaptchaSecretKey: sealSecret(config.recaptchaSecretKey),
+        });
         await settingsRepository.setSetting(CAPTCHA_CONFIG_KEY, jsonString);
     } catch (error) {
         console.error(`[设置仓库] 设置 CAPTCHA 配置时出错 (键: ${CAPTCHA_CONFIG_KEY}):`, error);

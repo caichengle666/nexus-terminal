@@ -54,7 +54,7 @@ export const settingsController = {
    */
   async getAllSettings(req: Request, res: Response): Promise<void> {
     try {
-      const settings = await settingsService.getAllSettings();
+      const settings = await settingsService.getAllSettingsForClient();
       res.json(settings);
     } catch (error: any) {
       console.error('获取所有设置时出错:', error);

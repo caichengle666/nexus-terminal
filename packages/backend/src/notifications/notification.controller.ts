@@ -4,6 +4,11 @@ import { NotificationSetting, NotificationChannelType, NotificationChannelConfig
 // import { AuditLogService } from '../services/audit.service'; // Keep for now if other parts use it - Removed as eventService is used
 import { AppEventType, default as eventService } from '../services/event.service'; // Import event service
 import i18next from '../i18n'; // Import the i18next instance
+import { maskNotificationConfig, mergeMaskedNotificationConfig } from './notification-secrets';
+
+/** 返回给前端前屏蔽敏感字段 (SMTP 密码、Bot Token、Webhook 头部值) */
+const toClientSetting = (setting: NotificationSetting | null): NotificationSetting | null =>
+    setting ? { ...setting, config: maskNotificationConfig(setting.config) as NotificationChannelConfig } : null;
 
 // Remove sender imports as they are no longer called directly for testing
 // import telegramSenderService from '../services/senders/telegram.sender.service';
@@ -26,7 +31,7 @@ export class NotificationController {
     getAll = async (req: Request, res: Response): Promise<void> => {
         try {
             const settings = await this.repository.getAll(); // Use repository
-            res.status(200).json(settings);
+            res.status(200).json(settings.map(toClientSetting));
         } catch (error: any) {
           // Use i18next.t for i18n
           res.status(500).json({ message: i18next.t('notificationController.errorFetchSettings'), error: error.message });
@@ -53,7 +58,7 @@ export class NotificationController {
                      details: { settingId: newSetting.id, name: newSetting.name, type: newSetting.channel_type }
                  });
             }
-            res.status(201).json(newSetting);
+            res.status(201).json(toClientSetting(newSetting));
         } catch (error: any) {
           // Use i18next.t for i18n
           res.status(500).json({ message: i18next.t('notificationController.errorCreateSetting'), error: error.message });
@@ -77,6 +82,11 @@ export class NotificationController {
       }
 
         try {
+            if (settingData.config !== undefined) {
+                // 前端提交的掩码值 (********) 表示保持原值
+                const existing = await this.repository.getById(id);
+                settingData.config = mergeMaskedNotificationConfig(settingData.config, existing?.config) as NotificationChannelConfig;
+            }
             const success = await this.repository.update(id, settingData); // Use repository
             if (success) {
                 const updatedSetting = await this.repository.getById(id);
@@ -85,7 +95,7 @@ export class NotificationController {
                      userId: (req.session as any).userId,
                      details: { settingId: id, updatedFields: Object.keys(settingData) }
                  });
-                res.status(200).json(updatedSetting);
+                res.status(200).json(toClientSetting(updatedSetting));
             } else {
               // Use i18next.t for i18n with interpolation
               res.status(404).json({ message: i18next.t('notificationController.errorNotFound', { id }) });
