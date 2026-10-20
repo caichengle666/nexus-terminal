@@ -2,7 +2,12 @@
   <div class="settings-section-content">
     <h3 class="text-base font-semibold text-foreground mb-3">{{ $t('settings.passkey.title') }}</h3>
     <p class="text-sm text-text-secondary mb-4">{{ $t('settings.passkey.description') }}</p>
-    <button @click="handleRegisterNewPasskey" :disabled="passkeyLoading"
+    <div class="mb-3 max-w-sm">
+      <label for="passkeyCurrentPassword" class="block text-sm font-medium text-text-secondary mb-1">{{ $t('settings.stepUp.currentPasswordLabel') }}</label>
+      <input type="password" id="passkeyCurrentPassword" v-model="passkeyCurrentPassword" autocomplete="current-password"
+             class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+    </div>
+    <button @click="handleRegisterNewPasskey" :disabled="passkeyLoading || !passkeyCurrentPassword"
             class="px-4 py-2 bg-button text-button-text rounded-md shadow-sm hover:bg-button-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out text-sm font-medium">
       {{ passkeyLoading ? $t('common.loading') : $t('settings.passkey.registerNewButton') }}
     </button>
@@ -77,6 +82,7 @@ const {
   editingPasskeyName,
   passkeyEditLoadingStates,
   handleRegisterNewPasskey,
+  passkeyCurrentPassword,
   startEditPasskeyName,
   cancelEditPasskeyName,
   savePasskeyName,

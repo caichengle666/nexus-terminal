@@ -731,10 +731,14 @@
     },
     "exportConnections": {
       "title": "Export Connections",
-      "decryptKeyInfo": "The exported JSON file contains plaintext passwords and keys. Please keep it safe.",
+      "decryptKeyInfo": "The exported ZIP contains every connection's plaintext passwords and keys. It is AES-256 encrypted with the password you set below; you will need that password to import or open it. Keep it safe.",
       "buttonText": "Start Export",
       "success": "Export successful. File download started.",
-      "error": "An error occurred while exporting connections."
+      "error": "An error occurred while exporting connections.",
+      "passphraseLabel": "Export file password (min. 8 characters)",
+      "passphraseConfirmLabel": "Confirm export file password",
+      "passphraseTooShort": "The export file password must be at least {min} characters.",
+      "passphraseMismatch": "The export file passwords do not match."
     },
     "timezone": {
       "title": "Timezone Settings",
@@ -1231,12 +1235,17 @@
     },
     "importConnections": {
       "title": "Import Connections",
-      "description": "Select a previously exported JSON file to import connections.",
+      "description": "Select a previously exported file: an encrypted ZIP (enter the password set during export) or a legacy JSON file.",
       "buttonText": "Start Import",
       "noFile": "Please select a file to import first.",
       "success": "Import successful. Imported {count} connections.",
       "partialSuccess": "Import complete, {success} succeeded, {failure} failed.",
-      "error": "An error occurred while importing connections."
+      "error": "An error occurred while importing connections.",
+      "passphraseLabel": "Import file password (leave empty for JSON)",
+      "passphraseInvalid": "Wrong import file password, or this encrypted file needs a password."
+    },
+    "stepUp": {
+      "currentPasswordLabel": "Current password (security check)"
     }
   },
   "notificationController": {

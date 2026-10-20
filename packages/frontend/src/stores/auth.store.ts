@@ -399,11 +399,11 @@ export const useAuthStore = defineStore('auth', {
             }
         },
 
-        async getPasskeyRegistrationOptions(username: string) {
+        async getPasskeyRegistrationOptions(username: string, currentPassword: string) {
             this.isLoading = true;
             this.error = null;
             try {
-                const response = await apiClient.post('/auth/passkey/registration-options', { username });
+                const response = await apiClient.post('/auth/passkey/registration-options', { username, currentPassword });
                 return response.data; // Returns FIDO2 creation options
             } catch (err: any) {
                 console.error('获取 Passkey 注册选项失败:', err);

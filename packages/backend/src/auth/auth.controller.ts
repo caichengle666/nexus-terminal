@@ -13,6 +13,7 @@ import { passkeyService } from '../passkey/passkey.service'; // +++ Passkey Serv
 import { passkeyRepository } from '../passkey/passkey.repository'; // +++ Passkey Repository
 import { userRepository } from '../user/user.repository'; // For passkey auth success
 import { getOrCreateSetupToken, invalidateSetupToken, isLoopbackBypassAllowed, verifySetupToken } from './setup-token';
+import { verifyCurrentPassword, STEP_UP_PASSWORD_INVALID_CODE, STEP_UP_PASSWORD_REQUIRED_CODE } from './step-up';
 import { bumpSessionVersion, emitSessionRevoked, getCurrentSessionVersion, isSessionVersionCurrent } from './session-version';
 
 const notificationService = new NotificationService();
@@ -109,6 +110,17 @@ export const generatePasskeyRegistrationOptionsHandler = async (req: Request, re
         return;
     }
 
+    // 注册 Passkey 会创建可绕过密码的持久登录方式：要求再次输入当前密码
+    const currentPassword = req.body?.currentPassword;
+    if (typeof currentPassword !== 'string' || !currentPassword) {
+        res.status(400).json({ message: '请输入当前密码以注册 Passkey。', code: STEP_UP_PASSWORD_REQUIRED_CODE });
+        return;
+    }
+    if (!(await verifyCurrentPassword(req, currentPassword))) {
+        res.status(403).json({ message: '当前密码不正确。', code: STEP_UP_PASSWORD_INVALID_CODE });
+        return;
+    }
+
     try {
         // PasskeyService's generateRegistrationOptions expects userId as number
         const options = await passkeyService.generateRegistrationOptions(username, userId);
@@ -121,7 +133,7 @@ export const generatePasskeyRegistrationOptionsHandler = async (req: Request, re
         res.json(options);
     } catch (error: any) {
         console.error(`[AuthController] 生成 Passkey 注册选项时出错 (用户: ${username}):`, error.message, error.stack);
-        res.status(500).json({ message: '生成 Passkey 注册选项失败。', error: error.message });
+        res.status(500).json({ message: '生成 Passkey 注册选项失败。' });
     }
 };
 
@@ -726,6 +738,17 @@ export const setup2FA = async (req: Request, res: Response): Promise<void> => {
 
     if (!userId || !username || req.session.requiresTwoFactor) {
         res.status(401).json({ message: '用户未认证或认证未完成。' });
+        return;
+    }
+
+    // 启用 2FA 需要再次输入当前密码 (防止被盗会话绑定攻击者的验证器)
+    const currentPassword = req.body?.currentPassword;
+    if (typeof currentPassword !== 'string' || !currentPassword) {
+        res.status(400).json({ message: '请输入当前密码以设置两步验证。', code: STEP_UP_PASSWORD_REQUIRED_CODE });
+        return;
+    }
+    if (!(await verifyCurrentPassword(req, currentPassword))) {
+        res.status(403).json({ message: '当前密码不正确。', code: STEP_UP_PASSWORD_INVALID_CODE });
         return;
     }
 

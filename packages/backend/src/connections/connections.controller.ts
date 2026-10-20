@@ -3,6 +3,7 @@ import * as ConnectionService from './connection.service';
 import * as SshService from '../services/ssh.service';
 import * as GuacamoleService from '../services/guacamole.service'; 
 import * as ImportExportService from '../services/import-export.service';
+import { verifyCurrentPassword, STEP_UP_PASSWORD_INVALID_CODE, STEP_UP_PASSWORD_REQUIRED_CODE } from '../auth/step-up';
 import * as ConnectionRepository from './connection.repository';
 import { isValidFingerprint, normalizeFingerprint } from '../services/host-key';
 
@@ -329,19 +330,33 @@ export const testUnsavedConnection = async (req: Request, res: Response): Promis
  * 导出所有连接配置 (GET /api/v1/connections/export)
  */
 export const exportConnections = async (req: Request, res: Response): Promise<void> => {
+    const { currentPassword, passphrase } = req.body || {};
+    if (typeof currentPassword !== 'string' || !currentPassword) {
+        res.status(400).json({ message: '请输入当前密码以导出连接。', code: STEP_UP_PASSWORD_REQUIRED_CODE });
+        return;
+    }
+    if (typeof passphrase !== 'string' || passphrase.length < ImportExportService.MIN_EXPORT_PASSPHRASE_LENGTH) {
+        res.status(400).json({ message: `导出文件密码至少需要 ${ImportExportService.MIN_EXPORT_PASSPHRASE_LENGTH} 个字符。`, code: 'EXPORT_PASSPHRASE_TOO_SHORT' });
+        return;
+    }
     try {
-        const exportedData = await ImportExportService.exportConnectionsAsEncryptedZip();
+        if (!(await verifyCurrentPassword(req, currentPassword))) {
+            res.status(403).json({ message: '当前密码不正确。', code: STEP_UP_PASSWORD_INVALID_CODE });
+            return;
+        }
+        const exportedData = await ImportExportService.exportConnectionsAsPassphraseZip(passphrase);
 
         // 设置响应头，提示浏览器下载文件
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const filename = `nexus-terminal-connections-${timestamp}.zip`;
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Cache-Control', 'no-store');
         res.status(200).send(exportedData);
-
+        console.log(`用户 ${req.session.userId} 导出了连接配置。`);
     } catch (error: any) {
         console.error('Controller: 导出连接时发生错误:', error);
-        res.status(500).json({ message: error.message || '导出连接时发生内部服务器错误。' });
+        res.status(500).json({ message: '导出连接时发生内部服务器错误。' });
     }
 };
 
@@ -355,7 +370,19 @@ export const importConnections = async (req: Request, res: Response): Promise<vo
     }
 
     try {
-        const result = await ImportExportService.importConnections(req.file.buffer);
+        const passphrase = typeof req.body?.passphrase === 'string' ? req.body.passphrase : undefined;
+        let payload: Buffer;
+        try {
+            payload = ImportExportService.resolveImportPayload(req.file.buffer, passphrase);
+        } catch (error: any) {
+            if (error instanceof ImportExportService.ImportPassphraseError) {
+                res.status(400).json({ message: error.message, code: error.code });
+                return;
+            }
+            res.status(400).json({ message: error.message || '无法读取导入文件。' });
+            return;
+        }
+        const result = await ImportExportService.importConnections(payload);
 
         if (result.failureCount > 0) {
              res.status(400).json({ 

@@ -8,9 +8,23 @@
       <div class="settings-section-content">
          <h3 class="text-base font-semibold text-foreground mb-3">{{ t('settings.exportConnections.title', '导出连接数据') }}</h3>
          <p class="text-sm text-text-secondary mb-4">
-           <span class="font-semibold text-warning">{{ t('settings.exportConnections.decryptKeyInfo', '解压密码为您的 data/.env 文件中的 ENCRYPTION_KEY。请妥善保管此文件。') }}</span>
+           <span class="font-semibold text-warning">{{ t('settings.exportConnections.decryptKeyInfo') }}</span>
          </p>
          <form @submit.prevent="handleExportConnections" class="space-y-4">
+           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+             <div>
+               <label for="exportCurrentPassword" class="block text-sm font-medium text-text-secondary mb-1">{{ t('settings.stepUp.currentPasswordLabel') }}</label>
+               <input type="password" id="exportCurrentPassword" v-model="exportCurrentPassword" required autocomplete="current-password" class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+             </div>
+             <div>
+               <label for="exportPassphrase" class="block text-sm font-medium text-text-secondary mb-1">{{ t('settings.exportConnections.passphraseLabel') }}</label>
+               <input type="password" id="exportPassphrase" v-model="exportPassphrase" required minlength="8" autocomplete="new-password" class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+             </div>
+             <div>
+               <label for="exportPassphraseConfirm" class="block text-sm font-medium text-text-secondary mb-1">{{ t('settings.exportConnections.passphraseConfirmLabel') }}</label>
+               <input type="password" id="exportPassphraseConfirm" v-model="exportPassphraseConfirm" required minlength="8" autocomplete="new-password" class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+             </div>
+           </div>
            <div class="flex items-center justify-between">
               <button type="submit" :disabled="exportConnectionsLoading"
                       class="px-4 py-2 bg-button text-button-text rounded-md shadow-sm hover:bg-button-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out text-sm font-medium inline-flex items-center">
@@ -29,14 +43,14 @@
       <div class="settings-section-content border-t border-border/40 pt-6">
          <h3 class="text-base font-semibold text-foreground mb-3">{{ t('settings.importConnections.title', '导入连接数据') }}</h3>
          <p class="text-sm text-text-secondary mb-4">
-           {{ t('settings.importConnections.description', '选择之前导出的 JSON 文件来导入连接。支持同一格式的文件导入。') }}
+           {{ t('settings.importConnections.description') }}
          </p>
          <form @submit.prevent="handleImportConnections" class="space-y-4">
            <div class="flex items-center gap-3">
              <input
                id="importFileInput"
                type="file"
-               accept=".json"
+               accept=".json,.zip"
                @change="handleFileSelect"
                class="flex-grow min-w-0 text-sm text-text-secondary file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-button-text file:bg-button hover:file:bg-button-hover file:cursor-pointer file:transition file:duration-150"
              />
@@ -48,6 +62,10 @@
                </svg>
                {{ importConnectionsLoading ? t('common.loading') : t('settings.importConnections.buttonText', '开始导入') }}
              </button>
+           </div>
+           <div class="max-w-sm">
+             <label for="importPassphrase" class="block text-sm font-medium text-text-secondary mb-1">{{ t('settings.importConnections.passphraseLabel') }}</label>
+             <input type="password" id="importPassphrase" v-model="importPassphrase" autocomplete="off" class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
            </div>
            <p v-if="importConnectionsMessage" :class="['text-sm whitespace-pre-line', importConnectionsSuccess ? 'text-success' : 'text-error']">{{ importConnectionsMessage }}</p>
          </form>
@@ -71,6 +89,9 @@ const {
   exportConnectionsLoading,
   exportConnectionsMessage,
   exportConnectionsSuccess,
+  exportCurrentPassword,
+  exportPassphrase,
+  exportPassphraseConfirm,
   handleExportConnections,
 } = useExportConnections();
 
@@ -79,6 +100,7 @@ const {
   importConnectionsMessage,
   importConnectionsSuccess,
   selectedFile,
+  importPassphrase,
   handleFileSelect,
   handleImportConnections,
 } = useImportConnections();

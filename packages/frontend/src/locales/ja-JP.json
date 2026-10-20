@@ -714,10 +714,14 @@
     },
     "exportConnections": {
       "title": "接続データのエクスポート",
-      "decryptKeyInfo": "エクスポートされた JSON ファイルには平文のパスワードと鍵が含まれています。安全に保管してください。",
+      "decryptKeyInfo": "エクスポートされる ZIP にはすべての接続の平文パスワードと鍵が含まれ、下で設定したパスワードで AES-256 暗号化されます。インポートや展開にはそのパスワードが必要です。大切に保管してください。",
       "buttonText": "エクスポート開始",
       "success": "エクスポート成功。ダウンロードを開始しました。",
-      "error": "接続のエクスポート中にエラーが発生しました。"
+      "error": "接続のエクスポート中にエラーが発生しました。",
+      "passphraseLabel": "エクスポートファイルのパスワード（8 文字以上）",
+      "passphraseConfirmLabel": "エクスポートファイルのパスワード（確認）",
+      "passphraseTooShort": "エクスポートファイルのパスワードは {min} 文字以上にしてください。",
+      "passphraseMismatch": "エクスポートファイルのパスワードが一致しません。"
     },
     "timezone": {
       "title": "タイムゾーン設定",
@@ -1214,12 +1218,17 @@
     },
     "importConnections": {
       "title": "接続データのインポート",
-      "description": "以前エクスポートした JSON ファイルを選択して接続をインポートします。",
+      "description": "以前にエクスポートしたファイルを選択してください：暗号化 ZIP（エクスポート時に設定したパスワードを入力）または旧形式の JSON ファイル。",
       "buttonText": "インポート開始",
       "noFile": "インポートするファイルを選択してください。",
       "success": "インポート完了。{count} 件の接続をインポートしました。",
       "partialSuccess": "インポート完了。成功 {success}、失敗 {failure}。",
-      "error": "接続のインポート中にエラーが発生しました。"
+      "error": "接続のインポート中にエラーが発生しました。",
+      "passphraseLabel": "インポートファイルのパスワード（JSON の場合は空欄）",
+      "passphraseInvalid": "インポートファイルのパスワードが間違っているか、この暗号化ファイルにはパスワードが必要です。"
+    },
+    "stepUp": {
+      "currentPasswordLabel": "現在のパスワード（本人確認）"
     }
   },
   "notificationController": {
