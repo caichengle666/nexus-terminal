@@ -225,6 +225,8 @@
     "uiThemeSaved": "界面主题已保存。"
   },
   "login": {
+    "switchToLight": "切换到亮色模式",
+    "switchToDark": "切换到暗色模式",
     "title": "用户登录",
     "username": "用户名",
     "password": "密码",

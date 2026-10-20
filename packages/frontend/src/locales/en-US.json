@@ -225,6 +225,8 @@
     "uiThemeSaved": "UI theme saved."
   },
   "login": {
+    "switchToLight": "Switch to light mode",
+    "switchToDark": "Switch to dark mode",
     "title": "User Login",
     "username": "Username",
     "password": "Password",

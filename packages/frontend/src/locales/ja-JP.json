@@ -208,6 +208,8 @@
     "uiThemeSaved": "UI テーマを保存しました。"
   },
   "login": {
+    "switchToLight": "ライトモードに切り替え",
+    "switchToDark": "ダークモードに切り替え",
     "title": "ユーザーログイン",
     "username": "ユーザー名",
     "password": "パスワード",
