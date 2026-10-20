@@ -205,7 +205,9 @@
     "previewingUnsaved": "プレビュー中（未保存）",
     "terminalStyleApplied": "ターミナルスタイルを適用しました。",
     "terminalStyleApplyFailed": "ターミナルスタイルの適用に失敗しました。",
-    "uiThemeSaved": "UI テーマを保存しました。"
+    "uiThemeSaved": "UI テーマを保存しました。",
+    "remotePresetScriptWarningTitle": "リモートテーマにスクリプトが含まれています",
+    "remotePresetScriptWarning": "このリモート HTML テーマはサードパーティのリポジトリから取得され、スクリプトを含んでいます。スクリプトは隔離されたサンドボックス内で実行され、セッションやデータにはアクセスできませんが、バックグラウンドで動作し続けます。信頼できる提供元の場合のみ適用してください。適用しますか？"
   },
   "login": {
     "title": "ユーザーログイン",

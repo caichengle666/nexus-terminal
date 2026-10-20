@@ -222,7 +222,9 @@
     "previewingUnsaved": "Previewing, not saved yet",
     "terminalStyleApplied": "Terminal style applied.",
     "terminalStyleApplyFailed": "Failed to apply terminal style.",
-    "uiThemeSaved": "UI theme saved."
+    "uiThemeSaved": "UI theme saved.",
+    "remotePresetScriptWarningTitle": "Remote theme contains scripts",
+    "remotePresetScriptWarning": "This remote HTML theme comes from a third-party repository and contains scripts. They run in an isolated sandbox without access to your sessions or data, but keep running in the background. Only apply it if you trust the source. Apply anyway?"
   },
   "login": {
     "title": "User Login",

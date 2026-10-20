@@ -6,6 +6,7 @@ import { useUiNotificationsStore } from '../../stores/uiNotifications.store';
 import { storeToRefs } from 'pinia';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import TerminalAppearancePreview from './TerminalAppearancePreview.vue';
+import { htmlContainsScript } from '../../features/appearance/sandboxed-html';
 
 
 const { t } = useI18n();
@@ -64,6 +65,8 @@ const uploadError = ref<string | null>(null);
 const pendingTerminalBackgroundFile = ref<File | null>(null);
 const pendingTerminalBackgroundRemoval = ref(false);
 const pendingTerminalCustomHTML = ref<string | undefined>(undefined);
+// 待应用的 HTML 是否来自远程预设仓库 (应用前若含脚本需提示用户)
+const pendingHtmlFromRemote = ref(false);
 const terminalBackgroundPreviewUrl = ref<string | null>(null);
 const previewTerminalBackgroundImage = computed(() => {
   if (pendingTerminalBackgroundRemoval.value) return null;
@@ -187,6 +190,7 @@ const clearPendingTerminalStyle = () => {
   pendingTerminalBackgroundFile.value = null;
   pendingTerminalBackgroundRemoval.value = false;
   pendingTerminalCustomHTML.value = undefined;
+  pendingHtmlFromRemote.value = false;
 };
 
 const cancelTerminalStylePreview = () => {
@@ -194,7 +198,26 @@ const cancelTerminalStylePreview = () => {
   initializeEditableState();
 };
 
+/**
+ * 远程预设来自第三方仓库：若包含脚本，应用前提示用户确认。
+ * (脚本在沙箱 iframe 中运行，无法访问应用，但仍会在后台持续执行。)
+ */
+const confirmRemoteHtmlWithScript = async (htmlContent: string): Promise<boolean> => {
+  if (!htmlContainsScript(htmlContent)) return true;
+  return showConfirmDialog({
+    title: t('styleCustomizer.remotePresetScriptWarningTitle'),
+    message: t('styleCustomizer.remotePresetScriptWarning'),
+  });
+};
+
 const applyTerminalStylePreview = async () => {
+  if (
+    pendingTerminalCustomHTML.value !== undefined
+    && pendingHtmlFromRemote.value
+    && !(await confirmRemoteHtmlWithScript(pendingTerminalCustomHTML.value))
+  ) {
+    return;
+  }
   try {
     await appearanceStore.setTerminalBackgroundEnabled(localTerminalBackgroundEnabled.value);
     await appearanceStore.setTerminalBackgroundOverlayOpacity(Number(editableTerminalBackgroundOverlayOpacity.value));
@@ -228,8 +251,9 @@ const handleApplyPreset = async (htmlContent: string) => {
   }
 };
 
-const handlePreviewPreset = (htmlContent: string) => {
+const handlePreviewPreset = (htmlContent: string, fromRemote = false) => {
   pendingTerminalCustomHTML.value = htmlContent;
+  pendingHtmlFromRemote.value = fromRemote;
 };
 
 const handleResetCustomHtml = () => {
@@ -419,6 +443,7 @@ const applyRemotePreset = async (downloadUrl?: string) => {
   }
   try {
     const content = await getRemoteHtmlPresetContent(downloadUrl);
+    if (!(await confirmRemoteHtmlWithScript(content))) return;
     await handleApplyPreset(content);
   } catch (error: any) {
     notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.remotePresetApplyFailed', { message: error.message }) });
@@ -428,7 +453,7 @@ const applyRemotePreset = async (downloadUrl?: string) => {
 const previewRemotePreset = async (downloadUrl?: string) => {
   if (!downloadUrl) return;
   try {
-    handlePreviewPreset(await getRemoteHtmlPresetContent(downloadUrl));
+    handlePreviewPreset(await getRemoteHtmlPresetContent(downloadUrl), true);
   } catch (error: any) {
     notificationsStore.addNotification({ type: 'error', message: t('styleCustomizer.remotePresetApplyFailed', { message: error.message }) });
   }

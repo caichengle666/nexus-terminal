@@ -222,7 +222,9 @@
     "previewingUnsaved": "正在预览，尚未保存",
     "terminalStyleApplied": "终端样式已应用。",
     "terminalStyleApplyFailed": "应用终端样式失败。",
-    "uiThemeSaved": "界面主题已保存。"
+    "uiThemeSaved": "界面主题已保存。",
+    "remotePresetScriptWarningTitle": "远程主题包含脚本",
+    "remotePresetScriptWarning": "该远程 HTML 主题来自第三方仓库并包含脚本。脚本会在隔离的沙箱中运行，无法访问你的会话或数据，但会持续在后台执行。仅在信任该来源时应用。确定要应用吗？"
   },
   "login": {
     "title": "用户登录",
