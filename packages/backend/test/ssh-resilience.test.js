@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { EventEmitter } = require('node:events');
-const { installExecChannelLimiter } = require('../dist/services/ssh-channel-limiter.js');
+const { installExecChannelLimiter, execBackground } = require('../dist/services/ssh-channel-limiter.js');
 const resume = require('../dist/websocket/session-resume.js');
 const { clientStates } = require('../dist/websocket/state.js');
 
@@ -39,6 +39,27 @@ test('exec channel limiter caps concurrency and drains the queue as channels clo
   assert.equal(results.length, 4);
   assert.ok(results.every(([, err]) => !err));
   assert.equal(installExecChannelLimiter(client, 99), limiter, 'install is idempotent');
+});
+
+test('background execs cannot take the channels reserved for user commands', async () => {
+  const client = fakeClient();
+  const limiter = installExecChannelLimiter(client, 4, 1000, 2);
+  assert.equal(limiter.maxBackground, 2);
+  for (let i = 0; i < 3; i += 1) execBackground(client, `poll${i}`, { pty: false }, () => {});
+  await tick();
+  assert.equal(client.opened.length, 2, 'only 2 background channels');
+  assert.equal(limiter.queued, 1);
+  client.exec('user1', () => {});
+  client.exec('user2', () => {});
+  await tick();
+  assert.deepEqual(client.opened.map(o => o.command), ['poll0', 'poll1', 'user1', 'user2']);
+  client.opened[2].channel.emit('close'); // a user slot frees up, but the background quota is still full
+  await tick();
+  assert.equal(client.opened.length, 4);
+  client.opened[0].channel.emit('close'); // a background slot frees up
+  await tick();
+  assert.equal(client.opened[4].command, 'poll2');
+  assert.equal(limiter.activeBackground, 2);
 });
 
 test('exec channel limiter times out queued requests and fails them when the client closes', async () => {
