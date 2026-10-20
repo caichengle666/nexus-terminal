@@ -131,6 +131,29 @@ export function createWebSocketConnectionManager(
     };
 
     /**
+     * 移除旧 socket 上的所有事件处理器，防止被替换掉的 (半开) socket 之后触发
+     * onopen (在新 socket 上重复发送 ssh:connect) 或 onclose (清空正在使用的 ws.value 并安排重连)。
+     */
+    const detachSocket = (socket: WebSocket) => {
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.onclose = null;
+    };
+
+    /** 移除处理器后关闭一个被替换掉的 socket (CONNECTING 状态也可安全关闭)。 */
+    const discardSocket = (socket: WebSocket, reason: string) => {
+        detachSocket(socket);
+        try {
+            if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) {
+                socket.close(1000, reason);
+            }
+        } catch (e) {
+            console.warn(`[WebSocket ${instanceSessionId}] 关闭旧连接失败:`, e);
+        }
+    };
+
+    /**
      * 建立 WebSocket 连接
      * @param {string} url - WebSocket 服务器 URL
      */
@@ -176,6 +199,7 @@ export function createWebSocketConnectionManager(
              console.log(`[WebSocket ${instanceSessionId}] 旧连接处理完毕。`);
         } else if (ws.value && ws.value.readyState === WebSocket.CLOSING) {
              console.log(`[WebSocket ${instanceSessionId}] 检测到旧连接正在关闭 (readyState: ${ws.value.readyState})。清理引用并继续创建新连接...`);
+             detachSocket(ws.value); // 其迟到的 onclose 不得影响新连接
              ws.value = null; // 清理引用，让后续逻辑创建新的
         }
         // 如果 ws.value 存在且 readyState 是 CLOSED，它应该已经在 onclose 中被设为 null
@@ -194,9 +218,16 @@ export function createWebSocketConnectionManager(
                  console.log(`[WebSocket ${instanceSessionId}] HTTP detected, using WebSocket URL: ${secureUrl}`);
             }
             // --- 使用调整后的 URL ---
-            ws.value = new WebSocket(secureUrl);
+            const socket = new WebSocket(secureUrl);
+            ws.value = socket;
+            // 每个处理器只对"当前" socket 生效：被替换掉的 socket 的事件一律忽略。
+            const isCurrentSocket = () => ws.value === socket;
 
-            ws.value.onopen = () => {
+            socket.onopen = () => {
+                if (!isCurrentSocket()) {
+                    discardSocket(socket, '连接已被替换');
+                    return;
+                }
                 reconnectAttempts = 0; // 连接成功，重置尝试次数
                 statusMessage.value = getStatusText('wsConnected');
                 // 状态保持 'connecting' 直到收到 ssh:connected
@@ -217,7 +248,8 @@ export function createWebSocketConnectionManager(
                 dispatchMessage('internal:opened', {}, { type: 'internal:opened' }); // 触发内部打开事件
             };
 
-            ws.value.onmessage = (event: MessageEvent) => {
+            socket.onmessage = (event: MessageEvent) => {
+                if (!isCurrentSocket()) return;
                 try {
                     const rawData = event.data;
                     const message: WebSocketMessage = JSON.parse(rawData.toString());
@@ -311,7 +343,8 @@ export function createWebSocketConnectionManager(
                 }
             };
 
-            ws.value.onerror = (event) => {
+            socket.onerror = (event) => {
+                if (!isCurrentSocket()) return;
                 if (connectionStatus.value !== 'disconnected' && connectionStatus.value !== 'error') { // Don't override if already explicitly disconnected
                     connectionStatus.value = 'error';
                     statusMessage.value = getStatusText('wsError');
@@ -319,12 +352,15 @@ export function createWebSocketConnectionManager(
                 }
                 dispatchMessage('internal:error', event, { type: 'internal:error' });
                 isSftpReady.value = false;
-                ws.value = null; // 清理实例
+                ws.value = null; // 清理实例 (之后的 onclose 仍视为当前 socket，见下)
                 // 不在此处安排重连：浏览器在 error 之后总会触发 close (1006)，
                 // 由 onclose 统一调度，避免每次失败重连计数 +2、提前放弃。
             };
 
-            ws.value.onclose = (event) => {
+            socket.onclose = (event) => {
+                // ws.value 为 null 表示本 socket 已被 onerror / disconnect() 清理，但尚未被新 socket 替换；
+                // 若 ws.value 已指向另一个 socket，则本事件来自过期连接，不得影响新连接的状态或安排重连。
+                if (ws.value !== null && ws.value !== socket) return;
                 // 只有在非错误状态下才更新为 disconnected
                 if (connectionStatus.value !== 'error' && connectionStatus.value !== 'disconnected') { // Avoid redundant sets or overriding 'error'
                     connectionStatus.value = 'disconnected';
@@ -390,6 +426,9 @@ export function createWebSocketConnectionManager(
 
         const oldWs = ws.value;
         if (!oldWs || oldWs.readyState !== WebSocket.OPEN) {
+            // 半开 (CONNECTING) 或正在关闭的旧 socket：先移除处理器再关闭，
+            // 否则它稍后的 onopen/onclose 会干扰新连接 (重复会话、丢输入)。
+            if (oldWs) discardSocket(oldWs, '客户端请求重新连接');
             ws.value = null;
             reconnectAttempts = 0;
             isSftpReady.value = false;
@@ -420,8 +459,19 @@ export function createWebSocketConnectionManager(
                 resolve(success);
             };
 
+            let closeRequested = false;
+
             const fail = (message: string) => {
+                if (finished) return;
                 reconnectInProgress = false;
+                // 恢复自动重连能力：否则 intentionalDisconnect 会一直保持 true，之后的掉线不再自动重连。
+                intentionalDisconnect = false;
+                if (closeRequested) {
+                    // 旧连接关闭超时：放弃它 (移除处理器)，以便用户之后可以手动重连。
+                    detachSocket(oldWs);
+                    if (ws.value === oldWs) ws.value = null;
+                    isSftpReady.value = false;
+                }
                 connectionStatus.value = 'error';
                 statusMessage.value = message;
                 dispatchMessage('internal:reconnect-status', { phase: 'failed', message }, { type: 'internal:reconnect-status' });
@@ -443,6 +493,7 @@ export function createWebSocketConnectionManager(
                     finish(true);
                 };
 
+                closeRequested = true;
                 closeTimeoutId = setTimeout(() => fail(t('uxTerminal.status.oldConnectionCloseFailed')), 5000);
                 oldWs.close(1000, '客户端请求重新连接');
             };
