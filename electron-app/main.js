@@ -103,7 +103,12 @@ if (!hasSingleInstanceLock) {
   app.quit();
 } else {
   // A second launch just brings the running window to the front.
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv = []) => {
+    // node-pty (Windows, ConPTY) kills a terminal via child_process.fork(
+    // 'conpty_console_list_agent'), which relies on ELECTRON_RUN_AS_NODE. The
+    // runAsNode fuse is disabled, so that fork starts a second app instance
+    // instead; it exits right away and must not pull the window to the front.
+    if (Array.isArray(argv) && argv.some(arg => /conpty_console_list_agent/i.test(String(arg)))) return;
     showMainWindow();
   });
 }

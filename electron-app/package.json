@@ -33,7 +33,7 @@
     "build": "npm run build:frontend && npm run build:backend && npm run build:electron"
   },
   "devDependencies": {
-    "electron": "^43.1.1",
+    "electron": "^43.8.0",
     "electron-builder": "^26.15.3"
   },
   "build": {
@@ -108,6 +108,15 @@
       "createDesktopShortcut": true,
       "installerIcon": "build/icon.ico"
     },
-    "includePdb": false
+    "includePdb": false,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "resetAdHocDarwinSignature": true
+    }
   }
 }
