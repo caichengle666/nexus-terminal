@@ -13,10 +13,21 @@ import { passkeyService } from '../passkey/passkey.service'; // +++ Passkey Serv
 import { passkeyRepository } from '../passkey/passkey.repository'; // +++ Passkey Repository
 import { userRepository } from '../user/user.repository'; // For passkey auth success
 import { getOrCreateSetupToken, invalidateSetupToken, isLoopbackBypassAllowed, verifySetupToken } from './setup-token';
+import { verifyCurrentPassword, STEP_UP_PASSWORD_INVALID_CODE, STEP_UP_PASSWORD_REQUIRED_CODE } from './step-up';
+import { bumpSessionVersion, emitSessionRevoked, getCurrentSessionVersion, isSessionVersionCurrent } from './session-version';
 
 const notificationService = new NotificationService();
 const auditLogService = new AuditLogService();
 const REMEMBER_ME_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+/** 待 2FA 的会话最多允许输错几次验证码，超过后销毁会话，必须重新输入密码 */
+export const MAX_PENDING_TWO_FACTOR_ATTEMPTS = 5;
+
+// 未知用户名也执行一次 bcrypt 比较，使响应时间与“密码错误”一致，防止按耗时枚举用户名
+let dummyPasswordHash: string | null = null;
+const getDummyPasswordHash = (): string => {
+    if (!dummyPasswordHash) dummyPasswordHash = bcrypt.hashSync(`nexus-dummy-${Math.random()}`, 10);
+    return dummyPasswordHash;
+};
 
 // --- 2FA 密钥落库加密（兼容历史明文值）---
 const TWO_FACTOR_ENC_PREFIX = 'enc:';
@@ -38,6 +49,31 @@ const regenerateSession = (req: Request): Promise<void> => new Promise((resolve,
     req.session.regenerate((error) => error ? reject(error) : resolve());
 });
 
+/** 登录成功后写入会话版本号 */
+const stampSessionVersion = async (req: Request, userId: number): Promise<void> => {
+    req.session.sessionVersion = (await getCurrentSessionVersion(userId)) ?? 0;
+};
+
+/**
+ * 修改密码 / 启用或禁用 2FA 后调用：递增会话版本使其他会话失效，
+ * 重新生成当前会话 (写入新版本号，保持登录)，并关闭该用户其他会话的 WebSocket 与 SSH 连接。
+ */
+const revokeOtherSessions = async (req: Request, userId: number, reason: string): Promise<void> => {
+    const previousExpressSessionId = req.sessionID;
+    const username = req.session.username;
+    const rememberMe = req.session.rememberMe;
+    const maxAge = req.session.cookie.maxAge;
+    const newVersion = await bumpSessionVersion(userId);
+    await regenerateSession(req);
+    req.session.userId = userId;
+    req.session.username = username;
+    req.session.requiresTwoFactor = false;
+    req.session.rememberMe = rememberMe;
+    req.session.sessionVersion = newVersion;
+    req.session.cookie.maxAge = maxAge ?? undefined;
+    emitSessionRevoked({ userId, exceptExpressSessionId: previousExpressSessionId, reason });
+};
+
 export interface User { 
     id: number;
     username: string;
@@ -55,6 +91,8 @@ declare module 'express-session' {
         currentChallenge?: string; // +++ For Passkey challenge storage
         passkeyUserHandle?: string; // +++ For Passkey user handle (user ID as string)
         rememberMe?: boolean;
+        sessionVersion?: number;
+        twoFactorFailedAttempts?: number;
     }
 }
 
@@ -72,6 +110,17 @@ export const generatePasskeyRegistrationOptionsHandler = async (req: Request, re
         return;
     }
 
+    // 注册 Passkey 会创建可绕过密码的持久登录方式：要求再次输入当前密码
+    const currentPassword = req.body?.currentPassword;
+    if (typeof currentPassword !== 'string' || !currentPassword) {
+        res.status(400).json({ message: '请输入当前密码以注册 Passkey。', code: STEP_UP_PASSWORD_REQUIRED_CODE });
+        return;
+    }
+    if (!(await verifyCurrentPassword(req, currentPassword))) {
+        res.status(403).json({ message: '当前密码不正确。', code: STEP_UP_PASSWORD_INVALID_CODE });
+        return;
+    }
+
     try {
         // PasskeyService's generateRegistrationOptions expects userId as number
         const options = await passkeyService.generateRegistrationOptions(username, userId);
@@ -84,7 +133,7 @@ export const generatePasskeyRegistrationOptionsHandler = async (req: Request, re
         res.json(options);
     } catch (error: any) {
         console.error(`[AuthController] 生成 Passkey 注册选项时出错 (用户: ${username}):`, error.message, error.stack);
-        res.status(500).json({ message: '生成 Passkey 注册选项失败。', error: error.message });
+        res.status(500).json({ message: '生成 Passkey 注册选项失败。' });
     }
 };
 
@@ -206,6 +255,8 @@ export const verifyPasskeyAuthenticationHandler = async (req: Request, res: Resp
             req.session.userId = user.id;
             req.session.username = user.username;
             req.session.requiresTwoFactor = false; // Passkey implies 2FA characteristics
+            req.session.rememberMe = !!rememberMe;
+            await stampSessionVersion(req, user.id);
 
             if (rememberMe) {
                 req.session.cookie.maxAge = REMEMBER_ME_MAX_AGE_MS;
@@ -231,6 +282,8 @@ export const verifyPasskeyAuthenticationHandler = async (req: Request, res: Resp
                 ip: clientIp
             });
             notificationService.sendNotification('PASSKEY_AUTH_FAILURE', { credentialId: authenticationResponseJSON?.id || 'unknown', reason: 'Verification failed', ip: clientIp });
+            ipBlacklistService.recordFailedAttempt(clientIp);
+            delete req.session.currentChallenge;
             res.status(401).json({ verified: false, message: 'Passkey 认证失败。' });
         }
     } catch (error: any) {
@@ -242,7 +295,10 @@ export const verifyPasskeyAuthenticationHandler = async (req: Request, res: Resp
             ip: clientIp
         });
         notificationService.sendNotification('PASSKEY_AUTH_FAILURE', { credentialId: authenticationResponseJSON?.id || 'unknown', reason: error.message, ip: clientIp });
-        res.status(500).json({ verified: false, message: '验证 Passkey 认证失败。', error: error.message });
+        ipBlacklistService.recordFailedAttempt(clientIp);
+        delete req.session.currentChallenge;
+        // 验证失败 (未知凭据、签名错误等) 统一返回 401，不回显内部错误信息
+        res.status(401).json({ verified: false, message: 'Passkey 认证失败。' });
     }
 };
 
@@ -409,6 +465,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
      
 
         if (!user) {
+            await bcrypt.compare(String(password), getDummyPasswordHash());
             console.log(`登录尝试失败: 用户未找到 - ${username}`);
             const clientIp = req.ip || req.socket?.remoteAddress || 'unknown'; 
             ipBlacklistService.recordFailedAttempt(clientIp);
@@ -449,6 +506,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             req.session.userId = user.id;
             req.session.username = user.username;
             req.session.requiresTwoFactor = false; 
+            req.session.rememberMe = !!rememberMe;
+            await stampSessionVersion(req, user.id);
 
             if (rememberMe) {
                 req.session.cookie.maxAge = REMEMBER_ME_MAX_AGE_MS;
@@ -487,6 +546,11 @@ export const getAuthStatus = async (req: Request, res: Response): Promise<void> 
         if (!user) {
              res.status(401).json({ isAuthenticated: false });
              return;
+        }
+        if (!isSessionVersionCurrent(req.session.sessionVersion, await getCurrentSessionVersion(userId))) {
+            req.session.destroy(() => { /* ignore */ });
+            res.status(401).json({ isAuthenticated: false, code: 'SESSION_REVOKED' });
+            return;
         }
 
         res.status(200).json({
@@ -554,6 +618,8 @@ export const verifyLogin2FA = async (req: Request, res: Response): Promise<void>
             notificationService.sendNotification('LOGIN_SUCCESS', { userId: user.id, username: user.username, ip: clientIp, twoFactor: true }); 
             req.session.username = user.username;
             req.session.requiresTwoFactor = false; 
+            req.session.rememberMe = !!rememberMe;
+            await stampSessionVersion(req, user.id);
 
             if (rememberMe) {
                 req.session.cookie.maxAge = REMEMBER_ME_MAX_AGE_MS;
@@ -571,7 +637,15 @@ export const verifyLogin2FA = async (req: Request, res: Response): Promise<void>
             ipBlacklistService.recordFailedAttempt(clientIp);
             auditLogService.logAction('LOGIN_FAILURE', { userId: user.id, username: user.username, reason: 'Invalid 2FA token', ip: clientIp });
             notificationService.sendNotification('LOGIN_FAILURE', { userId: user.id, username: user.username, reason: 'Invalid 2FA token', ip: clientIp }); 
-            res.status(401).json({ message: '验证码无效。' });
+            const attempts = (req.session.twoFactorFailedAttempts ?? 0) + 1;
+            if (attempts >= MAX_PENDING_TWO_FACTOR_ATTEMPTS) {
+                // 输错次数过多：销毁待验证会话，必须重新输入密码
+                req.session.destroy(() => { /* ignore */ });
+                res.status(401).json({ message: '验证码错误次数过多，请重新登录。', code: 'TWO_FACTOR_LOCKED' });
+                return;
+            }
+            req.session.twoFactorFailedAttempts = attempts;
+            res.status(401).json({ message: '验证码无效。', remainingAttempts: MAX_PENDING_TWO_FACTOR_ATTEMPTS - attempts });
         }
 
     } catch (error) {
@@ -644,6 +718,7 @@ export const changePassword = async (req: Request, res: Response): Promise<void>
         const clientIp = req.ip || req.socket?.remoteAddress || 'unknown'; 
         auditLogService.logAction('PASSWORD_CHANGED', { userId, ip: clientIp });
         notificationService.sendNotification('PASSWORD_CHANGED', { userId, ip: clientIp }); 
+        await revokeOtherSessions(req, userId, 'password_changed');
 
         res.status(200).json({ message: '密码已成功修改。' });
 
@@ -663,6 +738,17 @@ export const setup2FA = async (req: Request, res: Response): Promise<void> => {
 
     if (!userId || !username || req.session.requiresTwoFactor) {
         res.status(401).json({ message: '用户未认证或认证未完成。' });
+        return;
+    }
+
+    // 启用 2FA 需要再次输入当前密码 (防止被盗会话绑定攻击者的验证器)
+    const currentPassword = req.body?.currentPassword;
+    if (typeof currentPassword !== 'string' || !currentPassword) {
+        res.status(400).json({ message: '请输入当前密码以设置两步验证。', code: STEP_UP_PASSWORD_REQUIRED_CODE });
+        return;
+    }
+    if (!(await verifyCurrentPassword(req, currentPassword))) {
+        res.status(403).json({ message: '当前密码不正确。', code: STEP_UP_PASSWORD_INVALID_CODE });
         return;
     }
 
@@ -758,6 +844,7 @@ export const verifyAndActivate2FA = async (req: Request, res: Response): Promise
             notificationService.sendNotification('2FA_ENABLED', { userId, ip: clientIp }); 
 
             delete req.session.tempTwoFactorSecret;
+            await revokeOtherSessions(req, userId, '2fa_enabled');
 
             res.status(200).json({ message: '两步验证已成功激活！' });
         } else {
@@ -815,6 +902,7 @@ export const disable2FA = async (req: Request, res: Response): Promise<void> => 
         const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
         auditLogService.logAction('2FA_DISABLED', { userId, ip: clientIp });
         notificationService.sendNotification('2FA_DISABLED', { userId, ip: clientIp }); 
+        await revokeOtherSessions(req, userId, '2fa_disabled');
 
         res.status(200).json({ message: '两步验证已成功禁用。' });
 
@@ -935,6 +1023,7 @@ export const setupAdmin = async (req: Request, res: Response): Promise<void> => 
 export const logout = (req: Request, res: Response): void => {
     const userId = req.session.userId;
     const username = req.session.username;
+    const expressSessionId = req.sessionID;
 
     req.session.destroy((err) => {
         if (err) {
@@ -944,6 +1033,8 @@ export const logout = (req: Request, res: Response): void => {
             console.log(`用户 ${userId} (${username}) 已成功登出。`);
             res.clearCookie('connect.sid'); 
             if (userId) { 
+                 // 关闭这个会话打开的 WebSocket 及其 SSH 连接
+                 emitSessionRevoked({ userId, onlyExpressSessionId: expressSessionId, reason: 'logout' });
                  const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
                  auditLogService.logAction('LOGOUT', { userId, username, ip: clientIp });
                  notificationService.sendNotification('LOGOUT', { userId, username, ip: clientIp }); 
@@ -989,12 +1080,12 @@ export const getPublicCaptchaConfig = async (req: Request, res: Response): Promi
  * 公开访问，用于登录页面判断是否显示 Passkey 登录按钮。
  */
 export const checkHasPasskeys = async (req: Request, res: Response): Promise<void> => {
-    const username = req.query.username as string | undefined;
+    // username 参数已移除 (会泄露用户名是否存在)，只返回系统中是否配置了任何 Passkey
     try {
-        const hasPasskeys = await passkeyService.hasPasskeysConfigured(username);
+        const hasPasskeys = await passkeyService.hasPasskeysConfigured();
         res.status(200).json({ hasPasskeys });
     } catch (error: any) {
-        console.error(`[AuthController] 检查 Passkey 配置状态时出错 (username: ${username || 'any'}):`, error.message);
+        console.error(`[AuthController] 检查 Passkey 配置状态时出错:`, error.message);
         // 即使出错，也返回 false，避免登录流程中断
         res.status(200).json({ hasPasskeys: false, error: '检查 Passkey 配置时出错。' });
     }

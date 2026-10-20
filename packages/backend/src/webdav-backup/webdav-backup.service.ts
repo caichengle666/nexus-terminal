@@ -10,6 +10,8 @@ import { allDb, closeDbInstance, getDbInstance, runDb } from '../database/connec
 import { settingsRepository } from '../settings/settings.repository';
 import * as ProxyRepository from '../proxies/proxy.repository';
 import { decrypt } from '../utils/crypto';
+import { isLegacyPlaintextSecret, openSecret, sealSecret } from '../utils/secret-field';
+import { assertUrlHostAllowed, safeHttpAgent, safeHttpsAgent } from '../utils/safe-http';
 import { getBackendDataPath } from '../utils/paths';
 import {
   createFullBackup,
@@ -66,7 +68,14 @@ export async function getWebDavConfig(): Promise<WebDavBackupConfig | null> {
   try {
     const parsed = JSON.parse(json);
     if (parsed && parsed.url && parsed.username && parsed.password) {
-      return parsed as WebDavBackupConfig;
+      if (isLegacyPlaintextSecret(parsed.password)) {
+        // 历史明文密码：透明加密回写
+        await settingsRepository.setSetting(WEBDAV_CONFIG_KEY, JSON.stringify({ ...parsed, password: sealSecret(parsed.password) }))
+          .catch(err => console.error('[WebDAV] 加密历史 WebDAV 密码失败:', err));
+      }
+      const password = openSecret(parsed.password);
+      if (!password) return null;
+      return { ...parsed, password } as WebDavBackupConfig;
     }
     return null;
   } catch {
@@ -78,7 +87,7 @@ export async function saveWebDavConfig(config: WebDavBackupConfig): Promise<void
   if (!config.url || !config.username || !config.password) {
     throw new Error('WebDAV 配置不完整，需要 url / username / password');
   }
-  await settingsRepository.setSetting(WEBDAV_CONFIG_KEY, JSON.stringify(config));
+  await settingsRepository.setSetting(WEBDAV_CONFIG_KEY, JSON.stringify({ ...config, password: sealSecret(config.password) }));
 }
 
 export async function deleteWebDavConfig(): Promise<void> {
@@ -86,7 +95,8 @@ export async function deleteWebDavConfig(): Promise<void> {
 }
 
 async function getWebDavProxyAgents(proxyId?: number | null): Promise<Pick<WebDAVClientOptions, 'httpAgent' | 'httpsAgent'>> {
-  if (!proxyId) return {};
+  // 无代理时使用带 SSRF 防护的 agent (拒绝链路本地 / 云元数据地址)
+  if (!proxyId) return { httpAgent: safeHttpAgent, httpsAgent: safeHttpsAgent };
 
   const proxy = await ProxyRepository.findProxyById(proxyId);
   if (!proxy) {
@@ -127,6 +137,7 @@ export async function createWebDavClient(config: WebDavBackupConfig): Promise<We
     password: config.password,
     ...(await getWebDavProxyAgents(config.proxyId)),
   };
+  assertUrlHostAllowed(config.url);
   return createClient(config.url, options);
 }
 

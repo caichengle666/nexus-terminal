@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import {
   generateRegistrationOptions as generateRegOptions,
   verifyRegistrationResponse,
@@ -159,6 +160,15 @@ export class PasskeyService {
           transports: pk.transports ? JSON.parse(pk.transports) as AuthenticatorTransportFuture[] : undefined,
         }));
       }
+      // 防止用户名枚举：未知用户 / 没有 Passkey 的用户返回一个由用户名派生的固定假凭据，
+      // 响应形状与真实用户一致。
+      if (!allowCredentials || allowCredentials.length === 0) {
+        allowCredentials = [{
+          id: crypto.createHmac('sha256', process.env.SESSION_SECRET || 'nexus-terminal').update(`passkey:${username}`).digest('base64url'),
+          type: 'public-key',
+          transports: ['internal', 'hybrid'],
+        }];
+      }
     }
 
     const options: GenerateAuthenticationOptionsOpts = {
@@ -302,20 +312,13 @@ export class PasskeyService {
     await this.passkeyRepo.updatePasskeyName(credentialID, newName);
   }
 
-  async hasPasskeysConfigured(username?: string): Promise<boolean> {
-    if (username) {
-      const user = await this.userRepo.findUserByUsername(username);
-      if (!user) {
-        return false; // 如果提供了用户名但用户不存在，则认为没有配置 passkey
-      }
-      const passkeys = await this.passkeyRepo.getPasskeysByUserId(user.id);
-      return passkeys.length > 0;
-    } else {
-      // 如果没有提供用户名，检查整个系统中是否存在任何 passkey
-      // 这对于“可发现凭证”场景可能有用，或者简单地检查系统是否启用了 passkey 功能
-      const anyPasskey = await this.passkeyRepo.getFirstPasskey();
-      return !!anyPasskey;
-    }
+  /**
+   * 系统中是否配置了任何 Passkey (登录页据此决定是否显示 Passkey 按钮)。
+   * 不再支持按用户名查询，避免用户名枚举。
+   */
+  async hasPasskeysConfigured(): Promise<boolean> {
+    const anyPasskey = await this.passkeyRepo.getFirstPasskey();
+    return !!anyPasskey;
   }
 }
  

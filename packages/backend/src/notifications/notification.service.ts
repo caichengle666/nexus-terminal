@@ -1,4 +1,5 @@
-import axios, { AxiosRequestConfig } from "axios";
+import { AxiosRequestConfig } from "axios";
+import { safeAxios, safeWebhookAxios, summarizeUpstreamBodyForLog, urlOriginForLog } from "../utils/safe-http";
 import { NotificationSettingsRepository } from "../notifications/notification.repository";
 import {
   NotificationSetting,
@@ -242,24 +243,23 @@ export class NotificationService {
     };
 
     try {
-      console.log(`[通知测试 - Webhook] 发送测试 Webhook 到 ${config.url}`);
-      const response = await axios(requestConfig);
+      console.log(`[通知测试 - Webhook] 发送测试 Webhook 到 ${urlOriginForLog(config.url)}`);
+      const response = await safeWebhookAxios(requestConfig);
       console.log(
-        `[通知测试 - Webhook] 测试 Webhook 成功发送到 ${config.url}。状态: ${response.status}`
+        `[通知测试 - Webhook] 测试 Webhook 成功发送到 ${urlOriginForLog(config.url)}。状态: ${response.status}`
       );
       return {
         success: true,
         message: `测试 Webhook 发送成功 (状态码: ${response.status})。`,
       };
     } catch (error: any) {
-      const errorMessage =
-        error.response?.data?.message ||
-        error.response?.data ||
-        error.message ||
-        "未知错误";
+      // 不把上游响应体回显给客户端 (可能来自内网服务)，只在服务端记录截断内容
+      const errorMessage = error.response?.status
+        ? `HTTP ${error.response.status}`
+        : error.message || "未知错误";
       console.error(
-        `[通知测试 - Webhook] 发送测试 Webhook 到 ${config.url} 时出错:`,
-        errorMessage
+        `[通知测试 - Webhook] 发送测试 Webhook 到 ${urlOriginForLog(config.url)} 时出错: ${errorMessage}`,
+        summarizeUpstreamBodyForLog(error.response?.data)
       );
       return {
         success: false,
@@ -372,7 +372,7 @@ export class NotificationService {
       console.log(
         `[通知测试 - Telegram] 发送测试 Telegram 消息到聊天 ID ${config.chatId}`
       );
-      const response = await axios.post(
+      const response = await safeAxios.post(
         telegramApiUrl,
         {
           chat_id: config.chatId,
@@ -398,14 +398,14 @@ export class NotificationService {
         };
       }
     } catch (error: any) {
+      const description = error.response?.data?.description;
       const errorMessage =
-        error.response?.data?.description ||
-        error.response?.data ||
+        (typeof description === "string" ? description.slice(0, 300) : "") ||
+        (error.response?.status ? `HTTP ${error.response.status}` : "") ||
         error.message ||
         "未知错误";
       console.error(
-        `[通知测试 - Telegram] 发送测试 Telegram 消息时出错:`,
-        errorMessage
+        `[通知测试 - Telegram] 发送测试 Telegram 消息时出错: ${errorMessage}`
       );
       return {
         success: false,
@@ -585,18 +585,17 @@ export class NotificationService {
 
     try {
       console.log(
-        `[通知] 发送 Webhook 到 ${config.url} (事件: ${payload.event})`
+        `[通知] 发送 Webhook 到 ${urlOriginForLog(config.url)} (事件: ${payload.event})`
       );
-      const response = await axios(requestConfig);
+      const response = await safeWebhookAxios(requestConfig);
       console.log(
-        `[通知] Webhook 成功发送到 ${config.url}。状态: ${response.status}`
+        `[通知] Webhook 成功发送到 ${urlOriginForLog(config.url)}。状态: ${response.status}`
       );
     } catch (error: any) {
-      const errorMessage =
-        error.response?.data?.message || error.response?.data || error.message;
+      const errorMessage = error.response?.status ? `HTTP ${error.response.status}` : error.message;
       console.error(
-        `[通知] 发送 Webhook 到 ${config.url} (设置 ID: ${setting.id}) 时出错:`,
-        errorMessage
+        `[通知] 发送 Webhook 到 ${urlOriginForLog(config.url)} (设置 ID: ${setting.id}) 时出错: ${errorMessage}`,
+        summarizeUpstreamBodyForLog(error.response?.data)
       );
     }
   }
@@ -837,18 +836,18 @@ export class NotificationService {
         `[_sendTelegram] Sending request to Telegram API:`,
         JSON.stringify(requestBody, null, 2)
       );
-      const response = await axios.post(telegramApiUrl, requestBody, {
+      const response = await safeAxios.post(telegramApiUrl, requestBody, {
         timeout: 10000,
       });
       console.log(`[通知] Telegram 消息发送成功。响应 OK:`, response.data?.ok);
     } catch (error: any) {
+      const description = error.response?.data?.description;
       const errorMessage =
-        error.response?.data?.description ||
-        error.response?.data ||
+        (typeof description === "string" ? description.slice(0, 300) : "") ||
+        (error.response?.status ? `HTTP ${error.response.status}` : "") ||
         error.message;
       console.error(
-        `[通知] 发送 Telegram 消息 (设置 ID: ${setting.id}) 时出错:`,
-        errorMessage
+        `[通知] 发送 Telegram 消息 (设置 ID: ${setting.id}) 时出错: ${errorMessage}`
       );
     }
   }

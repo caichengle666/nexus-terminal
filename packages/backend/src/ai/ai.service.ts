@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { safeAxios as axios } from '../utils/safe-http';
 import { settingsRepository } from '../settings/settings.repository';
 import { decrypt, encrypt } from '../utils/crypto';
 import { decideStoredKeyOnSave, resolveAiCredentials, validateApiBaseUrl } from './ai-config.validation';

@@ -14,6 +14,8 @@ export function useTwoFactorAuth() {
   const setupData = ref<{ secret: string; qrCodeUrl: string } | null>(null);
   const verificationCode = ref('');
   const disablePassword = ref('');
+  // 启用 2FA 前需要再次输入当前密码 (后端 step-up 校验)
+  const setupPassword = ref('');
 
   const isSettingUp2FA = computed(() => setupData.value !== null);
 
@@ -32,8 +34,9 @@ export function useTwoFactorAuth() {
     setupData.value = null;
     verificationCode.value = '';
     try {
-      const response = await apiClient.post<{ secret: string; qrCodeUrl: string }>('/auth/2fa/setup');
+      const response = await apiClient.post<{ secret: string; qrCodeUrl: string }>('/auth/2fa/setup', { currentPassword: setupPassword.value });
       setupData.value = response.data;
+      setupPassword.value = '';
     } catch (error: any) {
       console.error('开始设置 2FA 失败:', error);
       twoFactorMessage.value = error.response?.data?.message || t('settings.twoFactor.error.setupFailed');
@@ -107,6 +110,7 @@ export function useTwoFactorAuth() {
     setupData,
     verificationCode,
     disablePassword,
+    setupPassword,
     isSettingUp2FA,
     checkTwoFactorStatus, // Expose if needed externally, though onMounted handles initial check
     handleSetup2FA,

@@ -29,10 +29,13 @@ const upload = multer({
     storage: storage,
     limits: { fileSize: 5 * 1024 * 1024 }, // 限制文件大小为 5MB
     fileFilter: (req: Request, file, cb) => {
-        if (file.mimetype === 'application/json') {
+        const name = (file.originalname || '').toLowerCase();
+        const isJson = file.mimetype === 'application/json' || name.endsWith('.json');
+        const isZip = ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'].includes(file.mimetype) || name.endsWith('.zip');
+        if (isJson || isZip) {
             cb(null, true);
         } else {
-            (req as any).fileValidationError = '只允许上传 JSON 文件！';
+            (req as any).fileValidationError = '只允许上传 JSON 或 ZIP 文件！';
             cb(null, false);
         }
     }
@@ -42,8 +45,8 @@ const upload = multer({
 router.use(isAuthenticated); // 恢复认证检查
 
 
-// GET /api/v1/connections/export - 导出连接配置
-router.get('/export', exportConnections);
+// POST /api/v1/connections/export - 导出连接配置 (需要当前密码；body: { currentPassword, passphrase })
+router.post('/export', exportConnections);
 
 // POST /api/v1/connections/import - 导入连接配置
 router.post('/import', (req: Request, res: Response, next: NextFunction) => {

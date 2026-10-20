@@ -35,6 +35,27 @@ const SHOW_CONNECTION_TAGS_KEY = 'showConnectionTags'; // 连接标签显示设�
 const SHOW_QUICK_COMMAND_TAGS_KEY = 'showQuickCommandTags'; // 快捷指令标签显示设置键
 const SHOW_STATUS_MONITOR_IP_ADDRESS_KEY = 'showStatusMonitorIpAddress'; // 状态监视器IP显示设置键
  
+/**
+ * GET /settings 不返回的键：这些设置含有密钥 / 密文，并且都有各自的专用接口
+ * (WebDAV: /webdav-backup/config，CAPTCHA: /settings/captcha，AI: /ai/config)。
+ */
+export const CLIENT_HIDDEN_SETTING_KEYS = new Set<string>([
+  'captchaConfig',
+  'webdavBackupConfig',
+  'aiTerminalConfig',
+]);
+const SECRET_LIKE_SETTING_KEY_RE = /(secret|password|passwd|token|api[_-]?key|private[_-]?key|credential)/i;
+
+/** 过滤掉不应返回给前端的设置项 */
+export const filterSettingsForClient = (settings: Record<string, string>): Record<string, string> => {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (CLIENT_HIDDEN_SETTING_KEYS.has(key) || SECRET_LIKE_SETTING_KEY_RE.test(key)) continue;
+    result[key] = value;
+  }
+  return result;
+};
+
 export const settingsService = {
   /**
    * 获取所有设置项
@@ -49,6 +70,11 @@ export const settingsService = {
       settingsRecord[setting.key] = setting.value;
     });
     return settingsRecord;
+  },
+
+  /** 返回给前端的设置项 (已移除密钥类设置) */
+  async getAllSettingsForClient(): Promise<Record<string, string>> {
+    return filterSettingsForClient(await this.getAllSettings());
   },
 
   /**

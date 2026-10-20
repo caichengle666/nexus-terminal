@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import apiClient from '../utils/apiClient'; 
 import router from '../router'; 
-import { setLocale } from '../i18n'; 
+import i18n, { setLocale } from '../i18n'; 
 import { getSafeRedirectPath } from '../utils/safeRedirect';
 
 // 登录成功后整页刷新跳转：优先使用路由 query.redirect (仅站内路径)，否则回到根路径
@@ -170,6 +170,12 @@ export const useAuthStore = defineStore('auth', {
                 return { success: true };
             } catch (err: any) {
                 console.error('2FA 验证失败:', err);
+                // 验证码错误次数过多 (或待验证会话已失效)：后端已销毁会话，需要重新输入密码
+                if (err.response?.data?.code === 'TWO_FACTOR_LOCKED' || err.response?.status === 400) {
+                    this.loginRequires2FA = false;
+                    this.error = (i18n.global as any).t('login.error.twoFactorLocked');
+                    return { success: false, error: this.error };
+                }
                 // 不清除 isAuthenticated 或 user，因为用户可能只是输错了验证码
                 this.error = err.response?.data?.message || err.message || '2FA 验证时发生未知错误。';
                 return { success: false, error: this.error };
@@ -393,11 +399,11 @@ export const useAuthStore = defineStore('auth', {
             }
         },
 
-        async getPasskeyRegistrationOptions(username: string) {
+        async getPasskeyRegistrationOptions(username: string, currentPassword: string) {
             this.isLoading = true;
             this.error = null;
             try {
-                const response = await apiClient.post('/auth/passkey/registration-options', { username });
+                const response = await apiClient.post('/auth/passkey/registration-options', { username, currentPassword });
                 return response.data; // Returns FIDO2 creation options
             } catch (err: any) {
                 console.error('获取 Passkey 注册选项失败:', err);
@@ -514,14 +520,14 @@ export const useAuthStore = defineStore('auth', {
         },
 
         // Action to check if passkeys are configured (for login page)
-        async checkHasPasskeysConfigured(username?: string) {
+        async checkHasPasskeysConfigured() {
             // This action should not set isLoading to true, as it's a quick check
             // and primarily used to determine UI elements on the login page.
+            // 后端不再支持按用户名查询 (避免用户名枚举)，只返回系统中是否配置了任何 Passkey。
             try {
-                const params = username ? { username } : {};
-                const response = await apiClient.get<{ hasPasskeys: boolean }>('/auth/passkey/has-configured', { params });
+                const response = await apiClient.get<{ hasPasskeys: boolean }>('/auth/passkey/has-configured');
                 this.hasPasskeysAvailable = response.data.hasPasskeys;
-                console.log(`[AuthStore] Passkeys available for ${username || 'any user'}: ${this.hasPasskeysAvailable}`);
+                console.log(`[AuthStore] Passkeys available: ${this.hasPasskeysAvailable}`);
                 return this.hasPasskeysAvailable;
             } catch (error: any) {
                 console.error('Failed to check if passkeys are configured:', error.response?.data?.message || error.message);

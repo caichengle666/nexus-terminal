@@ -7,6 +7,7 @@ import { AuthenticatedWebSocket } from './types';
 import { getClientIp } from '../utils/client-ip';
 import { isIpAllowed } from '../auth/ipWhitelist.middleware';
 import { checkWsOrigin } from './origin-check';
+import { isSessionStillValid } from '../auth/session-version';
 
 const rejectUpgrade = (socket: Duplex, status: number, message: string): void => {
     try {
@@ -55,13 +56,28 @@ export function initializeUpgradeHandler(
         }
 
         // @ts-ignore Express-session 类型问题
-        sessionParser(request, {} as any, () => {
+        sessionParser(request, {} as any, async () => {
             // --- 认证检查 ---
             if (!request.session || !request.session.userId || (request.session as any).requiresTwoFactor) {
                 console.log(`WebSocket 认证失败 (Path: ${pathname})：未找到会话或用户未登录。`);
                 rejectUpgrade(socket, 401, 'Unauthorized');
                 return;
             }
+            // 会话版本校验：修改密码 / 2FA 后旧会话不得再建立 WebSocket
+            let sessionValid = false;
+            try {
+                sessionValid = await isSessionStillValid(request.session as any);
+            } catch (error) {
+                console.error('WebSocket: 校验会话版本出错，已拒绝升级请求:', error);
+                rejectUpgrade(socket, 500, 'Internal Server Error');
+                return;
+            }
+            if (!sessionValid) {
+                console.log(`WebSocket 认证失败 (Path: ${pathname})：会话已失效 (用户 ID: ${request.session.userId})。`);
+                rejectUpgrade(socket, 401, 'Unauthorized');
+                return;
+            }
+            const expressSessionId = (request as any).sessionID as string | undefined;
             console.log(`WebSocket 认证成功 (Path: ${pathname})：用户 ${request.session.username} (ID: ${request.session.userId})`);
 
             // --- 根据路径处理升级 ---
@@ -73,6 +89,7 @@ export function initializeUpgradeHandler(
                     const extWs = ws as AuthenticatedWebSocket;
                     extWs.userId = request.session.userId;
                     extWs.username = request.session.username;
+                    extWs.expressSessionId = expressSessionId;
                     // 传递必要信息给 connection 事件
                     (request as any).clientIpAddress = ipAddress;
                     (request as any).isRdpProxy = true; // 标记为 RDP 代理连接
@@ -90,6 +107,7 @@ export function initializeUpgradeHandler(
                     const extWs = ws as AuthenticatedWebSocket;
                     extWs.userId = request.session.userId;
                     extWs.username = request.session.username;
+                    extWs.expressSessionId = expressSessionId;
                     (request as any).clientIpAddress = ipAddress;
                     (request as any).isRdpProxy = false; // 标记为非 RDP 代理连接
                     wss.emit('connection', extWs, request);

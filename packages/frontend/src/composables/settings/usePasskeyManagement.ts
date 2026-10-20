@@ -11,6 +11,8 @@ export function usePasskeyManagement() {
 
   // --- Passkey State ---
   const passkeyRegistrationLoading = ref(false); // Renamed for clarity
+  // 注册 Passkey 前需要再次输入当前密码 (后端 step-up 校验)
+  const passkeyCurrentPassword = ref('');
   const passkeyMessage = ref('');
   const passkeySuccess = ref(false);
   const passkeyDeleteLoadingStates = reactive<Record<string, boolean>>({});
@@ -34,7 +36,8 @@ export function usePasskeyManagement() {
     }
 
     try {
-      const registrationOptions = await authStore.getPasskeyRegistrationOptions(username);
+      const registrationOptions = await authStore.getPasskeyRegistrationOptions(username, passkeyCurrentPassword.value);
+      passkeyCurrentPassword.value = '';
       const registrationResult = await startRegistration({ optionsJSON: registrationOptions });
       await authStore.registerPasskey(username, registrationResult);
 
@@ -137,6 +140,7 @@ export function usePasskeyManagement() {
   }
 
   return {
+    passkeyCurrentPassword,
     passkeys, // from store
     passkeysLoading, // from store
     passkeyRegistrationLoading,

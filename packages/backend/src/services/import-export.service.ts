@@ -8,6 +8,7 @@ import { decrypt, getEncryptionKeyBuffer as getCryptoKeyBuffer } from '../utils/
 import { getAllDecryptedSshKeys, DecryptedSshKeyDetails } from '../ssh_keys/ssh_key.service'; 
 import archiver from 'archiver';
 archiver.registerFormat('zip-encrypted', require("archiver-zip-encrypted"));
+import { isZipBuffer, readZipEntries, ZipPasswordError } from '../utils/zip-aes';
 
 
 
@@ -240,20 +241,6 @@ const getPlaintextConnectionsData = async (): Promise<PlaintextExportConnectionD
  */
 
 // 辅助函数：安全地转义 CLI 参数，如果参数包含空格或引号，则用双引号括起来
-function escapeCliArgument(value: string | number | null | undefined): string {
-    if (value === null || value === undefined || String(value).trim() === '') {
-        return '""'; // 返回空引号对，而不是空字符串，以保持参数位置
-    }
-    const strValue = String(value);
-    // 如果字符串包含空格，或者已经是引号括起来的，或者包含特殊字符，则需要处理
-    // 这里简化处理：如果包含空格或双引号，就用双引号包裹并转义内部双引号
-    if (strValue.includes(' ') || strValue.includes('"')) {
-        return `"${strValue.replace(/"/g, '\\"')}"`;
-    }
-    return strValue;
-}
-
-
 export interface ExportJsonData {
     version: number;
     exported_at: string;
@@ -360,132 +347,170 @@ export const exportConnectionsAsJson = async (): Promise<Buffer> => {
     return Buffer.from(jsonStr, 'utf8');
 };
 
-export const exportConnectionsAsEncryptedZip = async (includeSshKeys: boolean = false): Promise<Buffer> => {
-    try {
-        const connectionsData = await getPlaintextConnectionsData(); // This now returns PlaintextExportConnectionData[]
-        const allTags = await TagService.getAllTags();
-        const allSshKeys = includeSshKeys ? await getAllDecryptedSshKeys() : [];
+export const MIN_EXPORT_PASSPHRASE_LENGTH = 8;
 
-        const tagsMap = new Map(allTags.map(tag => [tag.id, tag.name]));
-        const fullSshKeysMap = new Map(allSshKeys.map(key => [key.id, key])); // Store full key details, not just name
-
-        const scriptLines: string[] = [];
-
-        for (const conn of connectionsData) {
-            let line = `${conn.username}@${conn.host}:${conn.port}`;
-
-            line += ` -type ${conn.type.toUpperCase()}`;
-            if (conn.name && conn.name !== `${conn.username}@${conn.host}`) {
-                 line += ` -name ${escapeCliArgument(conn.name)}`;
-            }
-
-            if (conn.type === 'SSH') {
-                if (conn.auth_method === 'password' && conn.password) {
-                    line += ` -p ${escapeCliArgument(conn.password)}`;
-                } else if (conn.auth_method === 'key') {
-                    if (conn.ssh_key_id && fullSshKeysMap.has(conn.ssh_key_id)) {
-                        const referencedKey = fullSshKeysMap.get(conn.ssh_key_id)!;
-                        line += ` -k ${escapeCliArgument(referencedKey.name!)}`;
-                        if (referencedKey.passphrase) {
-                            line += ` -passphrase ${escapeCliArgument(referencedKey.passphrase)}`;
-                        }
-                    } else if (conn.private_key) {
-                        console.warn(`Connection ${conn.name} uses an SSH key by content (not by reference), which cannot be directly represented by '-k <keyname>' in script export.`);
-                        if (conn.passphrase) {
-                            console.warn(`The passphrase for the direct SSH key of connection ${conn.name} (from connections table) is also not exported as direct key content export is not supported.`);
-                        }
-                    }
-                }
-            } else if ((conn.type === 'RDP' || conn.type === 'VNC') && conn.password) {
-                line += ` -p ${escapeCliArgument(conn.password)}`;
-            }
-
-            // 移除了代理设置的导出，以避免跳板机相关问题
-
-            if (conn.tag_ids && conn.tag_ids.length > 0) {
-                const tagNames = conn.tag_ids.map(id => tagsMap.get(id)).filter(name => !!name) as string[];
-                if (tagNames.length > 0) {
-                    line += ` -tags ${tagNames.map(escapeCliArgument).join(' ')}`;
-                }
-            }
-            
-            if (conn.notes) {
-                 line += ` -note ${escapeCliArgument(conn.notes)}`;
-            }
-            
-            scriptLines.push(line);
-        }
-
-        const connectionsScriptContent = scriptLines.join('\n');
-
-        const zipPassword = process.env.ENCRYPTION_KEY;
-        if (!zipPassword || zipPassword.trim() === '') {
-            console.error('错误：ENCRYPTION_KEY 环境变量未设置或为空！无法为ZIP文件设置密码。');
-            throw new Error('ENCRYPTION_KEY is not set or is empty, cannot password-protect the ZIP file.');
-        }
-        
-        return new Promise<Buffer>((resolve, reject) => {
-            const archive = archiver.create('zip-encrypted', {
-                zlib: { level: 9 },
-                encryptionMethod: 'aes256',
-                password: zipPassword
-            });
-
-            const buffers: Buffer[] = [];
-
-            archive.on('data', (chunk: Buffer) => {
-                buffers.push(chunk);
-            });
-
-            archive.on('warning', (err: Error) => {
-                console.warn('Archiver warning during export:', err);
-            });
-
-            // 'error' event should still be listened to for stream errors
-            archive.on('error', (err: Error) => {
-                console.error('Archiver stream error during export:', err);
-                reject(new Error(`Archiver stream failed during export: ${err.message}`));
-            });
-
-            // archive.finalize() returns a promise that resolves when the archive is fully written.
-            // No need to listen for 'finish' event separately if we await finalize().
-
-            archive.append(connectionsScriptContent, { name: 'connections.txt' });
-
-            if (includeSshKeys && allSshKeys.length > 0) {
-                // 创建一个名为 ssh_keys 的文件夹，并将每个密钥保存为一个单独的文件
-                // 确保 ssh_keys 目录首先被创建（如果 archive 库不自动创建）
-                // archive.append(null, { name: 'ssh_keys/', type: 'directory' }); // archiver 会自动创建目录结构
-
-                for (const sshKey of allSshKeys) {
-                    // DecryptedSshKeyDetails 包含 name 和 privateKey
-                    if (sshKey.name && sshKey.privateKey) {
-                        // 移除文件名中可能存在的非法字符，或进行更安全的编码
-                        // 为了简单起见，这里假设 sshKey.name 是一个有效的文件名组件
-                        const sanitizedKeyName = sshKey.name.replace(/[<>:"/\\|?*]/g, '_'); // 基本的文件名清理
-                        const filePathInZip = `ssh_keys/${sanitizedKeyName}.txt`;
-                        archive.append(sshKey.privateKey, { name: filePathInZip });
-                    } else {
-                        console.warn(`SSH 密钥 (ID: ${sshKey.id}) 缺少名称或私钥内容，跳过导出。`);
-                    }
-                }
-            }
-
-            archive.finalize()
-                .then(() => {
-                    console.log('Archiver finalized successfully.');
-                    resolve(Buffer.concat(buffers));
-                })
-                .catch(err => {
-                    console.error('Error during archive.finalize():', err);
-                    reject(new Error(`Failed to finalize archive: ${err.message}`));
-                });
-        });
-
-    } catch (error: any) {
-        console.error('Service: 导出连接 ZIP (outer try-catch) 时发生意外错误:', error);
-        throw new Error(`导出连接 ZIP (archiver) 失败: ${error.message}`);
+/**
+ * 导出为 AES-256 加密的 ZIP (可用 7-Zip 等打开)，内含可直接导入的 connections.json。
+ * ZIP 密码由用户在导出时指定 (不再使用服务器的 ENCRYPTION_KEY)。
+ */
+export const exportConnectionsAsPassphraseZip = async (passphrase: string): Promise<Buffer> => {
+    if (typeof passphrase !== 'string' || passphrase.length < MIN_EXPORT_PASSPHRASE_LENGTH) {
+        throw new Error(`导出密码至少需要 ${MIN_EXPORT_PASSPHRASE_LENGTH} 个字符。`);
     }
+    const json = await exportConnectionsAsJson();
+    return new Promise<Buffer>((resolve, reject) => {
+        const archive = archiver.create('zip-encrypted', {
+            zlib: { level: 9 },
+            encryptionMethod: 'aes256',
+            password: passphrase,
+        } as any);
+        const buffers: Buffer[] = [];
+        archive.on('data', (chunk: Buffer) => buffers.push(chunk));
+        archive.on('warning', (err: Error) => console.warn('Archiver warning during export:', err.message));
+        archive.on('error', (err: Error) => reject(new Error(`导出 ZIP 失败: ${err.message}`)));
+        archive.append(json, { name: 'connections.json' });
+        archive.finalize()
+            .then(() => resolve(Buffer.concat(buffers)))
+            .catch((err: Error) => reject(new Error(`导出 ZIP 失败: ${err.message}`)));
+    });
+};
+
+// --- 旧版 ZIP 导出 (ENCRYPTION_KEY 加密，内含 connections.txt 脚本格式) 的解析 ---
+
+/** 按旧导出器 escapeCliArgument 的规则切分：空白分隔，双引号包裹，\" 转义 */
+export const tokenizeLegacyScriptLine = (line: string): string[] => {
+    const tokens: string[] = [];
+    let i = 0;
+    while (i < line.length) {
+        while (i < line.length && /\s/.test(line[i])) i++;
+        if (i >= line.length) break;
+        if (line[i] === '"') {
+            i++;
+            let value = '';
+            while (i < line.length && line[i] !== '"') {
+                if (line[i] === '\\' && line[i + 1] === '"') { value += '"'; i += 2; continue; }
+                value += line[i++];
+            }
+            i++; // 跳过结束引号
+            tokens.push(value);
+        } else {
+            let value = '';
+            while (i < line.length && !/\s/.test(line[i])) value += line[i++];
+            tokens.push(value);
+        }
+    }
+    return tokens;
+};
+
+const LEGACY_FLAGS = new Set(['-type', '-name', '-p', '-k', '-passphrase', '-tags', '-note']);
+
+/** 把旧版 connections.txt + ssh_keys/*.txt 转为 v2 JSON 导入结构 */
+export const parseLegacyScriptExport = (script: string, keyFiles: Map<string, string>): ExportJsonData => {
+    const connections: ExportJsonData['connections'] = [];
+    const keyPassphrases = new Map<string, string>();
+    const tagSet = new Set<string>();
+    for (const rawLine of script.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        const tokens = tokenizeLegacyScriptLine(line);
+        const target = tokens.shift() || '';
+        const at = target.lastIndexOf('@');
+        const colon = target.lastIndexOf(':');
+        if (at <= 0 || colon <= at) continue;
+        const username = target.slice(0, at);
+        const host = target.slice(at + 1, colon).replace(/^\[|\]$/g, '');
+        const port = Number.parseInt(target.slice(colon + 1), 10) || 22;
+        const flags: Record<string, string> = {};
+        const tags: string[] = [];
+        for (let i = 0; i < tokens.length; i++) {
+            const flag = tokens[i];
+            if (!LEGACY_FLAGS.has(flag)) continue;
+            if (flag === '-tags') {
+                while (i + 1 < tokens.length && !LEGACY_FLAGS.has(tokens[i + 1])) tags.push(tokens[++i]);
+                continue;
+            }
+            flags[flag] = tokens[i + 1] ?? '';
+            i++;
+        }
+        const type = (flags['-type'] || 'SSH').toUpperCase() as 'SSH' | 'RDP' | 'VNC';
+        const conn: any = {
+            name: flags['-name'] || `${username}@${host}`,
+            type,
+            host,
+            port,
+            username,
+            auth_method: flags['-k'] ? 'key' : 'password',
+        };
+        if (flags['-p']) conn.password = flags['-p'];
+        if (flags['-k']) {
+            conn.ssh_key_name = flags['-k'];
+            if (flags['-passphrase']) keyPassphrases.set(flags['-k'], flags['-passphrase']);
+        }
+        if (flags['-note']) conn.notes = flags['-note'];
+        const cleanTags = tags.filter(Boolean);
+        if (cleanTags.length > 0) {
+            conn.tag_names = cleanTags;
+            cleanTags.forEach(t => tagSet.add(t));
+        }
+        connections.push(conn);
+    }
+    const ssh_keys = [...keyFiles.entries()].map(([name, privateKey]) => ({
+        name,
+        private_key: privateKey,
+        passphrase: keyPassphrases.get(name) || null,
+    }));
+    return {
+        version: 2,
+        exported_at: new Date().toISOString(),
+        tags: [...tagSet].map((name, index) => ({ id: index + 1, name })),
+        connections,
+        ssh_keys,
+    };
+};
+
+export class ImportPassphraseError extends Error {
+    code = 'IMPORT_PASSPHRASE_INVALID';
+    constructor(message: string) { super(message); this.name = 'ImportPassphraseError'; }
+}
+
+/**
+ * 解析上传的导入文件，返回 JSON Buffer：
+ * - .json：原样返回 (旧版前端导出的明文 JSON)
+ * - .zip：先用用户提供的密码解密；失败时再尝试 ENCRYPTION_KEY (旧版 ZIP 导出)。
+ *   内含 connections.json 直接使用；只有 connections.txt (旧脚本格式) 时转换为 JSON。
+ */
+export const resolveImportPayload = (fileBuffer: Buffer, passphrase?: string): Buffer => {
+    if (!isZipBuffer(fileBuffer)) return fileBuffer;
+    const candidates = [passphrase, process.env.ENCRYPTION_KEY].filter((p): p is string => typeof p === 'string' && p.length > 0);
+    let entries: Map<string, Buffer> | null = null;
+    let lastError: any = null;
+    for (const candidate of candidates) {
+        try {
+            entries = readZipEntries(fileBuffer, candidate);
+            break;
+        } catch (error: any) {
+            lastError = error;
+            if (!(error instanceof ZipPasswordError)) break;
+        }
+    }
+    if (!entries) {
+        if (!lastError || lastError instanceof ZipPasswordError) {
+            throw new ImportPassphraseError(passphrase ? '导入文件密码错误。' : '该导入文件已加密，请输入导出时设置的密码。');
+        }
+        throw new Error(`读取 ZIP 文件失败: ${lastError.message}`);
+    }
+    const json = entries.get('connections.json');
+    if (json) return json;
+    const script = entries.get('connections.txt');
+    if (script) {
+        const keyFiles = new Map<string, string>();
+        for (const [name, data] of entries) {
+            const match = /^ssh_keys\/(.+)\.txt$/.exec(name);
+            if (match) keyFiles.set(match[1], data.toString('utf8'));
+        }
+        return Buffer.from(JSON.stringify(parseLegacyScriptExport(script.toString('utf8'), keyFiles)), 'utf8');
+    }
+    throw new Error('ZIP 中未找到 connections.json。');
 };
 
 

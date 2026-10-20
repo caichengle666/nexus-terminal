@@ -7,6 +7,7 @@ export interface AuthenticatedWebSocket extends WebSocket {
     userId?: number;
     username?: string;
     sessionId?: string; 
+    expressSessionId?: string; // 建立此连接的 express-session ID，用于登出 / 会话撤销时关闭连接
 }
 
 // 中心化的客户端状态接口 (统一版本)

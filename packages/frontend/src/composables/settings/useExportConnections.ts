@@ -9,17 +9,36 @@ export function useExportConnections() {
   const exportConnectionsLoading = ref(false);
   const exportConnectionsMessage = ref('');
   const exportConnectionsSuccess = ref(false);
+  // 导出需要当前密码 (step-up)，ZIP 用用户自定义的密码加密
+  const exportCurrentPassword = ref('');
+  const exportPassphrase = ref('');
+  const exportPassphraseConfirm = ref('');
+  const MIN_EXPORT_PASSPHRASE_LENGTH = 8;
 
   const handleExportConnections = async () => {
-    exportConnectionsLoading.value = true;
     exportConnectionsMessage.value = '';
     exportConnectionsSuccess.value = false;
+    if (exportPassphrase.value.length < MIN_EXPORT_PASSPHRASE_LENGTH) {
+      exportConnectionsMessage.value = t('settings.exportConnections.passphraseTooShort', { min: MIN_EXPORT_PASSPHRASE_LENGTH });
+      return;
+    }
+    if (exportPassphrase.value !== exportPassphraseConfirm.value) {
+      exportConnectionsMessage.value = t('settings.exportConnections.passphraseMismatch');
+      return;
+    }
+    exportConnectionsLoading.value = true;
     try {
-      const response = await apiClient.get('/settings/export-connections', {
+      const response = await apiClient.post('/connections/export', {
+        currentPassword: exportCurrentPassword.value,
+        passphrase: exportPassphrase.value,
+      }, {
         responseType: 'blob',
       });
+      exportCurrentPassword.value = '';
+      exportPassphrase.value = '';
+      exportPassphraseConfirm.value = '';
 
-      let filename = 'nexus_connections_export.json';
+      let filename = 'nexus_connections_export.zip';
       const dispositionHeader = response.headers['content-disposition'];
       const disposition = typeof dispositionHeader === 'string' ? dispositionHeader : '';
       if (disposition && disposition.includes('attachment')) {
@@ -31,7 +50,7 @@ export function useExportConnections() {
       }
 
       const contentTypeHeader = response.headers['content-type'];
-      const contentType = typeof contentTypeHeader === 'string' ? contentTypeHeader : 'application/json';
+      const contentType = typeof contentTypeHeader === 'string' ? contentTypeHeader : 'application/zip';
       const blob = new Blob([response.data], { type: contentType });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -72,6 +91,9 @@ export function useExportConnections() {
     exportConnectionsLoading,
     exportConnectionsMessage,
     exportConnectionsSuccess,
+    exportCurrentPassword,
+    exportPassphrase,
+    exportPassphraseConfirm,
     handleExportConnections,
   };
 }

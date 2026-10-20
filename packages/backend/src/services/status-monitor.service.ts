@@ -2,6 +2,7 @@ import { Client } from 'ssh2';
 import { WebSocket } from 'ws';
 import { ClientState } from '../websocket';
 import { settingsService } from '../settings/settings.service';
+import { execBackground } from './ssh-channel-limiter';
 
 
 interface ServerStatus {
@@ -467,7 +468,8 @@ export class StatusMonitorService {
                 else resolve(output.trim());
             };
 
-            sshClient.exec(command, (err, stream) => {
+            // 轮询走后台配额，不占用为用户命令保留的 exec 通道
+            execBackground(sshClient, command, undefined, (err, stream) => {
                 if (err) {
                     finish(new Error(`执行命令 '${command}' 失败: ${err.message}`));
                     return;

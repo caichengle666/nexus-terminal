@@ -240,7 +240,8 @@
       "captchaRequired": "请完成 CAPTCHA 验证。",
       "usernameRequiredForPasskey": "使用 Passkey 需要输入用户名。",
       "passkeyAuthOptionsFailed": "从服务器获取 Passkey 认证选项失败。",
-      "passkeyAuthFailed": "Passkey 认证失败。请重试或使用密码登录。"
+      "passkeyAuthFailed": "Passkey 认证失败。请重试或使用密码登录。",
+      "twoFactorLocked": "验证码错误次数过多，请重新输入用户名和密码登录。"
     },
     "recaptchaV3Notice": "此网站受 reCAPTCHA 保护，并适用 Google 隐私政策和服务条款。"
   },
@@ -1179,10 +1180,14 @@
     },
     "exportConnections": {
       "title": "导出连接数据",
-      "decryptKeyInfo": "导出的 JSON 文件包含明文密码和私钥，请务必妥善保管。",
+      "decryptKeyInfo": "导出的 ZIP 包含所有连接的明文密码和密钥，将使用您下面设置的密码进行 AES-256 加密。导入或解压时需要该密码，请妥善保管。",
       "buttonText": "开始导出",
       "success": "导出成功。文件已开始下载。",
-      "error": "导出连接时发生错误。"
+      "error": "导出连接时发生错误。",
+      "passphraseLabel": "导出文件密码（至少 8 位）",
+      "passphraseConfirmLabel": "确认导出文件密码",
+      "passphraseTooShort": "导出文件密码至少需要 {min} 个字符。",
+      "passphraseMismatch": "两次输入的导出文件密码不一致。"
     },
     "tabs": {
       "security": "安全",
@@ -1231,12 +1236,17 @@
     },
     "importConnections": {
       "title": "导入连接数据",
-      "description": "选择之前导出的 JSON 文件来导入连接。",
+      "description": "选择之前导出的文件导入连接：加密 ZIP（需输入导出时设置的密码）或旧版 JSON 文件。",
       "buttonText": "开始导入",
       "noFile": "请先选择要导入的文件。",
       "success": "导入成功完成。共导入 {count} 条连接。",
       "partialSuccess": "导入完成，成功 {success} 条，失败 {failure} 条。",
-      "error": "导入连接时发生错误。"
+      "error": "导入连接时发生错误。",
+      "passphraseLabel": "导入文件密码（JSON 文件可留空）",
+      "passphraseInvalid": "导入文件密码错误，或该加密文件需要输入密码。"
+    },
+    "stepUp": {
+      "currentPasswordLabel": "当前密码（安全确认）"
     }
   },
   "notificationController": {

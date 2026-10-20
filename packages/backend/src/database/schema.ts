@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT UNIQUE NOT NULL,
     hashed_password TEXT NOT NULL,
     two_factor_secret TEXT NULL, -- 添加 2FA 密钥列，允许为空
+    session_version INTEGER NOT NULL DEFAULT 0, -- 修改密码 / 2FA 时递增，使其他会话失效
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );

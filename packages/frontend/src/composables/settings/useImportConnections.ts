@@ -39,6 +39,8 @@ export function useImportConnections() {
   const importConnectionsMessage = ref('');
   const importConnectionsSuccess = ref(false);
   const selectedFile = ref<File | null>(null);
+  // 加密 ZIP 导出文件的密码 (导入明文 JSON 时可留空)
+  const importPassphrase = ref('');
 
   const handleFileSelect = (event: Event) => {
     const target = event.target as HTMLInputElement;
@@ -62,6 +64,7 @@ export function useImportConnections() {
     try {
       const formData = new FormData();
       formData.append('connectionsFile', selectedFile.value);
+      if (importPassphrase.value) formData.append('passphrase', importPassphrase.value);
 
       const response = await apiClient.post('/connections/import', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -84,6 +87,7 @@ export function useImportConnections() {
       }
 
       selectedFile.value = null;
+      importPassphrase.value = '';
       const fileInput = document.getElementById('importFileInput') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
     } catch (error: any) {
@@ -105,6 +109,8 @@ export function useImportConnections() {
             if (fileInput) fileInput.value = '';
             await refreshStoresAfterImport();
           }
+        } else if (data.code === 'IMPORT_PASSPHRASE_INVALID') {
+          message = t('settings.importConnections.passphraseInvalid');
         } else if (typeof data.message === 'string') {
           message = data.message;
         }
@@ -123,6 +129,7 @@ export function useImportConnections() {
     importConnectionsMessage,
     importConnectionsSuccess,
     selectedFile,
+    importPassphrase,
     handleFileSelect,
     handleImportConnections,
   };

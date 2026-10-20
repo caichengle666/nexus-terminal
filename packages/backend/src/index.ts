@@ -250,14 +250,26 @@ const startServer = () => {
     const FileStore = sessionFileStore(session);
     const sessionsPath = resolveBackendDataPath('sessions');
     if (!fs.existsSync(sessionsPath)) {
-        fs.mkdirSync(sessionsPath, { recursive: true });
+        fs.mkdirSync(sessionsPath, { recursive: true, mode: 0o700 });
     }
+    try { fs.chmodSync(sessionsPath, 0o700); } catch { /* 例如 Windows：忽略 */ }
+    // 未勾选“记住我”的会话：服务端 12 小时无活动即过期 (记住我的会话按 cookie maxAge 90 天)
+    const sessionStore = new FileStore({
+        path: sessionsPath,
+        ttl: 12 * 60 * 60,
+        // logFn: console.log // 可选：启用详细日志
+    });
+    // 会话文件可能短暂包含 2FA 临时密钥：首次写入后改为 0600 (write-file-atomic 之后会保留该权限)
+    const originalStoreSet = sessionStore.set.bind(sessionStore);
+    (sessionStore as any).set = (sid: string, sessionData: any, callback?: (err?: any) => void) => {
+        originalStoreSet(sid, sessionData, (err?: any) => {
+            if (err) { callback?.(err); return; }
+            fs.chmod(path.join(sessionsPath, `${sid}.json`), 0o600, () => callback?.());
+        });
+    };
+    const cookieSecureEnv = process.env.SESSION_COOKIE_SECURE;
     const sessionMiddleware = session({
-        store: new FileStore({
-            path: sessionsPath,
-            ttl: 7776000, // 90 days
-            // logFn: console.log // 可选：启用详细日志
-        }),
+        store: sessionStore,
         // 直接从 process.env 读取，initializeEnvironment 已确保其存在
         secret: process.env.SESSION_SECRET as string,
         resave: false,
@@ -266,7 +278,9 @@ const startServer = () => {
         cookie: {
             httpOnly: true,
             sameSite: 'lax',
-            secure: process.env.SESSION_COOKIE_SECURE === 'true',
+            // 默认 'auto'：HTTPS 请求 (直连 TLS，或 TRUST_PROXY 启用时的 X-Forwarded-Proto) 下发 Secure Cookie；
+            // SESSION_COOKIE_SECURE=true/false 可强制覆盖
+            secure: cookieSecureEnv === 'true' ? true : cookieSecureEnv === 'false' ? false : 'auto',
             maxAge: undefined,
         }
     });

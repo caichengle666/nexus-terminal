@@ -71,8 +71,8 @@ router.get('/show-quick-command-tags', settingsController.getShowQuickCommandTag
 router.put('/show-quick-command-tags', settingsController.setShowQuickCommandTags);
 
 // +++ 导出所有连接路由 +++
-// GET /api/v1/settings/export-connections - 导出所有连接为加密的 ZIP 文件
-router.get('/export-connections', settingsController.exportAllConnections);
+
+// 明文 JSON 导出已移除：请使用 POST /api/v1/connections/export (需要当前密码，并以用户密码加密 ZIP)
  
 // +++ 显示状态监视器IP地址路由 +++
 // GET /api/v1/settings/show-status-monitor-ip-address - 获取设置

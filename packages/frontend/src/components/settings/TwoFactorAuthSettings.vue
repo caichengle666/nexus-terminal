@@ -19,7 +19,12 @@
      </div>
      <div v-else>
        <p class="text-sm text-text-secondary mb-4">{{ $t('settings.twoFactor.status.disabled') }}</p>
-       <button v-if="!isSettingUp2FA" @click="handleSetup2FA" :disabled="twoFactorLoading"
+       <div v-if="!isSettingUp2FA" class="mb-3">
+         <label for="setup2faPassword" class="block text-sm font-medium text-text-secondary mb-1">{{ $t('settings.stepUp.currentPasswordLabel') }}</label>
+         <input type="password" id="setup2faPassword" v-model="setupPassword" autocomplete="current-password"
+                class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+       </div>
+       <button v-if="!isSettingUp2FA" @click="handleSetup2FA" :disabled="twoFactorLoading || !setupPassword"
                class="px-4 py-2 bg-success text-success-text rounded-md shadow-sm hover:bg-success/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-success disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out text-sm font-medium">
          {{ twoFactorLoading ? $t('common.loading') : $t('settings.twoFactor.enable.button') }}
        </button>
@@ -64,6 +69,7 @@ const {
   setupData,
   verificationCode,
   disablePassword,
+  setupPassword,
   isSettingUp2FA,
   handleSetup2FA,
   handleVerifyAndActivate2FA,

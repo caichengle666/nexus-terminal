@@ -1,4 +1,5 @@
 import axios from "axios";
+import { safeAxios, summarizeUpstreamBodyForLog } from "../../utils/safe-http";
 import { INotificationSender } from "../notification.dispatcher.service";
 import { ProcessedNotification } from "../notification.processor.service";
 import { TelegramConfig } from "../../types/notification.types";
@@ -36,7 +37,7 @@ class TelegramSenderService implements INotificationSender {
       console.log(
         `[TelegramSender] Sending notification to chat ID: ${chatId}`
       );
-      const response = await axios.post(
+      const response = await safeAxios.post(
         apiUrl,
         {
           chat_id: chatId,
@@ -57,8 +58,7 @@ class TelegramSenderService implements INotificationSender {
         const errorDescription =
           response.data?.description || "Unknown error from Telegram API";
         console.error(
-          `[TelegramSender] Failed to send notification. Telegram API response: ${errorDescription}`,
-          response.data
+          `[TelegramSender] Failed to send notification. Telegram API response: ${errorDescription}`
         );
         throw new Error(`Telegram API error: ${errorDescription}`);
       }
@@ -66,7 +66,7 @@ class TelegramSenderService implements INotificationSender {
       if (axios.isAxiosError(error)) {
         console.error(
           `[TelegramSender] Axios error sending notification: ${error.message}`,
-          error.response?.data
+          summarizeUpstreamBodyForLog(error.response?.data)
         );
         throw new Error(
           `Failed to send Telegram notification (Axios Error): ${error.message}`
@@ -74,7 +74,7 @@ class TelegramSenderService implements INotificationSender {
       } else {
         console.error(
           `[TelegramSender] Unexpected error sending notification:`,
-          error
+          error?.message || error
         );
         throw new Error(
           `Failed to send Telegram notification (Unexpected Error): ${

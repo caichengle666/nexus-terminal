@@ -3,10 +3,72 @@ import { parsePortsString } from '../utils';
 import { clientStates, settingsService } from '../state';
 import WebSocket from 'ws';
 import { isValidContainerId, INVALID_CONTAINER_ID_MESSAGE } from '../../docker/docker-validate';
+import { execBackground } from '../../services/ssh-channel-limiter';
+import type { ClientChannel } from 'ssh2';
 
 const DEFAULT_DOCKER_STATUS_INTERVAL_SECONDS = 2;
+/** 单条 docker 命令的超时：dockerd 卡死时关闭通道，避免占满 exec 通道 */
+export const DOCKER_EXEC_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.DOCKER_EXEC_TIMEOUT_MS ?? '', 10);
+    return Number.isFinite(parsed) && parsed >= 1000 ? parsed : 20000;
+})();
 
-export async function fetchRemoteDockerStatus(state: ClientState): Promise<{ available: boolean; containers: DockerContainer[] }> {
+interface DockerExecResult { stdout: string; stderr: string; code: number | null }
+
+/**
+ * 执行一条 docker 命令，带超时；超时后发送 KILL 并关闭通道 (释放限流器槽位)。
+ * background=true 时走后台配额 (轮询)，不会占用为用户命令保留的通道。
+ */
+export function runDockerExec(
+    state: ClientState,
+    command: string,
+    options: { background?: boolean; timeoutMs?: number } = {}
+): Promise<DockerExecResult> {
+    const timeoutMs = options.timeoutMs ?? DOCKER_EXEC_TIMEOUT_MS;
+    return new Promise<DockerExecResult>((resolve, reject) => {
+        if (!state.sshClient) {
+            reject(new Error('SSH client disconnected before command execution.'));
+            return;
+        }
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        let timer: NodeJS.Timeout | undefined;
+        const settle = (error: Error | null, code: number | null = null) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            if (error) reject(error);
+            else resolve({ stdout, stderr, code });
+        };
+        const onChannel = (err: Error | undefined, stream: ClientChannel) => {
+            if (err) return settle(err);
+            if (settled) {
+                // 已超时 (仍在排队时)：立即关闭迟到的通道
+                try { stream.close(); } catch { /* ignore */ }
+                return;
+            }
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+                try { stream.signal('KILL'); } catch { /* ignore */ }
+                try { stream.close(); } catch { /* ignore */ }
+                settle(new Error(`Docker 命令执行超时 (${Math.round(timeoutMs / 1000)} 秒)`));
+            }, timeoutMs);
+            stream.on('data', (data: Buffer) => { stdout += data.toString(); });
+            stream.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+            stream.on('close', (code: number | null) => settle(null, typeof code === 'number' ? code : null));
+            stream.on('error', (execErr: Error) => settle(execErr));
+        };
+        try {
+            if (options.background) execBackground(state.sshClient, command, { pty: false }, onChannel as any);
+            else state.sshClient.exec(command, { pty: false }, onChannel as any);
+        } catch (error: any) {
+            settle(error instanceof Error ? error : new Error(String(error)));
+        }
+    });
+}
+
+export async function fetchRemoteDockerStatus(state: ClientState, options: { background?: boolean } = {}): Promise<{ available: boolean; containers: DockerContainer[] }> {
     if (!state || !state.sshClient) {
         console.warn(`[fetchRemoteDockerStatus] SSH client not available or not connected for session ${state?.ws?.sessionId}.`);
         return { available: false, containers: [] };
@@ -17,20 +79,7 @@ export async function fetchRemoteDockerStatus(state: ClientState): Promise<{ ava
 
     try {
         const versionCommand = "docker version --format '{{.Server.Version}}'";
-        const { stdout: versionStdout, stderr: versionStderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-            let stdout = '';
-            let stderr = '';
-            if (!state.sshClient) {
-                return reject(new Error('SSH client disconnected before command execution.'));
-            }
-            state.sshClient.exec(versionCommand, { pty: false }, (err, stream) => {
-                if (err) return reject(err);
-                stream.on('data', (data: Buffer) => { stdout += data.toString(); });
-                stream.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-                stream.on('close', () => resolve({ stdout, stderr }));
-                stream.on('error', (execErr: Error) => reject(execErr));
-            });
-        });
+        const { stdout: versionStdout, stderr: versionStderr } = await runDockerExec(state, versionCommand, { background: options.background });
 
         if (versionStderr.includes('command not found') ||
             versionStderr.includes('permission denied') ||
@@ -52,20 +101,7 @@ export async function fetchRemoteDockerStatus(state: ClientState): Promise<{ ava
 
     try {
         const psCommand = "docker ps -a --no-trunc --format '{{json .}}'";
-        const { stdout: psStdout, stderr: psStderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-            let stdout = '';
-            let stderr = '';
-            if (!state.sshClient) {
-                return reject(new Error('SSH client disconnected before command execution.'));
-            }
-            state.sshClient.exec(psCommand, { pty: false }, (err, stream) => {
-                if (err) return reject(err);
-                stream.on('data', (data: Buffer) => { stdout += data.toString(); });
-                stream.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-                stream.on('close', () => resolve({ stdout, stderr }));
-                stream.on('error', (execErr: Error) => reject(execErr));
-            });
-        });
+        const { stdout: psStdout, stderr: psStderr } = await runDockerExec(state, psCommand, { background: options.background });
 
         if (psStderr.includes('command not found') ||
             psStderr.includes('permission denied') ||
@@ -111,20 +147,7 @@ export async function fetchRemoteDockerStatus(state: ClientState): Promise<{ ava
     if (runningContainerIds.length > 0) {
         try {
             const statsCommand = `docker stats ${runningContainerIds.join(' ')} --no-stream --format '{{json .}}'`;
-            const { stdout: statsStdout, stderr: statsStderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-                let stdout = '';
-                let stderr = '';
-                if (!state.sshClient) {
-                    return reject(new Error('SSH client disconnected before command execution.'));
-                }
-                state.sshClient.exec(statsCommand, { pty: false }, (err, stream) => {
-                    if (err) return reject(err);
-                    stream.on('data', (data: Buffer) => { stdout += data.toString(); });
-                    stream.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-                    stream.on('close', () => resolve({ stdout, stderr }));
-                    stream.on('error', (execErr: Error) => reject(execErr));
-                });
-            });
+            const { stdout: statsStdout, stderr: statsStderr } = await runDockerExec(state, statsCommand, { background: options.background });
 
             if (statsStderr) {
                 console.warn(`[fetchRemoteDockerStatus] Docker stats command stderr on session ${state.ws.sessionId}: ${statsStderr.trim()}`);
@@ -219,26 +242,14 @@ export async function handleDockerCommand(ws: AuthenticatedWebSocket, sessionId:
             default: throw new Error(`Unsupported command: ${command}`);
         }
 
-        await new Promise<void>((resolve, reject) => {
-            if (!state.sshClient) {
-                return reject(new Error('SSH client disconnected before command execution.'));
-            }
-            state.sshClient.exec(dockerCliCommand, { pty: false }, (err, stream) => {
-                if (err) return reject(err);
-                let stderr = '';
-                stream.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-                stream.on('close', (code: number | null) => {
-                    if (code === 0) {
-                        console.log(`WebSocket: 远程 Docker 命令 (${dockerCliCommand}) on session ${sessionId} 执行成功。`);
-                        resolve();
-                    } else {
-                        console.error(`WebSocket: 远程 Docker 命令 (${dockerCliCommand}) on session ${sessionId} 执行失败 (Code: ${code}). Stderr: ${stderr}`);
-                        reject(new Error(`Command failed with code ${code}. ${stderr || 'No stderr output.'}`));
-                    }
-                });
-                stream.on('error', (execErr: Error) => reject(execErr));
-            });
-        });
+        // start/stop/restart 可能较慢，给更长的超时
+        const result = await runDockerExec(state, dockerCliCommand, { timeoutMs: Math.max(DOCKER_EXEC_TIMEOUT_MS, 120000) });
+        if (result.code === 0) {
+            console.log(`WebSocket: 远程 Docker 命令 (${dockerCliCommand}) on session ${sessionId} 执行成功。`);
+        } else {
+            console.error(`WebSocket: 远程 Docker 命令 (${dockerCliCommand}) on session ${sessionId} 执行失败 (Code: ${result.code}). Stderr: ${result.stderr.slice(0, 500)}`);
+            throw new Error(`Command failed with code ${result.code}. ${result.stderr || 'No stderr output.'}`);
+        }
 
         // Request a status update after a short delay
         setTimeout(() => {
@@ -277,20 +288,7 @@ export async function handleDockerGetStats(ws: AuthenticatedWebSocket, sessionId
     const command = `docker stats ${containerId} --no-stream --format '{{json .}}'`;
 
     try {
-        const execResult = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-            let stdout = '';
-            let stderr = '';
-            if (!state.sshClient) {
-                return reject(new Error('SSH client disconnected before command execution.'));
-            }
-            state.sshClient.exec(command, { pty: false }, (err, stream) => {
-                if (err) return reject(err);
-                stream.on('data', (data: Buffer) => { stdout += data.toString(); });
-                stream.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-                stream.on('close', () => resolve({ stdout, stderr }));
-                stream.on('error', (execErr: Error) => reject(execErr));
-            });
-        });
+        const execResult = await runDockerExec(state, command);
 
         if (execResult.stderr) {
             console.error(`WebSocket: Docker stats stderr for ${containerId} in session ${sessionId}: ${execResult.stderr}`);
@@ -352,7 +350,10 @@ export async function startDockerStatusPolling(sessionId: string): Promise<void>
         console.log(`[Docker Polling] Cleared existing Docker status interval for session ${sessionId}.`);
     }
 
+    let pollInFlight = false;
     const dockerIntervalId = setInterval(async () => {
+        // 上一轮还没结束 (例如 dockerd 卡住) 时跳过本轮，避免轮询命令不断堆积
+        if (pollInFlight) return;
         const currentState = clientStates.get(sessionId); // Re-fetch state in case it changed (e.g., disconnected)
         if (!currentState || currentState.ws.readyState !== WebSocket.OPEN || !currentState.sshClient) {
             console.log(`[Docker Polling] Session ${sessionId} no longer valid, WS closed, or SSH disconnected. Stopping poll.`);
@@ -362,8 +363,9 @@ export async function startDockerStatusPolling(sessionId: string): Promise<void>
             }
             return;
         }
+        pollInFlight = true;
         try {
-            const statusPayload = await fetchRemoteDockerStatus(currentState);
+            const statusPayload = await fetchRemoteDockerStatus(currentState, { background: true });
             if (currentState.ws.readyState === WebSocket.OPEN) { // Check again before sending
                 currentState.ws.send(JSON.stringify({ type: 'docker:status:update', payload: statusPayload }));
             }
@@ -374,6 +376,8 @@ export async function startDockerStatusPolling(sessionId: string): Promise<void>
             // if (currentState.ws.readyState === WebSocket.OPEN) {
             //     currentState.ws.send(JSON.stringify({ type: 'docker:status:error', payload: { message: `Polling error: ${error.message}` } }));
             // }
+        } finally {
+            pollInFlight = false;
         }
     }, dockerPollIntervalMs);
     state.dockerStatusIntervalId = dockerIntervalId;
@@ -383,7 +387,7 @@ export async function startDockerStatusPolling(sessionId: string): Promise<void>
     if (initialState && initialState.ws.readyState === WebSocket.OPEN && initialState.sshClient) {
         console.log(`[Docker Initial Fetch] Fetching status for session ${sessionId}...`);
         try {
-            const statusPayload = await fetchRemoteDockerStatus(initialState);
+            const statusPayload = await fetchRemoteDockerStatus(initialState, { background: true });
             if (initialState.ws.readyState === WebSocket.OPEN) { // Check again
                 initialState.ws.send(JSON.stringify({ type: 'docker:status:update', payload: statusPayload }));
             }

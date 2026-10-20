@@ -1,8 +1,16 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { resolveBackendDataPath } from '../utils/paths';
 
 const MAX_LOG_SIZE_BYTES = 100 * 1024 * 1024; // 100MB
-const LOG_DIRECTORY = './data/temp_suspended_ssh_logs/';
+// 放在后端数据目录下 (桌面版不再写到安装目录)，与 cwd 无关
+const LOG_DIRECTORY = resolveBackendDataPath('temp_suspended_ssh_logs');
+const LOG_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+/** 日志标识只能是简单文件名，禁止路径分隔符 / `..` 等穿越 */
+export function isSafeLogId(id: unknown): id is string {
+  return typeof id === 'string' && LOG_ID_PATTERN.test(id) && path.basename(id) === id;
+}
 
 /**
  * TemporaryLogStorageService负责管理临时日志文件的原子化读、写、删除及轮替操作。
@@ -26,6 +34,9 @@ export class TemporaryLogStorageService {
   }
 
   private getLogFilePath(suspendSessionId: string): string {
+    if (!isSafeLogId(suspendSessionId)) {
+      throw new Error('无效的挂起日志标识。');
+    }
     return path.join(LOG_DIRECTORY, `${suspendSessionId}.log`);
   }
 
@@ -112,7 +123,8 @@ export class TemporaryLogStorageService {
       const files = await fs.readdir(LOG_DIRECTORY);
       return files
         .filter(file => file.endsWith('.log'))
-        .map(file => file.replace(/\.log$/, ''));
+        .map(file => file.replace(/\.log$/, ''))
+        .filter(isSafeLogId);
     } catch (error) {
       console.error(`列出日志目录 '${LOG_DIRECTORY}' 中的文件失败:`, error);
       return []; // 发生错误时返回空数组

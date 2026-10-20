@@ -525,17 +525,21 @@ export class SftpService {
             state?.ws.send(JSON.stringify({ type: 'sftp:readfile:error', path: path, payload: 'SFTP 会话未就绪', requestId: requestId }));
             return;
         }
-        const maxBytes = Number.isFinite(Number(requestedMaxBytes))
-            ? Math.max(1, Math.min(Math.floor(Number(requestedMaxBytes)), 16777216))
-            : undefined;
+        // 未指定 maxBytes 时也必须有上限 (默认 16MB)，避免把多 GB 文件整个读进内存
+        const READFILE_MAX_BYTES = 16 * 1024 * 1024;
+        const maxBytes = requestedMaxBytes !== undefined && requestedMaxBytes !== null && Number.isFinite(Number(requestedMaxBytes))
+            ? Math.max(1, Math.min(Math.floor(Number(requestedMaxBytes)), READFILE_MAX_BYTES))
+            : READFILE_MAX_BYTES;
         console.debug(`[SFTP ${sessionId}] Received readFile request for ${path} (ID: ${requestId}, Requested Encoding: ${requestedEncoding ?? 'auto'})`);
         try {
             const readStream = state.sftp.createReadStream(path);
-            let fileData = Buffer.alloc(0);
+            const chunks: Buffer[] = [];
+            let totalBytes = 0;
             let errorOccurred = false;
 
             readStream.on('data', (chunk: Buffer) => {
-                if (maxBytes && fileData.length + chunk.length > maxBytes) {
+                if (errorOccurred) return;
+                if (totalBytes + chunk.length > maxBytes) {
                     errorOccurred = true;
                     readStream.destroy();
                     state.ws.send(JSON.stringify({
@@ -546,7 +550,8 @@ export class SftpService {
                     }));
                     return;
                 }
-                fileData = Buffer.concat([fileData, chunk]);
+                chunks.push(chunk);
+                totalBytes += chunk.length;
             });
             readStream.on('error', (err: Error) => {
                 if (errorOccurred) return; errorOccurred = true;
@@ -555,6 +560,8 @@ export class SftpService {
             });
             readStream.on('end', () => {
                 if (errorOccurred) return;
+                const fileData = Buffer.concat(chunks, totalBytes);
+                chunks.length = 0;
 
                 console.log(`[SFTP ${sessionId}] readFile ${path} success, size: ${fileData.length} bytes (ID: ${requestId}). Processing content...`);
                 let encodingUsed: string = 'utf-8'; // Default encoding

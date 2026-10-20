@@ -3,7 +3,6 @@ import { settingsService } from './settings.service';
 import { AuditLogService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service'; 
 import { ipBlacklistService } from '../auth/ip-blacklist.service';
-import { exportConnectionsAsJson } from '../services/import-export.service'; 
 import { UpdateSidebarConfigDto, UpdateCaptchaSettingsDto, CaptchaSettings } from '../types/settings.types'; 
 import { AppearanceSettings, UpdateAppearanceDto } from '../types/appearance.types';
 import { getAppearanceSettings, updateAppearanceSettings as updateAppearanceSettingsInRepo } from '../appearance/appearance.repository';
@@ -54,7 +53,7 @@ export const settingsController = {
    */
   async getAllSettings(req: Request, res: Response): Promise<void> {
     try {
-      const settings = await settingsService.getAllSettings();
+      const settings = await settingsService.getAllSettingsForClient();
       res.json(settings);
     } catch (error: any) {
       console.error('获取所有设置时出错:', error);
@@ -584,29 +583,6 @@ async setCaptchaConfig(req: Request, res: Response): Promise<void> {
    }
  }, // <-- Add comma here
 
- /**
-  * 导出所有连接配置为加密的 ZIP 文件
-  */
- async exportAllConnections(req: Request, res: Response): Promise<void> {
-   try {
-     const jsonBuffer = await exportConnectionsAsJson();
-
-     res.setHeader('Content-Type', 'application/json');
-     res.setHeader('Content-Disposition', 'attachment; filename="nexus_connections_export.json"');
-     res.send(jsonBuffer);
-     
-     // auditLogService.logAction('CONNECTIONS_EXPORTED', { userId: (req.user as any)?.id || 'unknown' }); // 移除审计日志
-     
-
-   } catch (error: any) {
-     console.error('[控制器] 导出所有连接时出错:', error);
-     // 检查是否是因为 ENCRYPTION_KEY 未设置导致的错误
-     if (error.message && (error.message.includes('ENCRYPTION_KEY is not set') || error.message.includes('Failed to decode ENCRYPTION_KEY') || error.message.includes('Invalid ENCRYPTION_KEY length'))) {
-         res.status(500).json({ message: i18next.t('error.exportFailedEncryptionKey'), error: error.message });
-     } else {
-         res.status(500).json({ message: i18next.t('error.exportFailedGeneric'), error: error.message });
-     }
-   }
- } // <-- No comma after the last method if it's truly the last one
+ 
 
 };
