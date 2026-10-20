@@ -78,6 +78,12 @@ test('WebSocket origin check', () => {
   assert.equal(isWsOriginAllowed('http://localhost:5173', '127.0.0.1:3001', none), true); // Vite proxy
   assert.equal(isWsOriginAllowed('http://localhost:5173', 'example.com', none), false);
   assert.equal(isWsOriginAllowed('https://app.example.org', 'backend:3001', new Set(['https://app.example.org'])), true);
+  // Host without port: X-Forwarded-Port / strict mode pin the port
+  assert.equal(isWsOriginAllowed('http://example.com:18111', 'example.com', none, '18111'), true);
+  assert.equal(isWsOriginAllowed('http://example.com:9999', 'example.com', none, '18111'), false);
+  assert.equal(isWsOriginAllowed('https://example.com', 'example.com', none, '443'), true);
+  assert.equal(isWsOriginAllowed('http://example.com:9999', 'example.com', none, undefined, true), false);
+  assert.equal(isWsOriginAllowed('https://example.com', 'example.com', none, undefined, true), true);
 });
 
 test('client IP honours TRUST_PROXY and ignores spoofed headers otherwise', () => {
