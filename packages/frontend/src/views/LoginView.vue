@@ -125,7 +125,6 @@ onMounted(async () => {
   // console.log('[LoginView] Component mounted, calling fetchCaptchaConfig and checkHasPasskeysConfigured...');
   authStore.fetchCaptchaConfig();
   // Check if passkeys are available for login (uses the new public endpoint)
-  // Optionally pass username if needed: await authStore.checkHasPasskeysConfigured(credentials.username);
   await authStore.checkHasPasskeysConfigured();
 });
 

@@ -223,7 +223,8 @@
       "captchaRequired": "CAPTCHA 認証を完了してください。",
       "usernameRequiredForPasskey": "パスキーを使用するにはユーザー名が必要です。",
       "passkeyAuthOptionsFailed": "サーバーからパスキー認証オプションを取得できませんでした。",
-      "passkeyAuthFailed": "パスキー認証に失敗しました。もう一度試すか、パスワードを使用してください。"
+      "passkeyAuthFailed": "パスキー認証に失敗しました。もう一度試すか、パスワードを使用してください。",
+      "twoFactorLocked": "認証コードの誤りが多すぎます。ユーザー名とパスワードでもう一度ログインしてください。"
     },
     "recaptchaV3Notice": "このサイトは reCAPTCHA によって保護されており、Google のプライバシーポリシーと利用規約が適用されます。"
   },

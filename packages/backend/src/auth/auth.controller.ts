@@ -18,6 +18,15 @@ import { bumpSessionVersion, emitSessionRevoked, getCurrentSessionVersion, isSes
 const notificationService = new NotificationService();
 const auditLogService = new AuditLogService();
 const REMEMBER_ME_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+/** 待 2FA 的会话最多允许输错几次验证码，超过后销毁会话，必须重新输入密码 */
+export const MAX_PENDING_TWO_FACTOR_ATTEMPTS = 5;
+
+// 未知用户名也执行一次 bcrypt 比较，使响应时间与“密码错误”一致，防止按耗时枚举用户名
+let dummyPasswordHash: string | null = null;
+const getDummyPasswordHash = (): string => {
+    if (!dummyPasswordHash) dummyPasswordHash = bcrypt.hashSync(`nexus-dummy-${Math.random()}`, 10);
+    return dummyPasswordHash;
+};
 
 // --- 2FA 密钥落库加密（兼容历史明文值）---
 const TWO_FACTOR_ENC_PREFIX = 'enc:';
@@ -261,6 +270,8 @@ export const verifyPasskeyAuthenticationHandler = async (req: Request, res: Resp
                 ip: clientIp
             });
             notificationService.sendNotification('PASSKEY_AUTH_FAILURE', { credentialId: authenticationResponseJSON?.id || 'unknown', reason: 'Verification failed', ip: clientIp });
+            ipBlacklistService.recordFailedAttempt(clientIp);
+            delete req.session.currentChallenge;
             res.status(401).json({ verified: false, message: 'Passkey 认证失败。' });
         }
     } catch (error: any) {
@@ -272,7 +283,10 @@ export const verifyPasskeyAuthenticationHandler = async (req: Request, res: Resp
             ip: clientIp
         });
         notificationService.sendNotification('PASSKEY_AUTH_FAILURE', { credentialId: authenticationResponseJSON?.id || 'unknown', reason: error.message, ip: clientIp });
-        res.status(500).json({ verified: false, message: '验证 Passkey 认证失败。', error: error.message });
+        ipBlacklistService.recordFailedAttempt(clientIp);
+        delete req.session.currentChallenge;
+        // 验证失败 (未知凭据、签名错误等) 统一返回 401，不回显内部错误信息
+        res.status(401).json({ verified: false, message: 'Passkey 认证失败。' });
     }
 };
 
@@ -439,6 +453,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
      
 
         if (!user) {
+            await bcrypt.compare(String(password), getDummyPasswordHash());
             console.log(`登录尝试失败: 用户未找到 - ${username}`);
             const clientIp = req.ip || req.socket?.remoteAddress || 'unknown'; 
             ipBlacklistService.recordFailedAttempt(clientIp);
@@ -610,7 +625,15 @@ export const verifyLogin2FA = async (req: Request, res: Response): Promise<void>
             ipBlacklistService.recordFailedAttempt(clientIp);
             auditLogService.logAction('LOGIN_FAILURE', { userId: user.id, username: user.username, reason: 'Invalid 2FA token', ip: clientIp });
             notificationService.sendNotification('LOGIN_FAILURE', { userId: user.id, username: user.username, reason: 'Invalid 2FA token', ip: clientIp }); 
-            res.status(401).json({ message: '验证码无效。' });
+            const attempts = (req.session.twoFactorFailedAttempts ?? 0) + 1;
+            if (attempts >= MAX_PENDING_TWO_FACTOR_ATTEMPTS) {
+                // 输错次数过多：销毁待验证会话，必须重新输入密码
+                req.session.destroy(() => { /* ignore */ });
+                res.status(401).json({ message: '验证码错误次数过多，请重新登录。', code: 'TWO_FACTOR_LOCKED' });
+                return;
+            }
+            req.session.twoFactorFailedAttempts = attempts;
+            res.status(401).json({ message: '验证码无效。', remainingAttempts: MAX_PENDING_TWO_FACTOR_ATTEMPTS - attempts });
         }
 
     } catch (error) {
@@ -1035,12 +1058,12 @@ export const getPublicCaptchaConfig = async (req: Request, res: Response): Promi
  * 公开访问，用于登录页面判断是否显示 Passkey 登录按钮。
  */
 export const checkHasPasskeys = async (req: Request, res: Response): Promise<void> => {
-    const username = req.query.username as string | undefined;
+    // username 参数已移除 (会泄露用户名是否存在)，只返回系统中是否配置了任何 Passkey
     try {
-        const hasPasskeys = await passkeyService.hasPasskeysConfigured(username);
+        const hasPasskeys = await passkeyService.hasPasskeysConfigured();
         res.status(200).json({ hasPasskeys });
     } catch (error: any) {
-        console.error(`[AuthController] 检查 Passkey 配置状态时出错 (username: ${username || 'any'}):`, error.message);
+        console.error(`[AuthController] 检查 Passkey 配置状态时出错:`, error.message);
         // 即使出错，也返回 false，避免登录流程中断
         res.status(200).json({ hasPasskeys: false, error: '检查 Passkey 配置时出错。' });
     }

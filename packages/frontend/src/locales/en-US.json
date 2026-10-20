@@ -240,7 +240,8 @@
       "captchaRequired": "Please complete the CAPTCHA verification.",
       "usernameRequiredForPasskey": "Username is required to use a passkey.",
       "passkeyAuthOptionsFailed": "Failed to get passkey authentication options from the server.",
-      "passkeyAuthFailed": "Passkey authentication failed. Please try again or use your password."
+      "passkeyAuthFailed": "Passkey authentication failed. Please try again or use your password.",
+      "twoFactorLocked": "Too many incorrect verification codes. Please sign in again with your username and password."
     },
     "recaptchaV3Notice": "This site is protected by reCAPTCHA and the Google Privacy Policy and Terms of Service apply."
   },

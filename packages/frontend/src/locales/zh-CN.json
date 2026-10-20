@@ -240,7 +240,8 @@
       "captchaRequired": "请完成 CAPTCHA 验证。",
       "usernameRequiredForPasskey": "使用 Passkey 需要输入用户名。",
       "passkeyAuthOptionsFailed": "从服务器获取 Passkey 认证选项失败。",
-      "passkeyAuthFailed": "Passkey 认证失败。请重试或使用密码登录。"
+      "passkeyAuthFailed": "Passkey 认证失败。请重试或使用密码登录。",
+      "twoFactorLocked": "验证码错误次数过多，请重新输入用户名和密码登录。"
     },
     "recaptchaV3Notice": "此网站受 reCAPTCHA 保护，并适用 Google 隐私政策和服务条款。"
   },
