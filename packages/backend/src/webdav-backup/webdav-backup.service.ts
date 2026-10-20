@@ -11,6 +11,7 @@ import { settingsRepository } from '../settings/settings.repository';
 import * as ProxyRepository from '../proxies/proxy.repository';
 import { decrypt } from '../utils/crypto';
 import { isLegacyPlaintextSecret, openSecret, sealSecret } from '../utils/secret-field';
+import { assertUrlHostAllowed, safeHttpAgent, safeHttpsAgent } from '../utils/safe-http';
 import { getBackendDataPath } from '../utils/paths';
 import {
   createFullBackup,
@@ -94,7 +95,8 @@ export async function deleteWebDavConfig(): Promise<void> {
 }
 
 async function getWebDavProxyAgents(proxyId?: number | null): Promise<Pick<WebDAVClientOptions, 'httpAgent' | 'httpsAgent'>> {
-  if (!proxyId) return {};
+  // 无代理时使用带 SSRF 防护的 agent (拒绝链路本地 / 云元数据地址)
+  if (!proxyId) return { httpAgent: safeHttpAgent, httpsAgent: safeHttpsAgent };
 
   const proxy = await ProxyRepository.findProxyById(proxyId);
   if (!proxy) {
@@ -135,6 +137,7 @@ export async function createWebDavClient(config: WebDavBackupConfig): Promise<We
     password: config.password,
     ...(await getWebDavProxyAgents(config.proxyId)),
   };
+  assertUrlHostAllowed(config.url);
   return createClient(config.url, options);
 }
 

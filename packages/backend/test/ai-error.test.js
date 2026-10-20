@@ -53,7 +53,8 @@ test('readStreamBody is bounded and times out', async () => {
 });
 
 test('parseProviderErrorBody handles plain text and SSE error events', () => {
-  assert.equal(parseProviderErrorBody('Bad gateway').message, 'Bad gateway');
+  // Plain-text bodies are not echoed to the client (they may come from an internal service).
+  assert.equal(parseProviderErrorBody('Bad gateway').message, '');
   assert.equal(parseProviderErrorBody('data: {"error":{"message":"denied"}}\n\n').message, 'denied');
   assert.equal(parseProviderErrorBody('<html>err</html>').message, '');
 });

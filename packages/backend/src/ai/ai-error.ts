@@ -105,8 +105,9 @@ export const parseProviderErrorBody = (raw: string): { message: string; provider
         // fall through to plain text
       }
     }
-    const plain = /<html/i.test(text) ? '' : text;
-    return { message: plain.slice(0, 500), providerCode: '' };
+    // 非结构化 (纯文本 / HTML) 响应体不回显给客户端：可能来自内网服务。只在服务端记录截断内容。
+    console.warn(`[AI] 上游返回非 JSON 错误响应 (${text.length} chars): ${text.slice(0, 300)}`);
+    return { message: '', providerCode: '' };
   }
 };
 
