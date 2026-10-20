@@ -85,6 +85,7 @@ import { useUiNotificationsStore } from './uiNotifications.store';
 import { describeAiError, isRetryableAiError, isStreamUnsupportedError } from './ai/ai.errors';
 import i18n from '../i18n';
 import type { ComposerTranslation } from 'vue-i18n';
+import { registerLogoutCleanup } from '../utils/sensitiveStorage';
 
 const t: ComposerTranslation = i18n.global.t;
 
@@ -2232,6 +2233,27 @@ export const useAiStore = defineStore('ai', () => {
     runtime.stopRequested = true;
     runtime.abortController?.abort();
   };
+
+  // 登出 / 会话失效：中止所有运行中的任务并清空内存中的会话记忆 (包含终端输出)，
+  // 防止定时器把它们重新写回 localStorage 或同步到服务器。
+  registerLogoutCleanup(() => {
+    Object.values(sessionRuntimes.value).forEach((runtime) => {
+      if (!runtime?.isRunning) return;
+      runtime.stopRequested = true;
+      runtime.abortController?.abort();
+    });
+    if (memoryPersistTimer) {
+      clearTimeout(memoryPersistTimer);
+      memoryPersistTimer = null;
+    }
+    if (historyPersistTimer) {
+      clearTimeout(historyPersistTimer);
+      historyPersistTimer = null;
+    }
+    pendingHistorySessionIds.clear();
+    sessionMemories.value = {};
+    memoryKeysBySessionId.clear();
+  });
 
   watch(() => sessionStore.sessionTabsWithStatus, (tabs) => {
     tabs.forEach(tab => {
