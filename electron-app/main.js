@@ -107,8 +107,9 @@ if (!hasSingleInstanceLock) {
   app.on('second-instance', (_event, argv = []) => {
     // node-pty (Windows, ConPTY) kills a terminal via child_process.fork(
     // 'conpty_console_list_agent'), which relies on ELECTRON_RUN_AS_NODE. The
-    // runAsNode fuse is disabled, so that fork starts a second app instance
-    // instead; it exits right away and must not pull the window to the front.
+    // runAsNode fuse is deliberately kept ON for that reason (turning it off makes
+    // every local-terminal close spawn a throwaway app instance + 5 s node-pty
+    // timeout). This guard stays in case the fuse is ever turned off.
     if (Array.isArray(argv) && argv.some(arg => /conpty_console_list_agent/i.test(String(arg)))) return;
     showMainWindow();
   });

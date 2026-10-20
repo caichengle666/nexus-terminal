@@ -111,7 +111,7 @@
     },
     "includePdb": false,
     "electronFuses": {
-      "runAsNode": false,
+      "runAsNode": true,
       "enableCookieEncryption": true,
       "enableNodeOptionsEnvironmentVariable": false,
       "enableNodeCliInspectArguments": false,
