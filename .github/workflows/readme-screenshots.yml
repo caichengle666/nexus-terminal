@@ -39,7 +39,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/tools" && cd "$RUNNER_TEMP/tools"
           npm init -y >/dev/null
-          npm install --no-audit --no-fund playwright-core@1
+          npm install --no-audit --no-fund --save-exact playwright-core@1.64.1
 
       - name: Enable local SSH (macOS)
         if: matrix.platform == 'macos'
@@ -123,7 +123,7 @@ jobs:
           mkdir -p "shots/${{ matrix.platform }}"
           cp "$RUNNER_TEMP"/app*.log "shots/${{ matrix.platform }}/" 2>/dev/null || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: shots-${{ matrix.platform }}
@@ -136,16 +136,23 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: shots
           pattern: shots-*
       - name: Push screenshots to the readme-screenshots branch
+        env:
+          # workflow inputs go through env, never inline in the script (no shell injection)
+          TAG: ${{ inputs.tag }}
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
+          [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::invalid tag input"; exit 1; }
           cd shots
           for d in shots-*; do mv "$d" "${d#shots-}"; done
           git init -q -b readme-screenshots
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git add -A && git commit -qm "README screenshots for ${{ inputs.tag }} (run ${{ github.run_id }})"
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" readme-screenshots
+          git add -A && git commit -qm "README screenshots for ${TAG} (run ${RUN_ID})"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" readme-screenshots

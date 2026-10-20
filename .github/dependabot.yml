@@ -1,0 +1,80 @@
+# Dependabot: weekly, grouped updates to keep PR noise low.
+# Security updates are still raised as soon as an advisory is published (independent of this schedule).
+version: 2
+updates:
+  # Root npm workspace (packages/backend, packages/frontend, packages/remote-gateway share package-lock.json)
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    versioning-strategy: increase-if-necessary
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps"
+
+  # Electron desktop app (separate package-lock.json)
+  - package-ecosystem: npm
+    directory: /electron-app
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    versioning-strategy: increase-if-necessary
+    groups:
+      electron-app-minor-and-patch:
+        update-types: [minor, patch]
+      electron-app-security:
+        applies-to: security-updates
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(electron)"
+
+  # GitHub Actions (actions are pinned to commit SHAs; Dependabot bumps SHA + version comment)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  # Docker base images (pinned versions in the Dockerfiles)
+  - package-ecosystem: docker
+    directories:
+      - /packages/backend
+      - /packages/frontend
+      - /packages/remote-gateway
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      docker-base-images:
+        patterns: ["*"]
+    ignore:
+      # stay on the Node 22 LTS line; major runtime upgrades are done deliberately
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+    commit-message:
+      prefix: "docker"
+
+  # docker-compose.yml service images (e.g. guacamole/guacd)
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      compose-images:
+        patterns: ["*"]
+    commit-message:
+      prefix: "docker"
