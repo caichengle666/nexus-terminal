@@ -9,6 +9,7 @@ import { startDockerStatusPolling } from './docker.handler';
 import WebSocket from 'ws';
 import { installExecChannelLimiter } from '../../services/ssh-channel-limiter';
 import { appendDetachedOutput, canReattach, reattachClientConnection } from '../session-resume';
+import { applyWsBackpressure, clearWsBackpressure } from '../backpressure';
 
 export async function handleSshConnect(
     ws: AuthenticatedWebSocket,
@@ -164,6 +165,7 @@ export async function handleSshConnect(
                         // 确保数据以 UTF-8 编码转换为 Base64
                         const utf8Data = data.toString('utf8');
                         newState.ws.send(JSON.stringify({ type: 'ssh:output', payload: Buffer.from(utf8Data, 'utf8').toString('base64'), encoding: 'base64' }));
+                        applyWsBackpressure(() => newState.ws, stream);
                     }
                     // 如果会话被标记为待挂起，则将输出写入日志
                     const currentState = clientStates.get(newSessionId); // 获取最新的状态
@@ -174,12 +176,12 @@ export async function handleSshConnect(
                     }
                 });
                 stream.stderr.on('data', (data: Buffer) => {
-                    console.error(`SSH Stderr (会话: ${newSessionId}): ${data.toString('utf8').substring(0, 100)}...`);
                     appendDetachedOutput(newState, data);
                     if (newState.ws.readyState === WebSocket.OPEN) {
                         // 确保数据以 UTF-8 编码转换为 Base64
                         const utf8ErrData = data.toString('utf8');
                         newState.ws.send(JSON.stringify({ type: 'ssh:output', payload: Buffer.from(utf8ErrData, 'utf8').toString('base64'), encoding: 'base64' }));
+                        applyWsBackpressure(() => newState.ws, stream);
                     }
                     // 同样，如果会话被标记为待挂起，则将 stderr 输出写入日志
                     const currentState = clientStates.get(newSessionId);
@@ -200,6 +202,7 @@ export async function handleSshConnect(
                     void cleanupOwnedSession();
                 });
                 stream.on('close', () => {
+                    clearWsBackpressure(stream);
                     console.log(`SSH: 会话 ${newSessionId} 的 Shell 通道已关闭。`);
                     if (newState.ws.readyState === WebSocket.OPEN) {
                         newState.ws.send(JSON.stringify({ type: 'ssh:disconnected', payload: 'Shell 通道已关闭。' }));

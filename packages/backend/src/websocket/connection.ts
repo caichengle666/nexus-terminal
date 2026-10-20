@@ -51,6 +51,7 @@ import {
 } from './handlers/sftp.handler';
 import { detachClientConnection } from './session-resume';
 import { installExecChannelLimiter } from '../services/ssh-channel-limiter';
+import { applyWsBackpressure, clearWsBackpressure } from './backpressure';
 
 export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendService: SshSuspendService, sftpService: SftpService): void { // +++ Add sftpService parameter +++
     wss.on('connection', (ws: AuthenticatedWebSocket, request: Request) => {
@@ -71,7 +72,10 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
                 try {
                     parsedMessage = JSON.parse(message.toString());
                 } catch (e) {
-                    console.error(`WebSocket：来自 ${ws.username} 的无效 JSON 消息:`, message.toString());
+                    const rawLength = Array.isArray(message)
+                        ? message.reduce((n, b) => n + b.length, 0)
+                        : (message as Buffer | ArrayBuffer).byteLength;
+                    console.error(`WebSocket：来自 ${ws.username} 的无效 JSON 消息 (长度: ${rawLength} bytes)。`);
                     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'error', payload: '无效的消息格式 (非 JSON)' }));
                     return;
                 }
@@ -252,9 +256,11 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
                                             // console.debug(`[WebSocket Handler][${type}] 发送 ssh:output for ${newFrontendSessionId}`);
                                             // 保持与 ssh.handler.ts 中 ssh:output 格式一致
                                             ws.send(JSON.stringify({ type: 'ssh:output', payload: data.toString('base64'), encoding: 'base64' }));
+                                            applyWsBackpressure(() => clientStates.get(newFrontendSessionId)?.ws ?? ws, result.channel);
                                         }
                                     });
                                     result.channel.on('close', () => {
+                                        clearWsBackpressure(result.channel);
                                         console.log(`[WebSocket Handler][${type}] 恢复的会话 ${newFrontendSessionId} 的 channel 已关闭。`);
                                         if (ws.readyState === WebSocket.OPEN) {
                                             ws.send(JSON.stringify({ type: 'ssh:disconnected', payload: { sessionId: newFrontendSessionId } }));
@@ -269,7 +275,7 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
                                     // console.log(`[WebSocket Handler][${type}] 已为恢复的会话 ${newFrontendSessionId} 设置事件监听器。`);
 
                                     // 发送缓存日志块
-                                    console.log('[SSH Suspend Backend] Log data to send to frontend:', result.logData);
+                                    console.log(`[SSH Suspend Backend] 恢复会话 ${newFrontendSessionId}，补发缓存日志 ${result.logData?.length ?? 0} 字符。`);
                                     const logChunkResponse: SshOutputCachedChunk = {
                                         type: 'SSH_OUTPUT_CACHED_CHUNK',
                                         payload: { frontendSessionId: newFrontendSessionId, data: result.logData, isLastChunk: true }

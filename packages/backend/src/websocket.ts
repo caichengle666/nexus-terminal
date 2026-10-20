@@ -23,7 +23,11 @@ export {
 export const initializeWebSocket = async (server: http.Server, sessionParser: RequestHandler): Promise<WebSocketServer> => {
     // Environment variables are expected to be loaded by index.ts
 
-    const wss = new WebSocketServer({ noServer: true });
+    // 单帧上限：分片上传每片 256KB (base64 约 350KB)，sftp:writefile 内联最多 2MB 内容 (JSON 转义后可能膨胀)，
+    // 默认 8MB 留足余量；ws 默认的 100MB 太大，恶意帧可直接占满内存。
+    const maxPayloadEnv = Number.parseInt(process.env.WS_MAX_PAYLOAD_BYTES ?? '', 10);
+    const maxPayload = Number.isFinite(maxPayloadEnv) && maxPayloadEnv >= 1024 * 1024 ? maxPayloadEnv : 8 * 1024 * 1024;
+    const wss = new WebSocketServer({ noServer: true, maxPayload });
     // const db = await getDbInstance(); // db instance might not be directly needed here anymore if all DB interactions are in services/handlers
 
     // 1. Initialize Heartbeat
