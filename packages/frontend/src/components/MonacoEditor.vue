@@ -5,11 +5,13 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import * as monaco from 'monaco-editor';
-import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker.js?worker';
-import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker.js?worker';
-import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker.js?worker';
-import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker.js?worker';
-import TypeScriptWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker.js?worker';
+// monaco-editor >= 0.56 ships an "exports" map ("./*" -> "./esm/vs/*"), so deep imports
+// must use the exported subpaths (the old "monaco-editor/esm/vs/..." paths no longer resolve).
+import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker';
+import CssWorker from 'monaco-editor/languages/features/css/css.worker.js?worker';
+import HtmlWorker from 'monaco-editor/languages/features/html/html.worker.js?worker';
+import JsonWorker from 'monaco-editor/languages/features/json/json.worker.js?worker';
+import TypeScriptWorker from 'monaco-editor/languages/features/typescript/ts.worker.js?worker';
 
 (self as typeof self & { MonacoEnvironment?: unknown }).MonacoEnvironment = {
   getWorker(_moduleId: string, label: string) {
