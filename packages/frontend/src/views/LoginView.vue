@@ -26,7 +26,7 @@ const captchaError = ref<string | null>(null); //  Store CAPTCHA specific error
 const hcaptchaWidget = ref<InstanceType<typeof VueHcaptcha> | null>(null); //  Ref for hCaptcha component instance
 const recaptchaWidget = ref<{ reset: () => void } | null>(null);
 
-const { isDark: isDarkLoginTheme, init: initLoginTheme, toggle: toggleLoginTheme } = useLoginTheme();
+const { isDark: isDarkLoginTheme, init: initLoginTheme } = useLoginTheme();
 const { isMobile } = useDeviceDetection();
 const recaptchaTheme = computed(() => isDarkLoginTheme.value ? 'dark' : 'light');
 
@@ -154,13 +154,6 @@ const handlePasskeyLogin = async () => {
 <template>
   <!-- Page Container -->
   <div class="relative flex items-center justify-center min-h-screen bg-background text-foreground p-4 transition-colors duration-200">
-    <!-- 桌面端：右上角固定；移动端：切换按钮在 MobileAppHeader 顶栏里 -->
-    <button v-if="!isMobile" type="button" @click="toggleLoginTheme" data-login-theme-toggle
-            class="fixed right-4 top-[4.25rem] z-20 inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-header text-foreground shadow-sm transition-colors hover:bg-nav-active-bg focus:outline-none focus:ring-2 focus:ring-primary/50"
-            :aria-label="isDarkLoginTheme ? t('login.switchToLight') : t('login.switchToDark')"
-            :title="isDarkLoginTheme ? t('login.switchToLight') : t('login.switchToDark')">
-      <i :class="isDarkLoginTheme ? 'fas fa-sun' : 'fas fa-moon'" aria-hidden="true"></i>
-    </button>
     <!-- Login Card -->
     <div class="flex w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden bg-background border border-border/50 transition-colors duration-200">
       <!-- Left Panel (Brand) - Hidden on small screens -->
