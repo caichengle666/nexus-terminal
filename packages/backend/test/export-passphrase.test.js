@@ -9,8 +9,8 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-export-pass-'));
 process.env.APP_BACKEND_DATA_PATH = dataDir;
 process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
 
-const ImportExport = require('../dist/services/import-export.service.js'); // registers 'zip-encrypted'
-const archiver = require('archiver');
+const ImportExport = require('../dist/services/import-export.service.js');
+const { EncryptedZipArchive } = require('../dist/utils/encrypted-zip-archive.js');
 const { getDbInstance } = require('../dist/database/connection.js');
 
 test.after(async () => {
@@ -19,7 +19,7 @@ test.after(async () => {
 });
 
 const makeZip = async (password, files) => {
-  const a = archiver.create('zip-encrypted', { zlib: { level: 9 }, encryptionMethod: 'aes256', password });
+  const a = new EncryptedZipArchive({ zlib: { level: 9 }, encryptionMethod: 'aes256', password });
   const bufs = [];
   a.on('data', c => bufs.push(c));
   for (const [name, content] of Object.entries(files)) a.append(content, { name });

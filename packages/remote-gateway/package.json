@@ -15,16 +15,16 @@
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
-    "@types/node": "^26.1.1",
-    "@types/ws": "^8.18.1",
+    "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.2",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
     "typescript": "5.9.3"
   },
   "dependencies": {
     "cors": "^2.8.6",
-    "express": "^5.2.1",
+    "express": "^5.3.0",
     "guacamole-lite": "^1.2.0",
-    "ws": "^8.21.1"
+    "ws": "^8.22.0"
   }
 }

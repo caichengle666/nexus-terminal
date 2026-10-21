@@ -96,6 +96,12 @@ interface SftpServiceOptions {
     recoveryDelaysMs?: number[];
 }
 
+// jschardet 4 (chardet 7 port) reports much lower confidences than jschardet 3 for correct answers
+// (e.g. Shift_JIS ~0.7, Windows-1251 ~0.5, where v3 reported 0.99), so the old 0.90 cut-off would send
+// almost every non-UTF-8 file down the "try GB18030 first" path. 0.20 matches jschardet's own default
+// minimumThreshold; below it the detection is treated as unreliable.
+export const JSCHARDET_LOW_CONFIDENCE = 0.2;
+
 export class SftpService {
     private clientStates: Map<string, ClientState>; // 使用导入的 ClientState
     private activeUploads: Map<string, ActiveUpload>; // Map<uploadId, ActiveUpload>
@@ -595,6 +601,7 @@ export class SftpService {
                         let normalizedDetected = detectedEncodingRaw.replace(/[^a-z0-9]/g, '');
                         if (normalizedDetected === 'windows1252') normalizedDetected = 'cp1252';
                         else if (normalizedDetected === 'gb2312') normalizedDetected = 'gbk'; // Prefer gbk
+                        else if (normalizedDetected === 'utf8sig') normalizedDetected = 'utf8'; // jschardet 4 reports UTF-8 with BOM as "UTF-8-SIG"
 
                         if (normalizedDetected === 'utf8' || normalizedDetected === 'ascii') {
                             encodingUsed = 'utf-8';
@@ -605,7 +612,7 @@ export class SftpService {
                             encodingUsed = 'gb18030'; // Report gb18030 as used
                             decodedContent = iconv.decode(fileData, encodingUsed);
                             console.log(`[SFTP ${sessionId}] Decoded ${path} from detected Chinese encoding (${normalizedDetected}) as ${encodingUsed}.`);
-                        } else if (confidence < 0.90) { // Low confidence threshold
+                        } else if (confidence < JSCHARDET_LOW_CONFIDENCE) { // Low confidence threshold
                             console.warn(`[SFTP ${sessionId}] Low confidence detection (${normalizedDetected}, ${confidence}) for ${path}. Attempting GB18030 decode first.`);
                             try {
                                 // Try decoding as GB18030 first

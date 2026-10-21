@@ -6,8 +6,7 @@ import { encrypt } from '../utils/crypto';
 import { getDbInstance, runDb, getDb as getDbRow, allDb } from '../database/connection';
 import { decrypt, getEncryptionKeyBuffer as getCryptoKeyBuffer } from '../utils/crypto'; 
 import { getAllDecryptedSshKeys, DecryptedSshKeyDetails } from '../ssh_keys/ssh_key.service'; 
-import archiver from 'archiver';
-archiver.registerFormat('zip-encrypted', require("archiver-zip-encrypted"));
+import { EncryptedZipArchive } from '../utils/encrypted-zip-archive';
 import { isZipBuffer, readZipEntries, ZipPasswordError } from '../utils/zip-aes';
 
 
@@ -359,11 +358,11 @@ export const exportConnectionsAsPassphraseZip = async (passphrase: string): Prom
     }
     const json = await exportConnectionsAsJson();
     return new Promise<Buffer>((resolve, reject) => {
-        const archive = archiver.create('zip-encrypted', {
+        const archive = new EncryptedZipArchive({
             zlib: { level: 9 },
             encryptionMethod: 'aes256',
             password: passphrase,
-        } as any);
+        });
         const buffers: Buffer[] = [];
         archive.on('data', (chunk: Buffer) => buffers.push(chunk));
         archive.on('warning', (err: Error) => console.warn('Archiver warning during export:', err.message));

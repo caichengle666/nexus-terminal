@@ -9,7 +9,9 @@ import { resolveBackendDataPath } from './utils/paths';
 // 1. 加载根目录的 .env 文件 (定义部署模式等)
 // 注意: __dirname 在 dist/src 中，所以需要回退三级到项目根目录
 const projectRootEnvPath = path.resolve(__dirname, '../../../.env');
-const rootConfigResult = dotenv.config({ path: projectRootEnvPath });
+// quiet: dotenv 18 writes its "injected env" banner via console.error (dotenv 17 used console.log);
+// the messages below already report what was loaded, so keep dotenv itself silent.
+const rootConfigResult = dotenv.config({ path: projectRootEnvPath, quiet: true });
 
 if (rootConfigResult.error && (rootConfigResult.error as NodeJS.ErrnoException).code !== 'ENOENT') {
     console.warn(`[ENV Init Early] Warning: Could not load root .env file from ${projectRootEnvPath}. Error: ${rootConfigResult.error.message}`);
@@ -22,7 +24,7 @@ if (rootConfigResult.error && (rootConfigResult.error as NodeJS.ErrnoException).
 // 2. 加载 data/.env 文件 (定义密钥等)
 // 注意: 这个路径是相对于编译后的 dist/src/index.js
 const dataEnvPathGlobal = resolveBackendDataPath('.env'); // Renamed to avoid conflict if 'dataEnvPath' is used later
-const dataConfigResultGlobal = dotenv.config({ path: dataEnvPathGlobal }); // Renamed
+const dataConfigResultGlobal = dotenv.config({ path: dataEnvPathGlobal, quiet: true }); // Renamed
 
 if (dataConfigResultGlobal.error && (dataConfigResultGlobal.error as NodeJS.ErrnoException).code !== 'ENOENT') {
     console.warn(`[ENV Init Early] Warning: Could not load data .env file from ${dataEnvPathGlobal}. Error: ${dataConfigResultGlobal.error.message}`);
