@@ -434,3 +434,21 @@ html[data-ui-effect="glass"] body .task-notification-center > section.overflow-h
   background-color: var(--glass-base-color, #0b1220) !important;
   background-image: linear-gradient(var(--glass-surface-strong, rgba(255, 255, 255, 0.06)), var(--glass-surface-strong, rgba(255, 255, 255, 0.06)));
 }
+
+/* 可滚动的弹出层 (下拉列表等)：::before 玻璃底只覆盖首屏高度，滚动后下半截会透明。
+ * 改为元素自身带底色 + backdrop-filter，并隐藏 ::before。 */
+html[data-ui-effect="glass"] body :is(.absolute, .fixed):is(.bg-background, .bg-header)[class*="shadow"]:is(.overflow-auto, .overflow-y-auto, .overflow-scroll) {
+  background-color: var(--glass-surface-strong) !important;
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+html[data-ui-effect="glass"] body :is(.absolute, .fixed):is(.bg-background, .bg-header)[class*="shadow"]:is(.overflow-auto, .overflow-y-auto, .overflow-scroll)::before {
+  display: none !important;
+}
+/* 轻量模式没有实时模糊，用不透明底，避免文字透出 */
+html[data-ui-effect="glass"][data-glass-render="lite"] body :is(.absolute, .fixed):is(.bg-background, .bg-header)[class*="shadow"]:is(.overflow-auto, .overflow-y-auto, .overflow-scroll) {
+  background-color: var(--glass-base-color, #0b1220) !important;
+  background-image: linear-gradient(var(--glass-surface-strong), var(--glass-surface-strong));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
