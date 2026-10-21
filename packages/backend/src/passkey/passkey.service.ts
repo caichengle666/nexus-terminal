@@ -12,7 +12,6 @@ import type {
   GenerateAuthenticationOptionsOpts,
   VerifyRegistrationResponseOpts,
   VerifyAuthenticationResponseOpts,
-  AuthenticatorTransportFuture,
   RegistrationResponseJSON,
   AuthenticationResponseJSON,
   // The actual type for verification.registrationInfo is RegistrationInfo within @simplewebauthn/server
@@ -22,6 +21,10 @@ import type {
 import { passkeyRepository, Passkey, NewPasskey } from './passkey.repository';
 import { userRepository, User } from '../user/user.repository';
 import { config } from '../config/app.config';
+
+// @simplewebauthn/server v14 types credential transports as plain string[]
+// (the AuthenticatorTransportFuture type export was removed); stored values are passed through unchanged.
+type AuthenticatorTransportFuture = string;
 
 const RP_ID = config.rpId;
 const RP_ORIGIN = config.rpOrigin;

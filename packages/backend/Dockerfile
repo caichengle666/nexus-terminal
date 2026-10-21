@@ -1,5 +1,5 @@
 # 基础镜像固定到具体版本 (由 Dependabot 每周检查更新)，保证构建可复现。
-FROM node:22.23.3-bookworm AS builder
+FROM node:22.23.3-trixie AS builder
 
 WORKDIR /app
 

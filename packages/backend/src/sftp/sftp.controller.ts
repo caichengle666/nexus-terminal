@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import path from 'path';
 import { clientStates, sftpService } from '../websocket/state';
-import * as archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { SFTPWrapper } from 'ssh2';
 import { ClientState } from '../websocket/types';
 import { buildAttachmentContentDisposition } from '../utils/content-disposition';
@@ -238,7 +238,7 @@ export const downloadDirectory = async (req: Request, res: Response): Promise<vo
         res.setHeader('Content-Disposition', buildAttachmentContentDisposition(archiveName)); // 使用修正后的名称
 
         // 3. 创建 Archiver 实例
-        const archive = archiver.create('zip', {
+        const archive = new ZipArchive({
             zlib: { level: 9 } // 设置压缩级别 (可选)
         });
         let inactivityTimeout: NodeJS.Timeout;

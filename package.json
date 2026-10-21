@@ -45,9 +45,9 @@
     "sqlite3": "^6.0.1"
   },
   "optionalDependencies": {
-    "@esbuild/darwin-arm64": "0.28.1",
-    "@esbuild/linux-x64": "0.28.1",
-    "@esbuild/win32-x64": "0.28.1",
+    "@esbuild/darwin-arm64": "0.28.2",
+    "@esbuild/linux-x64": "0.28.2",
+    "@esbuild/win32-x64": "0.28.2",
     "@rollup/rollup-darwin-arm64": "4.62.2",
     "@rollup/rollup-linux-x64-gnu": "4.62.2",
     "@rollup/rollup-win32-x64-msvc": "4.62.2"
@@ -69,7 +69,7 @@
     "nanoid@3": "3.3.19",
     "picomatch@2.3.1": "2.3.2",
     "postcss": "8.5.28",
-    "qs": "6.16.0",
+    "qs": "6.16.1",
     "tar": "7.5.22",
     "undici@6": "6.28.1",
     "copyfiles": {

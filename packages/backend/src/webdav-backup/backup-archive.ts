@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import AdmZip from 'adm-zip';
 
-const archiver = require('archiver');
+import { ZipArchive } from 'archiver';
 
 export const FULL_BACKUP_MAGIC = Buffer.from('NEXUS-FULL-BACKUP-V2\n', 'utf8');
 export const MIN_BACKUP_PASSPHRASE_LENGTH = 8;
@@ -137,7 +137,7 @@ export async function createFullBackup(dataPath: string, passphrase: string): Pr
   try {
     await new Promise<void>((resolve, reject) => {
       const output = fs.createWriteStream(zipPath);
-      const archive = archiver('zip', { zlib: { level: 9 } });
+      const archive = new ZipArchive({ zlib: { level: 9 } });
       output.on('close', resolve);
       output.on('error', reject);
       archive.on('error', reject);
