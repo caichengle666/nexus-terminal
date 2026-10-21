@@ -3,7 +3,7 @@
     "target": "ESNext", // 编译目标为最新 ECMAScript 标准
     "useDefineForClassFields": true, // 使用标准类字段定义
     "module": "ESNext", // 使用 ES 模块系统
-    "moduleResolution": "Node", // 保持与现有依赖的旧式导出结构兼容
+    "moduleResolution": "Bundler", // TS 6 弃用 node10，TS 7 将移除；Bundler 与 Vite 的解析方式一致
     "strict": true, // 启用所有严格类型检查选项
     "jsx": "preserve", // 保留 JSX 语法供后续处理 (如 Vue)
     "sourceMap": true, // 生成 Source Map 文件
@@ -13,9 +13,8 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"], // 包含的库定义
     "skipLibCheck": true, // 跳过对声明文件 (*.d.ts) 的类型检查
     "noEmit": true, // 不输出编译后的文件 (由 Vite 处理构建)
-    "baseUrl": ".", // 恢复基础目录
     "paths": {
-      "@/*": ["src/*"] // 恢复原始前端别名路径
+      "@/*": ["./src/*"] // 前端别名路径（相对 tsconfig；TS 6 起 baseUrl 已弃用）
     },
     "types": ["vite/client", "pinia-plugin-persistedstate", "node"] // 重新添加 "node" 类型
   },
