@@ -19,19 +19,24 @@ jobs:
       packages: read
     uses: ./.github/workflows/ci.yml
 
-  build-and-publish:
+  # Each architecture is built on a native runner. QEMU emulation of arm64
+  # crashed `npm ci` with SIGILL (exit 132) and took hours for the frontend.
+  build:
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
     permissions:
       contents: read
       packages: write
-
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [frontend, backend, remote-gateway]
+        platform:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - name: Checkout source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -43,68 +48,97 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker metadata - frontend
-        id: meta-frontend
+      - name: Docker metadata
+        id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/nexus-terminal-frontend
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/nexus-terminal-${{ matrix.component }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: packages/${{ matrix.component }}/Dockerfile
+          platforms: linux/${{ matrix.platform.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/nexus-terminal-${{ matrix.component }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.component }}-${{ matrix.platform.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}-${{ matrix.platform.arch }}
+
+      - name: Native module check
+        if: matrix.component == 'backend'
+        run: |
+          img="${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/nexus-terminal-backend@${{ steps.build.outputs.digest }}"
+          docker run --rm --entrypoint node "$img" -e "
+            const sqlite3 = require('sqlite3');
+            new sqlite3.Database(':memory:').get('select sqlite_version() v', (e, r) => { if (e) throw e; console.log('sqlite', r.v); });
+            const bcrypt = require('bcrypt'); console.log('bcrypt', bcrypt.compareSync('x', bcrypt.hashSync('x', 4)));
+            require('ssh2'); console.log('ssh2 ok', process.arch);
+          "
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: digests-${{ matrix.component }}-${{ matrix.platform.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [frontend, backend, remote-gateway]
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.component }}-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/nexus-terminal-${{ matrix.component }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
             type=ref,event=tag
 
-      - name: Docker metadata - backend
-        id: meta-backend
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/nexus-terminal-backend
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha
-            type=ref,event=tag
+      - name: Create multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          test "$(ls | wc -l)" -eq 2
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/nexus-terminal-${{ matrix.component }}@sha256:%s ' *)
 
-      - name: Docker metadata - remote gateway
-        id: meta-gateway
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/nexus-terminal-remote-gateway
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha
-            type=ref,event=tag
-
-      - name: Build and push frontend
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: packages/frontend/Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta-frontend.outputs.tags }}
-          labels: ${{ steps.meta-frontend.outputs.labels }}
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
-
-      - name: Build and push backend
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: packages/backend/Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta-backend.outputs.tags }}
-          labels: ${{ steps.meta-backend.outputs.labels }}
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
-
-      - name: Build and push remote gateway
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: packages/remote-gateway/Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta-gateway.outputs.tags }}
-          labels: ${{ steps.meta-gateway.outputs.labels }}
-          cache-from: type=gha,scope=remote-gateway
-          cache-to: type=gha,mode=max,scope=remote-gateway
+      - name: Inspect manifest
+        run: |
+          ref="${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/nexus-terminal-${{ matrix.component }}:${{ steps.meta.outputs.version }}"
+          docker buildx imagetools inspect "$ref"
+          docker buildx imagetools inspect "$ref" --format '{{json .Manifest}}' | jq -e '[.manifests[].platform | select(.os=="linux") | .architecture] | (index("amd64") != null and index("arm64") != null)'
