@@ -22,6 +22,7 @@ import RemoteDesktopModal from './components/RemoteDesktopModal.vue';
 import VncModal from './components/VncModal.vue';
 import ConfirmDialog from './components/common/ConfirmDialog.vue';
 import MobileAppHeader from './components/MobileAppHeader.vue';
+import { useLoginTheme } from './composables/useLoginTheme';
 import { useDialogStore } from './stores/dialog.store';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -49,6 +50,9 @@ const { activeSession, isRdpModalOpen, rdpConnectionInfo, isVncModalOpen, vncCon
 const { isMobile } = useDeviceDetection();
 
 const route = useRoute();
+// 登录页亮/暗切换：桌面端放在顶栏右侧图标组里（移动端在 MobileAppHeader 里）
+const { isDark: isDarkLoginTheme, toggle: toggleLoginTheme } = useLoginTheme();
+const showLoginThemeToggle = computed(() => !isAuthenticated.value && route.path === '/login');
 const navRef = ref<HTMLElement | null>(null);
 const underlineRef = ref<HTMLElement | null>(null);
 
@@ -418,6 +422,12 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
             <i class="fas fa-download" aria-hidden="true"></i>
           </button>
           <a href="#" @click.prevent="openStyleCustomizer" :title="t('nav.customizeStyle')" class="px-2 py-2 rounded-md text-lg text-icon hover:text-icon-hover hover:bg-nav-active-bg hover:no-underline transition duration-150 ease-in-out"><i class="fas fa-paint-brush"></i></a>
+          <button v-if="showLoginThemeToggle" type="button" data-login-theme-toggle @click="toggleLoginTheme"
+                  class="px-2 py-2 rounded-md text-lg text-icon hover:text-icon-hover hover:bg-nav-active-bg transition duration-150 ease-in-out"
+                  :title="isDarkLoginTheme ? t('login.switchToLight') : t('login.switchToDark')"
+                  :aria-label="isDarkLoginTheme ? t('login.switchToLight') : t('login.switchToDark')">
+            <i :class="isDarkLoginTheme ? 'fas fa-sun' : 'fas fa-moon'" aria-hidden="true"></i>
+          </button>
           <RouterLink v-if="!isAuthenticated" to="/login" class="px-3 py-2 rounded-md text-sm font-medium text-secondary hover:text-link-hover hover:bg-nav-active-bg hover:no-underline transition duration-150 ease-in-out whitespace-nowrap">{{ t('nav.login') }}</RouterLink>
           <a href="#" v-if="isAuthenticated" @click.prevent="handleLogout" class="px-3 py-2 rounded-md text-sm font-medium text-secondary hover:text-link-hover hover:bg-nav-active-bg hover:no-underline transition duration-150 ease-in-out whitespace-nowrap">{{ t('nav.logout') }}</a>
         </div>
