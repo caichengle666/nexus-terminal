@@ -347,7 +347,7 @@
       "sectionScriptMode": "スクリプトモード",
       "scriptModeInputLabel": "接続スクリプト（1 行に 1 件）",
       "scriptModePlaceholder": "接続スクリプトを入力してください。1 行に 1 件の接続設定を記述します。",
-      "scriptModeFormatInfo": "形式: user{'@'}host:port [-type TYPE] [-name NAME] [-p PASSWORD] [-k KEY_NAME] [-proxy PROXY_NAME] [-tags TAG1 TAG2...] [-note NOTE_TEXT]\nパラメーターの説明:\n  user{'@'}host:port  - ユーザー名{'@'}ホスト名または IP:ポート（必須）\n  -type TYPE      - 接続の種類（SSH、RDP、VNC。既定は SSH）\n  -name NAME      - 接続の表示名（任意。既定は user{'@'}host）\n  -p PASSWORD     - パスワード（SSH パスワード認証、RDP、VNC では必須）\n  -k KEY_NAME     - SSH キー名（SSH 鍵認証では必須。アップロード済みのキーに対応）\n  -proxy PROXY_NAME - プロキシ名（任意。設定済みのプロキシに対応）\n  -tags TAG1 TAG2 - タグの一覧、スペース区切り（任意）\n  -note NOTE_TEXT - 接続のメモ（任意。スペースを含むテキスト可。特殊文字を含む場合は引用符で囲む）",
+      "scriptModeFormatInfo": "形式: user{'@'}host:port [-type TYPE] [-name NAME] [-p PASSWORD] [-k KEY_NAME] [-proxy PROXY_NAME] [-tags TAG1 TAG2...] [-note NOTE_TEXT]\nパラメーターの説明:\n  user{'@'}host:port  - ユーザー名{'@'}ホスト名または IP:ポート（必須）\n  -type TYPE      - 接続の種類（SSH、RDP、VNC。既定は SSH）\n  -name NAME      - 接続の表示名（任意。既定は user{'@'}host）\n  -p PASSWORD     - パスワード（SSH パスワード認証、RDP、VNC では必須）\n  -k KEY_NAME     - SSH キー名（SSH 鍵認証では必須。アップロード済みのキーに対応）\n  -proxy PROXY_NAME - プロキシ名（任意。設定済みのプロキシに対応）\n  -tags TAG1 TAG2 - タグの一覧、スペース区切り（任意）\n  -note NOTE_TEXT - 接続のメモ（任意。スペースを含むテキスト可。特殊文字を含む場合は引用符で囲む）\nOpenSSH コマンド（例: ssh -p 2222 user{'@'}host）もそのまま貼り付け可能（-p/-k なしの場合は空パスワード）",
       "scriptErrorMissingHost": "スクリプト行 '{line}' に 'user{'@'}host:port' の部分がありません。",
       "scriptErrorInvalidType": "スクリプト行 '{line}' の種類 '{type}' が無効です。有効な種類は SSH、RDP、VNC です。",
       "scriptErrorUnknownArg": "スクリプト行 '{line}' に不明な引数 '{arg}' があります。",

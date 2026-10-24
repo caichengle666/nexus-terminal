@@ -372,7 +372,7 @@
       "sectionScriptMode": "脚本模式",
       "scriptModeInputLabel": "连接脚本 (每行一个)",
       "scriptModePlaceholder": "请输入连接脚本，每行一个连接配置。",
-      "scriptModeFormatInfo": "格式: user{'@'}host:port [-type TYPE] [-name NAME] [-p PASSWORD] [-k KEY_NAME] [-proxy PROXY_NAME] [-tags TAG1 TAG2...] [-note NOTE_TEXT]\n参数说明:\n  user{'@'}host:port  - 用户名{'@'}主机名或IP:端口号 (必需)\n  -type TYPE      - 连接类型 (SSH, RDP, VNC; 默认为 SSH)\n  -name NAME      - 连接的显示名称 (可选; 默认为 user{'@'}host)\n  -p PASSWORD     - 密码 (SSH密码认证, RDP, VNC 时需要)\n  -k KEY_NAME     - SSH密钥名称 (SSH密钥认证时需要, 对应已上传的密钥)\n  -proxy PROXY_NAME - 代理名称 (可选, 对应已配置的代理)\n  -tags TAG1 TAG2 - 标签列表, 用空格分隔 (可选)\n  -note NOTE_TEXT - 连接备注 (可选, 支持带空格的文本, 如果包含特殊字符请使用引号)",
+      "scriptModeFormatInfo": "格式: user{'@'}host:port [-type TYPE] [-name NAME] [-p PASSWORD] [-k KEY_NAME] [-proxy PROXY_NAME] [-tags TAG1 TAG2...] [-note NOTE_TEXT]\n参数说明:\n  user{'@'}host:port  - 用户名{'@'}主机名或IP:端口号 (必需)\n  -type TYPE      - 连接类型 (SSH, RDP, VNC; 默认为 SSH)\n  -name NAME      - 连接的显示名称 (可选; 默认为 user{'@'}host)\n  -p PASSWORD     - 密码 (SSH密码认证, RDP, VNC 时需要)\n  -k KEY_NAME     - SSH密钥名称 (SSH密钥认证时需要, 对应已上传的密钥)\n  -proxy PROXY_NAME - 代理名称 (可选, 对应已配置的代理)\n  -tags TAG1 TAG2 - 标签列表, 用空格分隔 (可选)\n  -note NOTE_TEXT - 连接备注 (可选, 支持带空格的文本, 如果包含特殊字符请使用引号)\n也可直接粘贴 OpenSSH 命令，如 ssh -p 2222 user{'@'}host（不写 -p/-k 时按空密码处理）",
       "scriptErrorMissingHost": "脚本行 '{line}' 缺少 'user{'@'}host:port' 部分。",
       "scriptErrorInvalidType": "脚本行 '{line}' 中的类型 '{type}' 无效。有效类型为 SSH, RDP, VNC。",
       "scriptErrorUnknownArg": "脚本行 '{line}' 中存在未知参数 '{arg}'。",

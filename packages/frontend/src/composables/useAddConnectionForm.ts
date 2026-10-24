@@ -250,11 +250,67 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
   // Helper function to parse a single script line using minimist
 
   
+  /**
+   * 把 OpenSSH 命令行转换成脚本格式 "user@host:port ..."。
+   * 支持 ssh [-p PORT] [-l USER] [其它常见选项] [user@]host[:port] 以及 ssh://user@host:port。
+   * 目标之后的参数按原脚本选项继续解析。非 ssh 开头的行原样返回。
+   */
+  const normalizeOpenSshCommand = (line: string): { line: string; error?: string } => {
+    const tokens = line.trim().split(/\s+/);
+    if (tokens[0]?.toLowerCase() !== 'ssh') return { line };
+    let port: string | null = null;
+    let user: string | null = null;
+    let dest: string | null = null;
+    let i = 1;
+    const valueOpts = new Set(['-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-m', '-O', '-o', '-Q', '-R', '-S', '-W', '-w']);
+    for (; i < tokens.length; i++) {
+      const tok = tokens[i];
+      if (tok === '-p' || tok === '-l') {
+        const val = tokens[++i];
+        if (!val) return { line, error: t('connections.form.scriptErrorMissingValueForKey', { key: tok }) };
+        if (tok === '-p') port = val; else user = val;
+      } else if (/^-p\d+$/.test(tok)) {
+        port = tok.slice(2);
+      } else if (valueOpts.has(tok)) {
+        i++; // 忽略这些选项及其值
+      } else if (/^-[A-Za-z0-9]+$/.test(tok)) {
+        // 无值的开关（-v, -A, -4 等），忽略
+      } else {
+        dest = tok;
+        i++;
+        break;
+      }
+    }
+    if (!dest) return { line, error: t('connections.form.scriptErrorInvalidUserHostPortFormat', { part: line.trim() }) };
+    dest = dest.replace(/^ssh:\/\//i, '').replace(/\/$/, '');
+    let host = dest;
+    const at = dest.lastIndexOf('@');
+    if (at !== -1) {
+      user = dest.slice(0, at);
+      host = dest.slice(at + 1);
+    }
+    const portMatch = host.match(/^(.*):(\d+)$/);
+    if (portMatch) {
+      host = portMatch[1];
+      if (!port) port = portMatch[2];
+    }
+    if (!user || !host) return { line, error: t('connections.form.scriptErrorInvalidUserHostPortFormat', { part: dest }) };
+    const rest = tokens.slice(i).join(' ');
+    return { line: `${user}@${host}${port ? `:${port}` : ''}${rest ? ` ${rest}` : ''}` };
+  };
+
   const parseScriptLine = (line: string): { type: 'SSH' | 'RDP' | 'VNC', userHostPort: string, name: string, password: string | null, keyName: string | null, proxyName: string | null, tags: string[], note: string | null, error?: string } => {
     line = line.trim();
     if (!line) {
       return { type: 'SSH', userHostPort: '', name: '', password: null, keyName: null, proxyName: null, tags: [], note: null, error: t('connections.form.scriptErrorEmptyLine', 'Input line cannot be empty') };
     }
+
+    // 0. 兼容直接粘贴的 OpenSSH 命令，如 "ssh -p 2222 user@host [-name xx ...]" 或 "ssh user@host"
+    const openSsh = normalizeOpenSshCommand(line);
+    if (openSsh.error) {
+      return { type: 'SSH', userHostPort: line, name: '', password: null, keyName: null, proxyName: null, tags: [], note: null, error: openSsh.error };
+    }
+    line = openSsh.line;
 
     // 1. Extract user@host:port
     const firstSpaceIndex = line.indexOf(' ');
@@ -346,10 +402,8 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
 
     // 5. Validation based on type
     if (type === 'SSH') {
-      if (!password && !keyName) {
-        return { type, userHostPort: userHostPortPart, name, password, keyName, proxyName, tags, note, error: t('connections.form.scriptErrorMissingAuthForSsh') };
-      }
-      // Allow both password and key, handle precedence in handleScriptModeSubmit
+      // SSH 未提供 -p/-k 时按空密码的密码认证处理（内网设备可能无密码）
+      if (!password && !keyName) password = '';
     } else if (type === 'RDP') {
       if (!password) {
         return { type, userHostPort: userHostPortPart, name, password, keyName, proxyName, tags, note, error: t('connections.form.scriptErrorMissingPasswordForRdp') };
@@ -424,12 +478,7 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
       if (parsed.type === 'SSH') {
         connectionData.auth_method = parsed.keyName ? 'key' : 'password';
         if (connectionData.auth_method === 'password') {
-          if (!parsed.password) {
-            uiNotificationsStore.showError(t('connections.form.scriptErrorMissingPasswordForSsh', { line }));
-            allConnectionsValid = false;
-            break;
-          }
-          connectionData.password = parsed.password;
+          connectionData.password = parsed.password ?? '';
         } else {
           if (!parsed.keyName) {
             uiNotificationsStore.showError(t('connections.form.scriptErrorMissingKeyNameForSsh', { line }));
