@@ -1,3 +1,4 @@
+import '../utils/ssh2-host-cert'; // 必须在 ssh2 之前加载
 import { Client, ClientChannel, ConnectConfig } from 'ssh2';
 import { SocksClient, SocksClientOptions } from 'socks';
 import http from 'http';

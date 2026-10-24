@@ -5,8 +5,9 @@ const { Client } = require('ssh2');
 
 test('legacy compat algorithms are appended (modern defaults keep priority)', () => {
     const cfg = withLegacyCompatAlgorithms({ host: 'h' });
-    assert.deepStrictEqual(cfg.algorithms, SSH_LEGACY_COMPAT_ALGORITHMS);
-    assert.deepStrictEqual(cfg.algorithms.serverHostKey, { append: ['ssh-dss'] });
+    assert.deepStrictEqual(cfg.algorithms.kex, SSH_LEGACY_COMPAT_ALGORITHMS.kex);
+    assert.ok(cfg.algorithms.serverHostKey.append.includes('ssh-dss'));
+    assert.ok(cfg.algorithms.serverHostKey.append.includes('ssh-ed25519-cert-v01@openssh.com'));
     for (const list of Object.values(cfg.algorithms)) assert.ok(list.append && !list.prepend);
     const custom = { algorithms: { cipher: ['aes128-ctr'] } };
     assert.strictEqual(withLegacyCompatAlgorithms(custom), custom);

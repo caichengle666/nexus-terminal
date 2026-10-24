@@ -1,4 +1,6 @@
+import './ssh2-host-cert';
 import type { Algorithms } from 'ssh2';
+import { SSH_HOST_CERT_ALGORITHMS, isSsh2HostCertPatched } from './ssh2-host-cert';
 
 /**
  * 兼容旧设备（老路由器、交换机、嵌入式系统、旧版 OpenSSH）的算法。
@@ -15,8 +17,20 @@ export const SSH_LEGACY_COMPAT_ALGORITHMS: Algorithms = {
     hmac: { append: ['hmac-sha2-256-96', 'hmac-sha2-512-96', 'hmac-sha1-96', 'hmac-md5'] },
 } as Algorithms;
 
+/**
+ * 实际使用的兼容算法：ssh2 主机证书补丁生效时，再追加 OpenSSH 主机证书算法
+ * (补丁未生效时 ssh2 会拒绝这些算法名，所以不能无条件加入)。
+ */
+export const getLegacyCompatAlgorithms = (): Algorithms => {
+    if (!isSsh2HostCertPatched()) return SSH_LEGACY_COMPAT_ALGORITHMS;
+    return {
+        ...SSH_LEGACY_COMPAT_ALGORITHMS,
+        serverHostKey: { append: [...SSH_HOST_CERT_ALGORITHMS, 'ssh-dss'] },
+    } as Algorithms;
+};
+
 export const withLegacyCompatAlgorithms = <T extends { algorithms?: Algorithms }>(config: T): T => (
-    config.algorithms ? config : { ...config, algorithms: SSH_LEGACY_COMPAT_ALGORITHMS }
+    config.algorithms ? config : { ...config, algorithms: getLegacyCompatAlgorithms() }
 );
 
 /**

@@ -1,5 +1,6 @@
 import { installConsoleLogger } from './utils/logger';
 installConsoleLogger();
+import './utils/ssh2-host-cert'; // 必须在任何模块加载 ssh2 之前
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs'; // fs is needed for early env loading if data/.env is checked
