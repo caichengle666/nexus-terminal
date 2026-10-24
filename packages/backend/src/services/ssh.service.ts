@@ -1,5 +1,5 @@
 import '../utils/ssh2-host-cert'; // 必须在 ssh2 之前加载
-import { Client, ClientChannel, ConnectConfig } from 'ssh2';
+import { Client, ClientChannel, ConnectConfig, AuthHandlerMiddleware } from 'ssh2';
 import { SocksClient, SocksClientOptions } from 'socks';
 import http from 'http';
 import net from 'net';
@@ -338,6 +338,38 @@ const _createHostKeyGuard = (target: HostKeyTarget, options?: EstablishSshConnec
 };
 
 // --- Helper function to set up SSH client listeners and initiate connection ---
+/**
+ * 密码认证的认证顺序：none -> password -> keyboard-interactive。
+ * 服务器支持 password 时只用 password 尝试一次，不再用同一个密码走键盘交互，
+ * 避免密码错误时失败次数翻倍 (fail2ban / MaxAuthTries)。
+ * 只有服务器不提供 password 方法时才用 keyboard-interactive，以同一密码回答所有提示。
+ */
+export const createPasswordAuthHandler = (username: string, password: string): AuthHandlerMiddleware => {
+    let triedNone = false;
+    let triedPassword = false;
+    let triedKeyboard = false;
+    return (methodsLeft, _partialSuccess, callback) => {
+        if (!triedNone) {
+            triedNone = true;
+            return callback('none');
+        }
+        const methods = methodsLeft ?? [];
+        if (!triedPassword && methods.includes('password')) {
+            triedPassword = true;
+            return callback({ type: 'password', username, password });
+        }
+        if (!triedPassword && !triedKeyboard && methods.includes('keyboard-interactive')) {
+            triedKeyboard = true;
+            return callback({
+                type: 'keyboard-interactive',
+                username,
+                prompt: (_name, _instructions, _lang, prompts, finish) => finish(prompts.map(() => password)),
+            });
+        }
+        return (callback as unknown as (next: false) => void)(false);
+    };
+};
+
 const _setupSshClientListenersAndConnect = (
     client: Client,
     config: ConnectConfig,
@@ -349,13 +381,9 @@ const _setupSshClientListenersAndConnect = (
     return new Promise((resolve, reject) => {
         config = withLegacyCompatAlgorithms(config);
         if (!config.privateKey) {
-            // 密码认证：允许空密码（内网设备常见）。始终尝试 password（空串也发送），
-            // 并启用 keyboard-interactive，用同一密码回答所有提示。
+            // 密码认证：允许空密码（内网设备常见）。
             const password = typeof config.password === 'string' ? config.password : '';
-            config = { ...config, password, tryKeyboard: true };
-            client.on('keyboard-interactive', (_name, _instructions, _lang, prompts, finish) => {
-                finish(prompts.map(() => password));
-            });
+            config = { ...config, password, authHandler: createPasswordAuthHandler(config.username ?? '', password) };
         }
         if (hostKeyGuard) {
             config = { ...config, hostVerifier: hostKeyGuard.hostVerifier };
