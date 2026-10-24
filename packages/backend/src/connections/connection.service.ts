@@ -137,7 +137,7 @@ export const createConnection = async (input: CreateConnectionInput): Promise<Co
     if (connectionType === 'SSH') {
         authMethodForDb = input.auth_method!; // Already validated above
         if (input.auth_method === 'password') {
-            encryptedPassword = encrypt(input.password!);
+            encryptedPassword = encrypt(input.password ?? '');
             sshKeyIdToSave = null; // Password auth cannot use ssh_key_id
         } else { // auth_method is 'key'
             if (input.ssh_key_id) {
