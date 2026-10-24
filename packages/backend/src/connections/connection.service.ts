@@ -99,9 +99,7 @@ export const createConnection = async (input: CreateConnectionInput): Promise<Co
         if (!input.auth_method || !['password', 'key'].includes(input.auth_method)) {
              throw new Error('SSH 连接必须提供有效的认证方式 (password 或 key)。');
         }
-        if (input.auth_method === 'password' && !input.password) {
-            throw new Error('SSH 密码认证方式需要提供 password。');
-        }
+        // 密码认证允许空密码（内网设备可能无密码）
         // If using ssh_key_id, private_key is not required in the input
         if (input.auth_method === 'key' && !input.ssh_key_id && !input.private_key) {
             throw new Error('SSH 密钥认证方式需要提供 private_key 或选择一个已保存的密钥 (ssh_key_id)。');
@@ -307,10 +305,6 @@ export const updateConnection = async (id: number, input: UpdateConnectionInput)
         if (finalAuthMethod === 'password') {
             // If switching to password or updating password
             if (input.password !== undefined) { // Check if password was provided in input
-                 if (!input.password && finalAuthMethod !== currentAuthMethod) {
-                     // Switching to password requires a password
-                     throw new Error('切换到密码认证时需要提供 password。');
-                 }
                  // Encrypt if password is not empty, otherwise set to null (to clear)
                  dataToUpdate.encrypted_password = input.password ? encrypt(input.password) : null;
                  needsCredentialUpdate = true;

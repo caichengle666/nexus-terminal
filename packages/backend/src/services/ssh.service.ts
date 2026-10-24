@@ -347,6 +347,15 @@ const _setupSshClientListenersAndConnect = (
 ): Promise<Client> => {
     return new Promise((resolve, reject) => {
         config = withLegacyCompatAlgorithms(config);
+        if (!config.privateKey) {
+            // 密码认证：允许空密码（内网设备常见）。始终尝试 password（空串也发送），
+            // 并启用 keyboard-interactive，用同一密码回答所有提示。
+            const password = typeof config.password === 'string' ? config.password : '';
+            config = { ...config, password, tryKeyboard: true };
+            client.on('keyboard-interactive', (_name, _instructions, _lang, prompts, finish) => {
+                finish(prompts.map(() => password));
+            });
+        }
         if (hostKeyGuard) {
             config = { ...config, hostVerifier: hostKeyGuard.hostVerifier };
         }

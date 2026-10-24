@@ -604,7 +604,6 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
     const typeChangedInEdit = isEditMode.value && !!connectionToEdit.value && connectionToEdit.value.type !== formData.type;
     if (typeChangedInEdit) {
         const missingCredentials =
-            (formData.type === 'SSH' && formData.auth_method === 'password' && !formData.password) ||
             (formData.type === 'SSH' && formData.auth_method === 'key' && !formData.selected_ssh_key_id) ||
             (formData.type === 'RDP' && !formData.password) ||
             (formData.type === 'VNC' && !formData.vncPassword);
@@ -622,19 +621,11 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
 
     if (formData.type === 'SSH') {
         if (!isEditMode.value) {
-            if (formData.auth_method === 'password' && !formData.password && !formData.host.includes('~')) {
-                uiNotificationsStore.showError(t('connections.form.errorPasswordRequired'));
-                return;
-            }
             if (formData.auth_method === 'key' && !formData.selected_ssh_key_id && !formData.host.includes('~')) {
                 uiNotificationsStore.showError(t('connections.form.errorSshKeyRequired'));
                 return;
             }
         } else {
-            if (formData.auth_method === 'password' && !formData.password && connectionToEdit.value?.auth_method !== 'password') {
-                uiNotificationsStore.showError(t('connections.form.errorPasswordRequiredOnSwitch'));
-                return;
-            }
             if (formData.auth_method === 'key' && !formData.selected_ssh_key_id && connectionToEdit.value?.auth_method !== 'key') {
                  uiNotificationsStore.showError(t('connections.form.errorSshKeyRequiredOnSwitch'));
                  return;
@@ -659,10 +650,6 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
             const ips = parsedIpsResult;
             if (formData.type === 'SSH' && formData.auth_method === 'key' && !formData.selected_ssh_key_id) {
                 uiNotificationsStore.showError(t('connections.form.errorSshKeyRequiredForBatch', '批量添加 SSH (密钥认证) 连接时，必须选择一个 SSH 密钥。'));
-                return;
-            }
-            if (formData.type === 'SSH' && formData.auth_method === 'password' && !formData.password) {
-                uiNotificationsStore.showError(t('connections.form.errorPasswordRequiredForBatchSSH', '批量添加 SSH (密码认证) 连接时，必须提供密码。'));
                 return;
             }
             if (formData.type === 'RDP' && !formData.password) {
@@ -941,9 +928,6 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
 
         if (!dataToSend.host || !dataToSend.port || !dataToSend.username || !dataToSend.auth_method) {
           throw new Error(t('connections.test.errorMissingFields'));
-        }
-        if (dataToSend.auth_method === 'password' && !formData.password && !canReuseSavedCredentials) {
-           throw new Error(t('connections.form.errorPasswordRequired'));
         }
         if (dataToSend.auth_method === 'key' && !dataToSend.ssh_key_id && !canReuseSavedCredentials) {
           throw new Error(t('connections.form.errorSshKeyRequired'));
