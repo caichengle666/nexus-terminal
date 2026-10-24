@@ -228,7 +228,8 @@ export function createWebSocketConnectionManager(
                     discardSocket(socket, '连接已被替换');
                     return;
                 }
-                reconnectAttempts = 0; // 连接成功，重置尝试次数
+                // 注意：WebSocket 打开不代表 SSH 已连上（SSH 握手/认证可能随后失败并关闭连接），
+                // 重连计数只在收到 ssh:connected（或恢复流程打开）后才重置，否则会无限重试且计数一直停在 1。
                 statusMessage.value = getStatusText('wsConnected');
                 // 状态保持 'connecting' 直到收到 ssh:connected
                 if (!isResumeFlow) {
@@ -243,6 +244,7 @@ export function createWebSocketConnectionManager(
                 } else {
                     // 对于恢复流程，WebSocket 打开即表示连接基础已建立
                     // 后续的 SSH_SUSPEND_RESUME_REQUEST 会完成会话的恢复
+                    reconnectAttempts = 0;
                     connectionStatus.value = 'connected';
                 }
                 dispatchMessage('internal:opened', {}, { type: 'internal:opened' }); // 触发内部打开事件
@@ -256,6 +258,7 @@ export function createWebSocketConnectionManager(
 
                     // --- 更新此实例的连接状态 ---
                     if (message.type === 'ssh:connected') {
+                        reconnectAttempts = 0; // SSH 真正连接成功，重置重连计数
                         sftpReconnectRequested = false;
                         if (connectionStatus.value !== 'connected') {
                             connectionStatus.value = 'connected';
@@ -374,6 +377,19 @@ export function createWebSocketConnectionManager(
                 dispatchMessage('internal:closed', { code: event.code, reason: event.reason }, { type: 'internal:closed' });
                 isSftpReady.value = false;
                 ws.value = null; // 清理实例引用
+
+                // 1008：后端判定重试无效（算法不匹配、认证失败、连接不存在等），停止自动重连，等用户按 Enter 手动重连
+                if (!intentionalDisconnect && event.code === 1008) {
+                    if (reconnectTimeoutId) {
+                        clearTimeout(reconnectTimeoutId);
+                        reconnectTimeoutId = null;
+                    }
+                    reconnectAttempts = 0;
+                    reconnectInProgress = false;
+                    connectionStatus.value = 'error';
+                    dispatchMessage('internal:reconnect-status', { phase: 'stopped' }, { type: 'internal:reconnect-status' });
+                    return;
+                }
 
                 // 如果不是主动断开 (code 1000)，尝试重连
                 if (!intentionalDisconnect && event.code !== 1000) { // 1000 is normal closure

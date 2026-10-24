@@ -6,6 +6,7 @@ import * as ConnectionRepository from '../connections/connection.repository';
 import *   as ProxyRepository from '../proxies/proxy.repository';
 import { decrypt } from '../utils/crypto';
 import * as SshKeyService from '../ssh_keys/ssh_key.service';
+import { withLegacyCompatAlgorithms } from '../utils/ssh-algorithms';
 import { computeFingerprint, decideHostKey, HostKeyMismatchError, isHostKeyMismatchError } from './host-key';
 
 export { HostKeyMismatchError, isHostKeyMismatchError } from './host-key';
@@ -345,6 +346,7 @@ const _setupSshClientListenersAndConnect = (
     hostKeyGuard?: HostKeyGuard
 ): Promise<Client> => {
     return new Promise((resolve, reject) => {
+        config = withLegacyCompatAlgorithms(config);
         if (hostKeyGuard) {
             config = { ...config, hostVerifier: hostKeyGuard.hostVerifier };
         }
@@ -747,7 +749,7 @@ async function _establishConnectionViaJumpChainRecursive(
         currentHopClient.on('close', currentHopHandlers.close);
 
         console.log(`${currentHopLogPrefix}Attempting to connect. Config: host=${connectConfigForThisHop.host}, port=${connectConfigForThisHop.port}, user=${connectConfigForThisHop.username}, sock=${!!connectConfigForThisHop.sock}`);
-        currentHopClient.connect(connectConfigForThisHop);
+        currentHopClient.connect(withLegacyCompatAlgorithms(connectConfigForThisHop));
     });
 }
 

@@ -150,3 +150,45 @@ test('a failed reconnect (release timeout) leaves auto-reconnect working afterwa
   assert.equal(sockets.length, 2, 'auto-reconnect created a new socket');
   return Promise.resolve().then(() => assert.equal(result, false));
 });
+
+test('WS opens but SSH fails every time (1011): attempts still count up and give up', (ctx) => {
+  ctx.mock.timers.enable({ apis: ['setTimeout'] });
+  sockets.length = 0;
+  const mgr = createWebSocketConnectionManager('s6', '1', t);
+  const statuses = [];
+  mgr.onMessage('internal:reconnect-status', (p) => statuses.push(p));
+  mgr.connect('ws://localhost/ws/');
+  for (let i = 0; i < 20 && mgr.connectionStatus.value !== 'error'; i++) {
+    const ws = sockets[sockets.length - 1];
+    ws.readyState = 1;
+    ws.onopen?.();
+    ws.onmessage?.({ data: JSON.stringify({ type: 'ssh:error', payload: '连接失败: Timed out while waiting for handshake' }) });
+    ws.readyState = 3;
+    ws.onclose?.({ code: 1011, reason: 'SSH connection failed' });
+    const retry = statuses[statuses.length - 1];
+    if (retry?.phase !== 'auto-retry') break;
+    ctx.mock.timers.tick(retry.delay * 1000);
+  }
+  const retries = statuses.filter(s => s.phase === 'auto-retry');
+  assert.deepEqual(retries.map(r => r.attempt), [1, 2, 3, 4, 5, 6, 7, 8], 'not stuck at 1/8');
+  assert.equal(statuses[statuses.length - 1].phase, 'exhausted');
+});
+
+test('non-retryable SSH failure (close 1008) stops auto-reconnect immediately', (ctx) => {
+  ctx.mock.timers.enable({ apis: ['setTimeout'] });
+  sockets.length = 0;
+  const mgr = createWebSocketConnectionManager('s7', '1', t);
+  const statuses = [];
+  mgr.onMessage('internal:reconnect-status', (p) => statuses.push(p));
+  mgr.connect('ws://localhost/ws/');
+  const ws = sockets[0];
+  ws.readyState = 1;
+  ws.onopen?.();
+  ws.onmessage?.({ data: JSON.stringify({ type: 'ssh:error', payload: '连接失败: Handshake failed: no matching host key format' }) });
+  ws.readyState = 3;
+  ws.onclose?.({ code: 1008, reason: 'SSH connection failed (not retryable)' });
+  ctx.mock.timers.tick(120_000);
+  assert.equal(sockets.length, 1, 'no automatic retry');
+  assert.deepEqual(statuses.map(s => s.phase), ['stopped']);
+  assert.equal(mgr.connectionStatus.value, 'error', 'Enter can still reconnect manually');
+});

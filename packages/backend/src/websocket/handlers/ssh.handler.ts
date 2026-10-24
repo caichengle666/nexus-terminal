@@ -11,6 +11,7 @@ import { installExecChannelLimiter } from '../../services/ssh-channel-limiter';
 import { appendDetachedOutput, canReattach, reattachClientConnection } from '../session-resume';
 import { applyWsBackpressure, clearWsBackpressure } from '../backpressure';
 import { isValidSessionId } from '../session-id';
+import { isNonRetryableSshError } from '../../utils/ssh-algorithms';
 
 // 正在建立 SSH 连接的会话 ID：同一 ID 的并发 ssh:connect (重连风暴) 只允许一个进行，
 // 否则后完成的会覆盖先完成的 clientStates 条目，导致前一个 SSH 连接泄漏。
@@ -342,7 +343,10 @@ async function establishAndRegisterSession(
             return;
         }
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ssh:error', payload: `连接失败: ${connectError.message}` }));
-        ws.close(1011, `SSH Connection Failed: ${connectError.message}`);
+        // 算法不匹配、认证失败等错误重试也不会成功：用 1008 关闭，前端不再自动重连。
+        // close reason 上限 123 字节；完整错误已通过 ssh:error 发送，这里只用固定的 ASCII 原因。
+        const nonRetryable = isNonRetryableSshError(connectError.message || '');
+        ws.close(nonRetryable ? 1008 : 1011, nonRetryable ? 'SSH connection failed (not retryable)' : 'SSH connection failed');
     }
 }
 

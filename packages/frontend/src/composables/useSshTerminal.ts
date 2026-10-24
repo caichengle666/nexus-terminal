@@ -320,6 +320,11 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
                 max: payload?.max,
                 delay: payload?.delay,
             }));
+        } else if (payload?.phase === 'stopped') {
+            // 不可重试的错误（错误详情已由 ssh:error 输出）：不再自动重连
+            isSshConnected.value = false;
+            isReconnecting.value = false;
+            writeNotice(t('uxTerminal.terminal.pressEnterToReconnect'));
         } else if (payload?.phase === 'exhausted') {
             isSshConnected.value = false;
             isReconnecting.value = false;
