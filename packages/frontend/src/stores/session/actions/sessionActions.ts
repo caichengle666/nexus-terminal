@@ -84,6 +84,8 @@ export const openNewSession = (
       }
   );
   newSessionPartial.wsManager = wsManager; // 将 wsManager 添加回部分对象
+  // 会话关闭时摘掉 online / visibilitychange 监听器与重连定时器
+  newSessionPartial.disposables?.push(() => wsManager.dispose());
 
   const sshTerminalDeps: SshTerminalDependencies = {
       sendMessage: wsManager.sendMessage,

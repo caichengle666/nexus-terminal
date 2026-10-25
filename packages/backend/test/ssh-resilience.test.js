@@ -159,3 +159,58 @@ test('a detached session is cleaned up after the grace period', async () => {
   assert.equal(clientStates.has('sess-resume-2'), false);
   assert.equal(sshEnded, true);
 });
+
+test('reconnect before the server notices the drop (half-open old socket) still reattaches the same shell', async () => {
+  const sent = [];
+  const shell = new EventEmitter();
+  shell.setWindow = () => {};
+  let sshEnded = false;
+  const closed = [];
+  // the server still believes the old socket is OPEN (no close event yet)
+  const oldWs = { readyState: 1, sessionId: 'sess-resume-3', username: 'u', userId: 1, send() {}, close(code) { closed.push(code); this.readyState = 3; } };
+  const state = {
+    ws: oldWs,
+    sshClient: { end() { sshEnded = true; }, exec() {} },
+    sshShellStream: shell,
+    isShellReady: true,
+    dbConnectionId: 9,
+  };
+  clientStates.set('sess-resume-3', state);
+  // nothing buffered: the history before the drop is already on the client's screen and must not be replayed
+  assert.equal(resume.canReattach(state, 9), true);
+
+  const newWs = { readyState: 1, username: 'u', userId: 1, send(m) { sent.push(JSON.parse(m)); } };
+  resume.reattachClientConnection(newWs, 'sess-resume-3', state, {});
+  newWs.readyState = 3;
+
+  assert.deepEqual(closed, [4001], 'stale socket is closed');
+  assert.equal(oldWs.sessionId, undefined, 'stale socket is unbound before closing');
+  assert.equal(state.ws, newWs);
+  assert.deepEqual(sent.map(m => m.type), ['ssh:connected'], 'no replay of pre-drop history');
+  assert.equal(sent[0].payload.resumed, true);
+
+  // the stale socket's close arriving afterwards must not detach or clean up the reattached session
+  resume.detachClientConnection(oldWs, 10);
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(clientStates.get('sess-resume-3'), state);
+  assert.equal(state.detachedAt, undefined);
+  assert.equal(sshEnded, false);
+  clientStates.delete('sess-resume-3');
+});
+
+test('sessions marked for suspend or already handed to the suspend service are never reattached in place', () => {
+  const base = { sshClient: {}, sshShellStream: {}, isShellReady: true, dbConnectionId: 3 };
+  assert.equal(resume.canReattach({ ...base }, '3'), true);
+  assert.equal(resume.canReattach({ ...base, isSuspendedByService: true }, '3'), false);
+  assert.equal(resume.canReattach({ ...base, isCleaningUp: true }, '3'), false);
+  assert.equal(resume.canReattach({ ...base, isShellReady: false }, '3'), false);
+  assert.equal(resume.canReattach({ ...base, sshShellStream: undefined }, '3'), false);
+  assert.equal(resume.canReattach(undefined, '3'), false);
+  // a marked-for-suspend session goes to the suspend pool on drop instead of the grace window
+  const ws = { readyState: 3, sessionId: 'sess-resume-4', username: 'u', userId: 1, send() {} };
+  const marked = { ...base, ws, isMarkedForSuspend: true, sshClient: { end() {} }, sshShellStream: { end() {} } };
+  clientStates.set('sess-resume-4', marked);
+  resume.detachClientConnection(ws, 10000);
+  assert.equal(marked.detachedAt, undefined, 'not put in the reattach grace window');
+  clientStates.delete('sess-resume-4');
+});

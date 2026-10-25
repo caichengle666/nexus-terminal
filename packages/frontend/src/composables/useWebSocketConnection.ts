@@ -21,7 +21,15 @@ export function createWebSocketConnectionManager(
     sessionId: string,
     dbConnectionId: string,
     t: ReturnType<typeof useI18n>['t'],
-    options?: { isResumeFlow?: boolean; getIsMarkedForSuspend?: () => boolean }
+    options?: {
+        isResumeFlow?: boolean;
+        getIsMarkedForSuspend?: () => boolean;
+        /**
+         * 检查登录态：返回 false 表示已确认未登录（401），null/true 表示未知或仍已登录。
+         * 默认请求 GET /api/v1/auth/status；测试可注入。
+         */
+        probeAuth?: () => Promise<boolean | null>;
+    }
 ) {
     // --- Instance State ---
     // 每个实例拥有独立的 WebSocket 对象、状态和消息处理器
@@ -34,10 +42,33 @@ export function createWebSocketConnectionManager(
     const instanceSessionId = sessionId; // 保存会话 ID 用于日志
     const instanceDbConnectionId = dbConnectionId; // 保存数据库连接 ID
     const getIsMarkedForSuspend = options?.getIsMarkedForSuspend; // +++ 获取回调函数 +++
-    let reconnectAttempts = 0; // 重连尝试次数
-    // 最大重连次数：配合后端 WS_RESUME_GRACE_SECONDS（默认 180 秒）保留会话，
-    // 2+4+8+16+30+30+30+30 ≈ 150 秒内都能接回原 SSH 会话
-    const maxReconnectAttempts = 8;
+    let reconnectAttempts = 0; // 本轮断线的重连次数（只决定退避时长）
+    /**
+     * 重连等待：500ms 起步、指数翻倍、封顶 5s（0.5/1/2/4/5/5…）。
+     *
+     * ws 断开绝大多数是网络抖动（切 WiFi、休眠唤醒、代理抽风），几秒内就恢复；
+     * 后端在 WS_RESUME_GRACE_SECONDS（默认 180 秒）内保留 SSH 会话，重连越快越能接回原 shell。
+     * 网络层失败（ws 根本没打开 / 已连上后掉线）不设次数上限，永不放弃。
+     */
+    const RECONNECT_BASE_DELAY_MS = 500;
+    const RECONNECT_MAX_DELAY_MS = 5000;
+    /** 强制立即重试的最小间隔：狂敲键盘时不要每个键都重建一条 ws */
+    const FORCED_RETRY_MIN_GAP_MS = 1200;
+    let lastForcedRetryAt = 0;
+    /**
+     * SSH 层失败上限：ws 已打开、但在 ssh:connected 之前就被关闭（非 1008）——说明网络是通的，
+     * 是 SSH 目标连不上 / 握手失败。这类失败连续达到上限就停止自动重连，避免无限循环
+     * （v0.9.22.49 无限重连修复的语义保持不变；1008 / 主机密钥不匹配仍然立即停止）。
+     */
+    const maxSshFailureAttempts = 8;
+    let sshFailureAttempts = 0;
+    /**
+     * ws 连续握手失败（从未 open）的次数。浏览器无法区分「断网」与「登录已失效（升级被 401 拒绝）」，
+     * 所以每连续失败 AUTH_PROBE_EVERY 次查一次登录态：确认 401 就停止自动重连，而不是永远空转。
+     */
+    const AUTH_PROBE_EVERY = 4;
+    let preOpenFailures = 0;
+    let authProbeInFlight = false;
     let reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null; // 重连定时器 ID
     let lastUrl = ''; // 保存上次连接的 URL
     let intentionalDisconnect = false; // 标记是否为用户主动断开
@@ -87,8 +118,15 @@ export function createWebSocketConnectionManager(
         }
     };
 
+    const clearReconnectTimer = () => {
+        if (reconnectTimeoutId) {
+            clearTimeout(reconnectTimeoutId);
+            reconnectTimeoutId = null;
+        }
+    };
+
     /**
-     * 安排 WebSocket 重连尝试
+     * 安排 WebSocket 重连尝试（指数退避，封顶 5s）
      */
     const scheduleReconnect = () => {
         if (intentionalDisconnect) {
@@ -102,32 +140,116 @@ export function createWebSocketConnectionManager(
             return;
         }
 
-        if (reconnectAttempts >= maxReconnectAttempts) {
+        // 允许最多 maxSshFailureAttempts 次重试，第 maxSshFailureAttempts+1 次失败后放弃
+        if (sshFailureAttempts > maxSshFailureAttempts) {
+            clearReconnectTimer();
+            reconnectInProgress = false;
             statusMessage.value = getStatusText('reconnectFailed');
             connectionStatus.value = 'error'; // 标记为错误状态
             // 通知终端层：自动重连已放弃，需要用户手动 (Enter) 重连
-            dispatchMessage('internal:reconnect-status', { phase: 'exhausted', max: maxReconnectAttempts }, { type: 'internal:reconnect-status' });
+            dispatchMessage('internal:reconnect-status', { phase: 'exhausted', max: maxSshFailureAttempts }, { type: 'internal:reconnect-status' });
+            return;
+        }
+
+        // 已经排了一次就不再重排：否则一次断连可能把退避推两格，越抖越慢
+        if (reconnectTimeoutId) {
             return;
         }
 
         reconnectAttempts++;
-        // 指数退避延迟 (例如: 2s, 4s, 8s, 16s, 32s)
-        const delay = Math.min(Math.pow(2, reconnectAttempts), 30) * 1000;
-        statusMessage.value = getStatusText('reconnecting', { attempt: reconnectAttempts, delay: delay / 1000 });
+        const delay = Math.min(RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttempts - 1), RECONNECT_MAX_DELAY_MS);
+        // 0.5 / 1 / 2 / 4 / 5 …；整数秒不显示成 "5.0"
+        const delaySeconds = delay % 1000 === 0 ? delay / 1000 : Number((delay / 1000).toFixed(1));
+        statusMessage.value = getStatusText('reconnecting', { attempt: reconnectAttempts, delay: delaySeconds });
         connectionStatus.value = 'connecting'; // 更新状态为正在连接
         dispatchMessage(
             'internal:reconnect-status',
-            { phase: 'auto-retry', attempt: reconnectAttempts, max: maxReconnectAttempts, delay: delay / 1000 },
+            { phase: 'auto-retry', attempt: reconnectAttempts, delay: delaySeconds },
             { type: 'internal:reconnect-status' }
         );
 
-        if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId); // 清除旧的定时器
-
         reconnectTimeoutId = setTimeout(() => {
+            reconnectTimeoutId = null;
             if (!intentionalDisconnect && lastUrl) { // 再次检查是否主动断开
                 connect(lastUrl);
             }
         }, delay);
+    };
+
+    const defaultProbeAuth = async (): Promise<boolean | null> => {
+        if (typeof fetch !== 'function') return null;
+        try {
+            const res = await fetch('/api/v1/auth/status', { credentials: 'same-origin', cache: 'no-store' });
+            if (res.status === 401) return false;
+            return res.ok ? true : null;
+        } catch {
+            return null; // 网络仍不通：未知，继续重试
+        }
+    };
+    const probeAuth = options?.probeAuth ?? defaultProbeAuth;
+
+    /** 连续握手失败时查一次登录态；确认已退出登录就停止自动重连（等用户重新登录后按 Enter） */
+    const maybeProbeAuth = () => {
+        if (authProbeInFlight || preOpenFailures === 0 || preOpenFailures % AUTH_PROBE_EVERY !== 0) return;
+        authProbeInFlight = true;
+        void probeAuth().then(authenticated => {
+            authProbeInFlight = false;
+            if (authenticated !== false) return;
+            // 期间已经连上、被主动断开或已切到别的停止状态：不处理
+            if (intentionalDisconnect || connectionStatus.value === 'connected' || !reconnectTimeoutId) return;
+            clearReconnectTimer();
+            reconnectAttempts = 0;
+            preOpenFailures = 0;
+            reconnectInProgress = false;
+            connectionStatus.value = 'error';
+            statusMessage.value = getStatusText('error', { message: 'Unauthorized' });
+            console.warn(`[WebSocket ${instanceSessionId}] 登录态已失效 (401)，停止自动重连。`);
+            dispatchMessage('internal:reconnect-status', { phase: 'stopped', reason: 'auth' }, { type: 'internal:reconnect-status' });
+        }, () => { authProbeInFlight = false; });
+    };
+
+    /**
+     * 跳过退避等待立即重连。只在「正在等待自动重连」时生效：
+     * 已停止自动重连（1008、主机密钥不匹配、SSH 失败达到上限、登录失效）的会话必须由用户按 Enter 手动重连，
+     * 不能被键盘输入 / 网络恢复事件悄悄重新拉起，否则又会变成无限重连。
+     *
+     * 触发源：系统 online 事件、页面重新可见、断线期间用户在终端里敲键。
+     * @returns 是否真的发起了一次重连
+     */
+    const retryNow = (reason: string): boolean => {
+        if (intentionalDisconnect || !lastUrl || !reconnectTimeoutId) return false;
+        if (connectionStatus.value === 'connected') return false;
+        if (ws.value && (ws.value.readyState === WebSocket.OPEN || ws.value.readyState === WebSocket.CONNECTING)) return false;
+        const now = Date.now();
+        if (now - lastForcedRetryAt < FORCED_RETRY_MIN_GAP_MS) return false;
+        lastForcedRetryAt = now;
+        clearReconnectTimer();
+        console.log(`[WebSocket ${instanceSessionId}] 立即重连（触发：${reason}）`);
+        connect(lastUrl);
+        return true;
+    };
+
+    // --- 浏览器层面的「网络可能恢复了」信号 ---
+    const onBrowserOnline = () => { retryNow('online'); };
+    const onVisibilityChange = () => {
+        // 锁屏 / 切后台 / 合盖回来时定时器可能被节流，回到前台立即补一次
+        if (typeof document !== 'undefined' && document.visibilityState === 'visible') retryNow('visibilitychange');
+    };
+    const canListen = typeof window !== 'undefined' && typeof window.addEventListener === 'function'
+        && typeof document !== 'undefined' && typeof document.addEventListener === 'function';
+    if (canListen) {
+        window.addEventListener('online', onBrowserOnline);
+        document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+
+    /** 会话关闭时调用：摘掉全局监听器与定时器，避免开关连接后不断累积 */
+    const dispose = () => {
+        if (canListen) {
+            window.removeEventListener('online', onBrowserOnline);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        }
+        clearReconnectTimer();
+        clearSftpStableReset();
     };
 
     /**
@@ -220,6 +342,8 @@ export function createWebSocketConnectionManager(
             // --- 使用调整后的 URL ---
             const socket = new WebSocket(secureUrl);
             ws.value = socket;
+            let socketOpened = false; // 本 socket 是否成功打开过（区分网络层失败与 SSH 层失败）
+            let sshConnectedOnSocket = false;
             // 每个处理器只对"当前" socket 生效：被替换掉的 socket 的事件一律忽略。
             const isCurrentSocket = () => ws.value === socket;
 
@@ -228,6 +352,8 @@ export function createWebSocketConnectionManager(
                     discardSocket(socket, '连接已被替换');
                     return;
                 }
+                socketOpened = true;
+                preOpenFailures = 0;
                 // 注意：WebSocket 打开不代表 SSH 已连上（SSH 握手/认证可能随后失败并关闭连接），
                 // 重连计数只在收到 ssh:connected（或恢复流程打开）后才重置，否则会无限重试且计数一直停在 1。
                 statusMessage.value = getStatusText('wsConnected');
@@ -258,7 +384,9 @@ export function createWebSocketConnectionManager(
 
                     // --- 更新此实例的连接状态 ---
                     if (message.type === 'ssh:connected') {
+                        sshConnectedOnSocket = true;
                         reconnectAttempts = 0; // SSH 真正连接成功，重置重连计数
+                        sshFailureAttempts = 0;
                         sftpReconnectRequested = false;
                         if (connectionStatus.value !== 'connected') {
                             connectionStatus.value = 'connected';
@@ -348,11 +476,11 @@ export function createWebSocketConnectionManager(
 
             socket.onerror = (event) => {
                 if (!isCurrentSocket()) return;
-                if (connectionStatus.value !== 'disconnected' && connectionStatus.value !== 'error') { // Don't override if already explicitly disconnected
+                // 即将自动重连时不把状态打成 error（状态灯不再 黄→红→黄 闪），由 onclose 统一调度
+                if (intentionalDisconnect && connectionStatus.value !== 'disconnected' && connectionStatus.value !== 'error') {
                     connectionStatus.value = 'error';
-                    statusMessage.value = getStatusText('wsError');
-                } else {
                 }
+                statusMessage.value = getStatusText('wsError');
                 dispatchMessage('internal:error', event, { type: 'internal:error' });
                 isSftpReady.value = false;
                 ws.value = null; // 清理实例 (之后的 onclose 仍视为当前 socket，见下)
@@ -364,8 +492,8 @@ export function createWebSocketConnectionManager(
                 // ws.value 为 null 表示本 socket 已被 onerror / disconnect() 清理，但尚未被新 socket 替换；
                 // 若 ws.value 已指向另一个 socket，则本事件来自过期连接，不得影响新连接的状态或安排重连。
                 if (ws.value !== null && ws.value !== socket) return;
-                // 只有在非错误状态下才更新为 disconnected
-                if (connectionStatus.value !== 'error' && connectionStatus.value !== 'disconnected') { // Avoid redundant sets or overriding 'error'
+                // 只有在非错误、非断开、也不在重连排期中时才更新为 disconnected（保留「正在重连」状态，避免闪烁）
+                if (connectionStatus.value !== 'error' && connectionStatus.value !== 'disconnected' && connectionStatus.value !== 'connecting') {
                     connectionStatus.value = 'disconnected';
                     // 如果不是主动断开，显示尝试重连的消息
                     if (!intentionalDisconnect && event.code !== 1000) { // 1000 is normal closure
@@ -385,6 +513,8 @@ export function createWebSocketConnectionManager(
                         reconnectTimeoutId = null;
                     }
                     reconnectAttempts = 0;
+                    sshFailureAttempts = 0;
+                    preOpenFailures = 0;
                     reconnectInProgress = false;
                     connectionStatus.value = 'error';
                     dispatchMessage('internal:reconnect-status', { phase: 'stopped' }, { type: 'internal:reconnect-status' });
@@ -393,7 +523,13 @@ export function createWebSocketConnectionManager(
 
                 // 如果不是主动断开 (code 1000)，尝试重连
                 if (!intentionalDisconnect && event.code !== 1000) { // 1000 is normal closure
+                    if (!socketOpened) {
+                        preOpenFailures++; // 网络层失败：不计入 SSH 失败上限
+                    } else if (!sshConnectedOnSocket && !isResumeFlow) {
+                        sshFailureAttempts++; // ws 通了但 SSH 没连上：计入上限
+                    }
                     scheduleReconnect();
+                    maybeProbeAuth();
                 }
             };
         } catch (err) {
@@ -401,6 +537,11 @@ export function createWebSocketConnectionManager(
              statusMessage.value = getStatusText('wsError');
              isSftpReady.value = false;
              ws.value = null;
+             // 构造阶段同步抛错时不会有 onerror / onclose，这里补排一次重连，否则会话会永远停在出错
+             if (!intentionalDisconnect) {
+                 preOpenFailures++;
+                 scheduleReconnect();
+             }
         }
     };
 
@@ -447,6 +588,8 @@ export function createWebSocketConnectionManager(
             if (oldWs) discardSocket(oldWs, '客户端请求重新连接');
             ws.value = null;
             reconnectAttempts = 0;
+            sshFailureAttempts = 0;
+            preOpenFailures = 0;
             isSftpReady.value = false;
             intentionalDisconnect = false;
             reconnectInProgress = true;
@@ -501,6 +644,8 @@ export function createWebSocketConnectionManager(
                 oldWs.onclose = () => {
                     if (ws.value === oldWs) ws.value = null;
                     reconnectAttempts = 0;
+                    sshFailureAttempts = 0;
+                    preOpenFailures = 0;
                     isSftpReady.value = false;
                     intentionalDisconnect = false;
                     reconnectInProgress = true;
@@ -597,5 +742,9 @@ export function createWebSocketConnectionManager(
         reconnect,
         sendMessage,
         onMessage,
+        /** 跳过退避等待立即重连（网络恢复 / 页面重新可见 / 断线时键盘输入） */
+        retryNow,
+        /** 会话关闭时调用：摘掉全局监听器与定时器 */
+        dispose,
     };
 }

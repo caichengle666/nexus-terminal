@@ -36,6 +36,7 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
     const isReconnecting = ref(false);
     // WebSocket 意外断开（等待自动重连/恢复）期间为 true
     let wsDropped = false;
+    let reattachNoticeShown = false; // 同一次断线只提示一次「正在接回」
     // 断线期间对用户输入的提示只显示一次，状态变化时重置
     let lastInputNotice: 'connecting' | 'disconnected' | null = null;
 
@@ -312,24 +313,37 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
             writeNotice(t('uxTerminal.terminal.reconnectFailed', { message: payload?.message || t('uxTerminal.unknownError') }), 'red');
             writeNotice(t('uxTerminal.terminal.pressEnterToReconnect'));
         } else if (payload?.phase === 'auto-retry') {
-            // WebSocket 意外断开，正在自动重连（后端会在保留期内保留 SSH 会话）
+            // WebSocket 意外断开，正在自动重连（后端会在保留期内保留 SSH 会话）。
+            // 重连间隔只有 0.5~5s 且不设上限，每次重试都写一行会刷屏：同一次断线只提示一次。
             isSshConnected.value = false;
-            wsDropped = true;
-            writeNotice(t('uxTerminal.terminal.connectionLostReconnecting', {
-                attempt: payload?.attempt,
-                max: payload?.max,
-                delay: payload?.delay,
-            }));
+            if (!wsDropped) {
+                wsDropped = true;
+                reattachNoticeShown = false;
+                writeNotice(t('uxTerminal.terminal.connectionLostReconnecting'));
+            }
         } else if (payload?.phase === 'stopped') {
             // 不可重试的错误（错误详情已由 ssh:error 输出）：不再自动重连
             isSshConnected.value = false;
             isReconnecting.value = false;
+            wsDropped = false;
+            if (payload?.reason === 'auth') {
+                writeNotice(t('uxTerminal.terminal.authExpiredStopReconnect'), 'red');
+            }
             writeNotice(t('uxTerminal.terminal.pressEnterToReconnect'));
         } else if (payload?.phase === 'exhausted') {
             isSshConnected.value = false;
             isReconnecting.value = false;
+            wsDropped = false;
             writeNotice(t('uxTerminal.terminal.autoReconnectGaveUp'), 'red');
             writeNotice(t('uxTerminal.terminal.pressEnterToReconnect'));
+        }
+    };
+
+    const handleWsOpened = () => {
+        // 断线后 ws 重新连上：网络已恢复，正在等待后端接回原 SSH 会话（ssh:connected 带 resumed）
+        if (wsDropped && !isSshConnected.value && !reattachNoticeShown) {
+            reattachNoticeShown = true;
+            writeNotice(t('uxTerminal.terminal.reattaching'));
         }
     };
 
@@ -365,6 +379,7 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
         unregisterHandlers.push(onMessage('error', handleErrorMessage)); // 也处理通用错误
         unregisterHandlers.push(onMessage('internal:reconnect-status', handleReconnectStatus));
         unregisterHandlers.push(onMessage('internal:closed', handleWsClosed));
+        unregisterHandlers.push(onMessage('internal:opened', handleWsOpened));
         console.log(`[会话 ${sessionId}][SSH终端模块] 已注册 SSH 相关消息处理器。`);
     };
 

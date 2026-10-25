@@ -371,6 +371,8 @@ const unsubscribeFromWorkspaceEvents = useWorkspaceEventOff();
      return true;
    }
    if (wsStatus === 'connecting' && manager?.isSshConnected && !manager.isSshConnected.value) {
+     // 用户在断线等待期间敲键：人在、网大概也回来了，跳过退避立即重连（只在自动重连排期中生效）
+     session.wsManager.retryNow?.('keyboard');
      manager.notifyInputBlocked?.('connecting');
      return true;
    }
