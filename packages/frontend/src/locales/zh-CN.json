@@ -1954,6 +1954,12 @@
     "types": {
       "localUpload": "本地上传",
       "serverTransfer": "服务器间传输"
+    },
+    "route": {
+      "source": "源",
+      "target": "目标",
+      "items": "{count} 项",
+      "primaryMany": "{name} 等 {count} 项"
     }
   },
   "sendFilesModal": {

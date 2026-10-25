@@ -772,6 +772,8 @@ export class TransfersService {
       },
       sourceConnectionId: task.payload.sourceConnectionId,
       remoteTargetPath: task.payload.remoteTargetPath,
+      // 进度卡片画「源服务器 → 目标服务器」用（去重，一个任务可同时发往多台）
+      targetConnectionIds: [...new Set(task.payload.connectionIds)],
     };
   }
 

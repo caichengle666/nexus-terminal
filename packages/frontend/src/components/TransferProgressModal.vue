@@ -1,5 +1,6 @@
 
 <script setup lang="ts">
+import { buildTransferRoute } from '../utils/transferRoute';
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'; // Added computed
 import { useI18n } from 'vue-i18n';
 import apiClient from '../utils/apiClient';
@@ -30,6 +31,9 @@ const getConnectionName = (connectionId: number): string => {
   return `连接ID: ${connectionId}`; // 未找到连接或名称时的回退显示
 };
 
+// 「源服务器 → 目标服务器」与两端路径（移植自上游 b3cdd2dc）
+const getTransferRoute = (task: TransferTask) => buildTransferRoute(task, getConnectionName);
+
 // Helper function to format the task title
 const formatTaskTitle = (task: TransferTask | LocalTransferViewTask): string => {
   if (task.kind === 'local-upload') {
@@ -51,6 +55,13 @@ const formatTaskTitle = (task: TransferTask | LocalTransferViewTask): string => 
     return `任务ID: ${task.taskId}`;
   }
   
+  // 路线（源 → 目标与两端路径）已单独成行显示，标题只保留条目名
+  if (task.sourceConnectionId) {
+    const names = [...new Set(task.subTasks.map(st => st.sourceItemName))];
+    return names.length > 1
+      ? t('transferProgressModal.route.primaryMany', { name: names[0], count: names.length })
+      : fileName;
+  }
   return `${sourceServerName} (${fileName} -> ${targetPath})`;
 };
 
@@ -60,6 +71,7 @@ interface TransferSubTask {
   subTaskId: string;
   connectionId: number;
   sourceItemName: string;
+  sourceItemPath?: string;
   status: 'queued' | 'connecting' | 'transferring' | 'completed' | 'failed' | 'cancelling' | 'cancelled'; // +++ 新增状态 +++
   progress?: number; // 0-100
   message?: string;
@@ -82,6 +94,7 @@ interface TransferTask {
   overallProgress?: number;
   sourceConnectionId?: number; 
   remoteTargetPath?: string; 
+  targetConnectionIds?: number[];
   isLocal?: boolean;
 }
 
@@ -433,6 +446,28 @@ const handleRetryTask = async (taskId: string) => {
                   {{ task.kind === 'local-upload' ? t('transferProgressModal.types.localUpload', '本地上传') : t('transferProgressModal.types.serverTransfer', '服务器间传输') }}
                 </span>
                 <span class="font-semibold text-md block">{{ t('transferProgressModal.task.idLabel', '任务') }}: {{ formatTaskTitle(task) }}</span>
+                <!-- 源服务器 → 目标服务器，以及两端路径 -->
+                <div
+                  v-if="task.kind !== 'local-upload' && getTransferRoute(task).sourceName"
+                  class="mt-1 mb-0.5 space-y-0.5 text-xs"
+                  data-testid="transfer-route"
+                >
+                  <div class="flex items-center gap-1.5 flex-wrap text-foreground" :title="`${getTransferRoute(task).sourceName} → ${getTransferRoute(task).allTargetNames.join(', ')}`">
+                    <i class="fas fa-server text-[10px] text-text-secondary"></i>
+                    <span class="font-medium">{{ getTransferRoute(task).sourceName }}</span>
+                    <i class="fas fa-arrow-right text-[10px] text-text-secondary"></i>
+                    <span class="font-medium">{{ getTransferRoute(task).targetNames.join(', ') }}</span>
+                    <span v-if="getTransferRoute(task).hiddenTargetCount" class="text-text-secondary">+{{ getTransferRoute(task).hiddenTargetCount }}</span>
+                  </div>
+                  <div class="flex items-start gap-1.5 text-text-secondary font-mono break-all">
+                    <span class="shrink-0 font-sans">{{ t('transferProgressModal.route.source', '源') }}</span>
+                    <span>{{ getTransferRoute(task).sourcePath ?? t('transferProgressModal.route.items', { count: getTransferRoute(task).sourceItemCount }) }}</span>
+                  </div>
+                  <div v-if="getTransferRoute(task).targetPath" class="flex items-start gap-1.5 text-text-secondary font-mono break-all">
+                    <span class="shrink-0 font-sans">{{ t('transferProgressModal.route.target', '目标') }}</span>
+                    <span>{{ getTransferRoute(task).targetPath }}</span>
+                  </div>
+                </div>
                 <span class="text-xs text-text-muted">{{ t('transferProgressModal.task.createdAt', '创建于') }}: {{ formatDate(task.createdAt) }}</span>
               </div>
               <div class="flex items-center space-x-2">

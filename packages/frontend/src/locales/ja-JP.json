@@ -1962,6 +1962,12 @@
     "types": {
       "localUpload": "ローカルアップロード",
       "serverTransfer": "サーバー間転送"
+    },
+    "route": {
+      "source": "送信元",
+      "target": "送信先",
+      "items": "{count} 件",
+      "primaryMany": "{name} ほか {count} 件"
     }
   },
   "sendFilesModal": {

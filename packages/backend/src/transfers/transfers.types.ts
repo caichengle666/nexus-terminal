@@ -36,4 +36,6 @@ export interface TransferTask {
   payload: InitiateTransferPayload; // 存储原始请求负载，方便追溯
   sourceConnectionId?: number;
   remoteTargetPath?: string;
+  /** 目标服务器（去重），对外响应时由 payload.connectionIds 派生 */
+  targetConnectionIds?: number[];
 }

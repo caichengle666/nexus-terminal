@@ -1986,6 +1986,12 @@
     "types": {
       "localUpload": "Local upload",
       "serverTransfer": "Server-to-server transfer"
+    },
+    "route": {
+      "source": "From",
+      "target": "To",
+      "items": "{count} items",
+      "primaryMany": "{name} and {count} items"
     }
   },
   "sendFilesModal": {
