@@ -1650,7 +1650,17 @@
     },
     "noResults": "一致するコマンドが見つかりません",
     "sortByLastUsed": "最近使用した順に並べ替え",
-    "title": "クイックコマンド"
+    "title": "クイックコマンド",
+    "variablePrompt": {
+      "title": "コマンドの変数を入力",
+      "untitled": "名称未設定のコマンド",
+      "description": "{count} 個の変数が未入力です",
+      "valuePlaceholder": "値を入力",
+      "previewLabel": "実行するコマンド",
+      "fillAllHint": "すべての変数を入力すると送信できます",
+      "send": "送信",
+      "filledCounter": "入力済み {filled}/{total}"
+    }
   },
   "setup": {
     "title": "初期設定",

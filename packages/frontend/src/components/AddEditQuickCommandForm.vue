@@ -116,6 +116,8 @@ import { useWorkspaceEventEmitter } from '../composables/workspaceEvents';
 import TagInput from './TagInput.vue';
 import { useConfirmDialog } from '../composables/useConfirmDialog';
 import { useAlertDialog } from '../composables/useAlertDialog'; 
+import { prepareQuickCommandForSend } from '../composables/quickCommands/quickCommandVariables';
+import { promptQuickCommandVariables } from '../composables/quickCommands/useQuickCommandVariablePrompt';
 
 const props = defineProps<{
     commandToEdit?: QuickCommandFE | null; // 接收要编辑的指令对象 (应包含标签ID和变量)
@@ -277,9 +279,8 @@ const deleteVariable = (variableId: string) => {
   localVariables.value = localVariables.value.filter(v => v.id !== variableId);
 };
 
-// 使用当前变量执行命令
-const handleExecute = () => {
-  let processedCommand = formData.command;
+// 使用当前变量执行命令：空变量先弹窗补填，取消则不发送
+const handleExecute = async () => {
   const currentVariables = localVariables.value.reduce((acc, curr) => {
     if (curr.name.trim()) {
       acc[curr.name.trim()] = curr.value;
@@ -287,33 +288,17 @@ const handleExecute = () => {
     return acc;
   }, {} as Record<string, string>);
 
-  // 执行变量替换
-  for (const varName in currentVariables) {
-    const placeholder = new RegExp(`\\$\\{${varName}\\}`, 'g');
-    processedCommand = processedCommand.replace(placeholder, currentVariables[varName]);
-  }
-
-  // 检查模板中是否存在未定义的变量
-  const variablePlaceholders = formData.command.match(/\$\{[^\}]+\}/g) || [];
-  const undefinedVariables: string[] = [];
-  variablePlaceholders.forEach(placeholder => {
-    const varName = placeholder.substring(2, placeholder.length - 1);
-    if (!currentVariables.hasOwnProperty(varName)) {
-      undefinedVariables.push(varName);
-    }
-  });
-
-  if (undefinedVariables.length > 0) {
-    uiNotificationsStore.showWarning(
-      t('quickCommands.form.warningUndefinedVariables', { variables: undefinedVariables.join(', ') })
-    );
-  }
-
   const activeSessionId = sessionStore.activeSessionId;
   if (!activeSessionId) {
     uiNotificationsStore.showError(t('quickCommands.form.errorNoActiveSession', '没有活动的SSH会话可执行指令。'));
     return;
   }
+
+  const processedCommand = await prepareQuickCommandForSend(
+    { name: formData.name, command: formData.command, variables: currentVariables },
+    promptQuickCommandVariables
+  );
+  if (processedCommand === null) return;
 
   console.log(`[QuickCmdForm] Executing processed command: "${processedCommand}" on session ${activeSessionId}`);
   emitWorkspaceEvent('quickCommand:executeProcessed', {
@@ -321,7 +306,7 @@ const handleExecute = () => {
     sessionId: activeSessionId
   });
 
-  closeForm(); 
+  closeForm();
 };
 </script>
 

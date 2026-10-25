@@ -1674,7 +1674,17 @@
     },
     "noResults": "没有找到匹配的指令",
     "sortByLastUsed": "按最近使用排序",
-    "title": "快捷指令"
+    "title": "快捷指令",
+    "variablePrompt": {
+      "title": "填写指令变量",
+      "untitled": "未命名指令",
+      "description": "{count} 个变量还没填值",
+      "valuePlaceholder": "输入变量值",
+      "previewLabel": "将要执行的指令",
+      "fillAllHint": "填完所有变量才能发送",
+      "send": "发送",
+      "filledCounter": "已填 {filled}/{total}"
+    }
   },
   "setup": {
     "title": "初始设置",

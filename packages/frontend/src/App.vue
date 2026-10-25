@@ -21,6 +21,7 @@ import FocusSwitcherConfigurator from './components/FocusSwitcherConfigurator.vu
 import RemoteDesktopModal from './components/RemoteDesktopModal.vue';
 import VncModal from './components/VncModal.vue';
 import ConfirmDialog from './components/common/ConfirmDialog.vue';
+import QuickCommandVariableDialog from './components/QuickCommandVariableDialog.vue';
 import MobileAppHeader from './components/MobileAppHeader.vue';
 import { useLoginTheme } from './composables/useLoginTheme';
 import { useDialogStore } from './stores/dialog.store';
@@ -489,6 +490,9 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
           @cancel="dialogStore.handleCancel"
           @update:visible="(val: boolean) => dialogStore.state.visible = val"
         />
+
+    <!-- +++ 快捷指令变量补填弹窗（桌面/移动共用一个，挂全局避免各视图重复挂载） +++ -->
+    <QuickCommandVariableDialog />
 
   </div>
 </template>

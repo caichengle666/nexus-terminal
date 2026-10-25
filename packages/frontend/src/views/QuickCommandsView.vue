@@ -241,6 +241,8 @@ import { useWorkspaceEventEmitter } from '../composables/workspaceEvents';
 import { useSessionStore } from '../stores/session.store';
 import type { SessionState } from '../stores/session/types'; 
 import { useConnectionsStore } from '../stores/connections.store';
+import { prepareQuickCommandForSend } from '../composables/quickCommands/quickCommandVariables';
+import { promptQuickCommandVariables } from '../composables/quickCommands/useQuickCommandVariablePrompt';
 
 const quickCommandsStore = useQuickCommandsStore();
 const quickCommandTagsStore = useQuickCommandTagsStore(); 
@@ -551,40 +553,19 @@ const copyCommand = async (command: string) => {
   }
 };
 
-// 执行命令
-const executeCommand = (cmd: QuickCommandFE) => {
-  // 1. 增加使用次数
-  quickCommandsStore.incrementUsage(cmd.id);
-
-  let processedCommand = cmd.command;
-  const savedVariables = cmd.variables || {}; // 使用已保存的变量
-
-  // 2. 执行变量替换
-  for (const varName in savedVariables) {
-    const placeholder = new RegExp(`\\$\\{${varName}\\}`, 'g');
-    processedCommand = processedCommand.replace(placeholder, savedVariables[varName]);
-  }
-
-  // 3. 检查未定义变量
-  const variablePlaceholders = cmd.command.match(/\$\{[^\}]+\}/g) || [];
-  const undefinedVariables: string[] = [];
-  variablePlaceholders.forEach(placeholder => {
-    const varName = placeholder.substring(2, placeholder.length - 1);
-    if (!savedVariables.hasOwnProperty(varName)) {
-      undefinedVariables.push(varName);
-    }
-  });
-
-
-
-  // 4. 获取当前激活的 SSH 会话 ID
+// 执行命令：变量没填值时先弹窗补填（取消则不发、不计使用次数）
+const executeCommand = async (cmd: QuickCommandFE) => {
+  // 先确认有会话：没会话还让用户填完变量再报错很蠢
   const activeSessionId = sessionStore.activeSessionId;
   if (!activeSessionId) {
     uiNotificationsStore.showError(t('quickCommands.form.errorNoActiveSession', '没有活动的SSH会话可执行指令。'));
     return;
   }
 
-  // 5. 触发 quickCommand:executeProcessed 事件
+  const processedCommand = await prepareQuickCommandForSend(cmd, promptQuickCommandVariables);
+  if (processedCommand === null) return;
+
+  quickCommandsStore.incrementUsage(cmd.id);
   emitWorkspaceEvent('quickCommand:executeProcessed', {
     command: processedCommand,
     sessionId: activeSessionId

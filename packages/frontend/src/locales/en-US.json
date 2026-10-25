@@ -1674,7 +1674,17 @@
     },
     "noResults": "No matching commands found",
     "sortByLastUsed": "Sort by last used",
-    "title": "Quick Commands"
+    "title": "Quick Commands",
+    "variablePrompt": {
+      "title": "Fill in command variables",
+      "untitled": "Untitled command",
+      "description": "{count} variable(s) still empty",
+      "valuePlaceholder": "Enter a value",
+      "previewLabel": "Command to run",
+      "fillAllHint": "Fill every variable to send",
+      "send": "Send",
+      "filledCounter": "Filled {filled}/{total}"
+    }
   },
   "setup": {
     "title": "Initial Setup",

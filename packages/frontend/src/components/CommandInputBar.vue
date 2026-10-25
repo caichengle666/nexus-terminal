@@ -13,6 +13,8 @@ import { useFileEditorStore } from '../stores/fileEditor.store';
 import { useWorkspaceEventEmitter, useWorkspaceEventSubscriber, useWorkspaceEventOff } from '../composables/workspaceEvents';
 import { useAiStore } from '../stores/ai.store';
 import MobileToolbarConfigurator from './MobileToolbarConfigurator.vue';
+import { prepareQuickCommandForSend } from '../composables/quickCommands/quickCommandVariables';
+import { promptQuickCommandVariables } from '../composables/quickCommands/useQuickCommandVariablePrompt';
 import { mobileToolbarModules, type MobileToolbarModuleId } from '../features/mobile-toolbar/mobile-toolbar';
 
 
@@ -224,8 +226,18 @@ const handleCommandInputKeydown = (event: KeyboardEvent) => {
     if (target === 'quickCommands' && quickCommandsSelectedIndex.value >= 0) {
       const commands = quickCommandsFiltered.value;
       if (quickCommandsSelectedIndex.value < commands.length) {
-        selectedCommand = commands[quickCommandsSelectedIndex.value].command;
-        resetSelection = resetQuickCommandsSelection;
+        // 快捷指令：变量替换 + 空变量先弹窗补填，再发送（以前这里直接发原始模板）
+        const quickCommand = commands[quickCommandsSelectedIndex.value];
+        event.preventDefault();
+        const sessionIdAtPress = activeSessionId.value;
+        resetQuickCommandsSelection();
+        void prepareQuickCommandForSend(quickCommand, promptQuickCommandVariables).then((processed) => {
+          if (processed === null) return;
+          emitWorkspaceEvent('terminal:sendCommand', { command: processed, sessionId: sessionIdAtPress || undefined });
+          if (sessionIdAtPress) updateSessionCommandInput(sessionIdAtPress, '');
+          commandInputRef.value?.focus();
+        });
+        return;
       }
     } else if (target === 'commandHistory' && historySelectedIndex.value >= 0) {
       const history = historyFiltered.value;
