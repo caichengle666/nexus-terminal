@@ -10,7 +10,7 @@ import { useCommandHistoryStore } from '../stores/commandHistory.store';
 import QuickCommandsModal from './QuickCommandsModal.vue'; 
 import SuspendedSshSessionsModal from './SuspendedSshSessionsModal.vue'; 
 import { useFileEditorStore } from '../stores/fileEditor.store'; 
-import { useWorkspaceEventEmitter } from '../composables/workspaceEvents';
+import { useWorkspaceEventEmitter, useWorkspaceEventSubscriber, useWorkspaceEventOff } from '../composables/workspaceEvents';
 import { useAiStore } from '../stores/ai.store';
 import MobileToolbarConfigurator from './MobileToolbarConfigurator.vue';
 import { mobileToolbarModules, type MobileToolbarModuleId } from '../features/mobile-toolbar/mobile-toolbar';
@@ -19,6 +19,8 @@ import { mobileToolbarModules, type MobileToolbarModuleId } from '../features/mo
 defineOptions({ inheritAttrs: false });
 
 const emitWorkspaceEvent = useWorkspaceEventEmitter(); // +++ 获取事件发射器 +++
+const onWorkspaceEvent = useWorkspaceEventSubscriber();
+const offWorkspaceEvent = useWorkspaceEventOff();
 const emit = defineEmits(['toggle-virtual-keyboard', 'open-mobile-ai']);
 
 const { t } = useI18n();
@@ -55,6 +57,42 @@ const searchTerm = ref('');
 const showQuickCommands = ref(false); // +++ Add state for modal visibility +++
 const showSuspendedSshSessionsModal = ref(false); // +++ Add state for suspended SSH sessions modal +++
 const showMobileToolbarConfigurator = ref(false);
+
+// --- 终端搜索选项与结果计数（移植自上游 terminal-search） ---
+// 选项随 search:start 一起带给终端：高亮、计数与滚动条标记按同一套规则扫描。
+const searchCaseSensitive = ref(false);
+const searchWholeWord = ref(false);
+const searchRegex = ref(false);
+const searchCurrentIndex = ref(-1);
+const searchTotalCount = ref(0);
+
+const searchOptions = computed(() => ({
+  caseSensitive: searchCaseSensitive.value,
+  wholeWord: searchWholeWord.value,
+  regex: searchRegex.value,
+}));
+
+/** 显示成 "3/57"；没有匹配时显示 "0/0"，而不是空白让人以为功能没生效 */
+const searchCountLabel = computed(() =>
+  searchTotalCount.value > 0 ? `${searchCurrentIndex.value + 1}/${searchTotalCount.value}` : '0/0'
+);
+
+// 140ms 防抖：连续键入时只对最后一段词扫描，长 scrollback 下输入不卡
+const SEARCH_DEBOUNCE_MS = 140;
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const clearSearchDebounce = () => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = null;
+  }
+};
+
+const searchOptionButtonClass = (active: boolean) => [
+  'flex items-center justify-center w-8 h-8 border rounded-lg transition-colors duration-200',
+  active
+    ? 'border-primary/60 bg-primary/15 text-primary'
+    : 'border-border/50 text-text-secondary hover:bg-border hover:text-foreground',
+];
 // *** 移除本地的搜索结果 ref ***
 // const searchResultCount = ref(0);
 // const currentSearchResultIndex = ref(0);
@@ -110,16 +148,18 @@ const toggleSearch = () => {
   isSearching.value = !isSearching.value;
   if (!isSearching.value) {
     searchTerm.value = ''; // 关闭搜索时清空
+    searchCurrentIndex.value = -1;
+    searchTotalCount.value = 0;
+    clearSearchDebounce();
     emitWorkspaceEvent('search:close'); // 通知父组件关闭搜索
   } else {
-    // 可以在这里聚焦搜索输入框
-    // nextTick(() => searchInputRef.value?.focus());
+    // 打开后立刻把焦点送进输入框，用户可以直接打字（否则还得再点一次输入框）
+    nextTick(() => searchInputRef.value?.focus());
   }
 };
 
 const performSearch = () => {
-  emitWorkspaceEvent('search:start', { term: searchTerm.value });
-  // 实际的计数更新逻辑应该由父组件通过 props 或事件传递回来
+  emitWorkspaceEvent('search:start', { term: searchTerm.value, options: searchOptions.value });
 };
 
 const findNext = () => {
@@ -131,11 +171,29 @@ const findPrevious = () => {
 };
 
 // 监听搜索词变化，执行搜索
-watch(searchTerm, (newValue) => {
-  if (isSearching.value) {
+watch(searchTerm, () => {
+  if (!isSearching.value) return;
+  clearSearchDebounce();
+  searchDebounceTimer = setTimeout(() => {
+    searchDebounceTimer = null;
+    performSearch();
+  }, SEARCH_DEBOUNCE_MS);
+});
+
+// 切换大小写/整词/正则立即重搜（不是键入，无需防抖）
+watch([searchCaseSensitive, searchWholeWord, searchRegex], () => {
+  if (isSearching.value && searchTerm.value) {
+    clearSearchDebounce();
     performSearch();
   }
 });
+
+const handleSearchResults = (payload: { sessionId?: string; index: number; count: number }) => {
+  // 多会话时只认当前会话，否则别的会话的搜索结果会把计数改掉
+  if (payload.sessionId && activeSessionId.value && payload.sessionId !== activeSessionId.value) return;
+  searchCurrentIndex.value = payload.index;
+  searchTotalCount.value = payload.count;
+};
 
 //  Watch currentSessionCommandInput and sync searchTerm based on settings
 watch(currentSessionCommandInput, (newValue) => { // 监听计算属性
@@ -292,11 +350,14 @@ let unregisterCommandInputFocus: (() => void) | null = null;
 let unregisterTerminalSearchFocus: (() => void) | null = null;
 
 onMounted(() => {
+  onWorkspaceEvent('search:results', handleSearchResults);
   unregisterCommandInputFocus = focusSwitcherStore.registerFocusAction('commandInput', focusCommandInput);
   unregisterTerminalSearchFocus = focusSwitcherStore.registerFocusAction('terminalSearch', focusSearchInput);
 });
 
 onBeforeUnmount(() => {
+  offWorkspaceEvent('search:results', handleSearchResults);
+  clearSearchDebounce();
   if (unregisterCommandInputFocus) {
     unregisterCommandInputFocus();
   }
@@ -461,6 +522,15 @@ const handleQuickCommandExecute = (command: string) => {
         ref="searchInputRef"
       />
 
+      <!-- 命中计数："3/57"；没有匹配显示 0/0 -->
+      <span
+        v-if="isSearching"
+        class="shrink-0 min-w-[40px] text-center text-xs tabular-nums font-medium select-none"
+        :class="searchTotalCount > 0 ? 'text-text-secondary' : 'text-text-secondary/50'"
+        :title="searchTotalCount > 0 ? undefined : t('commandInputBar.noResults', '无匹配')"
+        data-testid="terminal-search-count"
+      >{{ searchCountLabel }}</span>
+
       <!-- Search Controls -->
       <div class="flex items-center gap-1 flex-shrink-0">
         <!-- +++ Toggle Virtual Keyboard Button (Moved here, Mobile only) +++ -->
@@ -495,6 +565,31 @@ const handleQuickCommandExecute = (command: string) => {
 
         <!-- Search navigation buttons (Hide on mobile when searching) -->
         <template v-if="isSearching && !props.isMobile"> <!-- +++ Add !props.isMobile condition +++ -->
+          <!-- 大小写 / 整词 / 正则：改完立即重搜 -->
+          <button
+            @click="searchCaseSensitive = !searchCaseSensitive"
+            :class="searchOptionButtonClass(searchCaseSensitive)"
+            :aria-pressed="searchCaseSensitive"
+            :title="t('commandInputBar.matchCase', '区分大小写')"
+          >
+            <span class="text-[11px] font-bold leading-none">Aa</span>
+          </button>
+          <button
+            @click="searchWholeWord = !searchWholeWord"
+            :class="searchOptionButtonClass(searchWholeWord)"
+            :aria-pressed="searchWholeWord"
+            :title="t('commandInputBar.matchWholeWord', '全词匹配')"
+          >
+            <span class="text-[11px] font-bold leading-none">ab<span class="opacity-50">|</span>c</span>
+          </button>
+          <button
+            @click="searchRegex = !searchRegex"
+            :class="searchOptionButtonClass(searchRegex)"
+            :aria-pressed="searchRegex"
+            :title="t('commandInputBar.useRegex', '使用正则表达式')"
+          >
+            <span class="text-[11px] font-bold leading-none">.*</span>
+          </button>
           <button
             @click="findPrevious"
             class="flex items-center justify-center w-8 h-8 border border-border/50 rounded-lg text-text-secondary transition-colors duration-200 hover:bg-border hover:text-foreground"

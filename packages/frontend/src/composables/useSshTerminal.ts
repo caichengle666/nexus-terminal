@@ -5,6 +5,12 @@ import { sessions as globalSessionsRef } from '../stores/session/state'; // +++ 
 import type { Terminal } from '@xterm/xterm';
 import type { SearchAddon, ISearchOptions } from '@xterm/addon-search'; // *** 移除 ISearchResult 导入 ***
 import type { WebSocketMessage, MessagePayload } from '../types/websocket.types';
+import { useWorkspaceEventEmitter } from './workspaceEvents';
+import {
+    scanSearchBuffer,
+    type TerminalSearchMatch,
+    type TerminalSearchOptions,
+} from '../utils/terminalSearch';
 
 // 定义与 WebSocket 相关的依赖接口
 export interface SshTerminalDependencies {
@@ -395,6 +401,8 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
     // --- 清理函数 ---
     const cleanup = () => {
         unregisterAllSshHandlers();
+        // 释放搜索状态（装饰 / viewport 监听 / 定时器）
+        disposeSearchState();
         if (terminalWriteTimer !== null) {
             clearTimeout(terminalWriteTimer);
             terminalWriteTimer = null;
@@ -415,41 +423,233 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
         sendMessage({ type: 'ssh:input', sessionId, payload: { data } });
     };
 
-    // --- 搜索相关方法 (移除计数逻辑) ---
+    // --- 搜索相关方法（自研高亮，移植自上游 terminal-search） ---
+    //
+    // 不用 @xterm/addon-search 做高亮：它每次搜索词变化都全量扫 buffer，且不暴露命中行号，
+    // 滚动条标记还得再扫一遍。这里"扫一次 → 自己建 decoration"：扫描分片可取消，
+    // 装饰只覆盖可视区附近，翻页直接用已有的 matches，不再触发扫描。
 
-    // Removed countOccurrences helper function
+    const emitWorkspaceEvent = useWorkspaceEventEmitter();
 
-    const searchNext = (term: string, options?: ISearchOptions): boolean => {
-        if (searchAddon.value) {
-            console.log(`[会话 ${sessionId}][SSH终端模块] 执行 searchNext: "${term}"`);
-            const found = searchAddon.value.findNext(term, options);
-            // Removed manual count and state update
-            return found;
+    /** 搜索词变化后的扫描防抖（输入栏本身也有 140ms 防抖，这里兜底选项切换等连续触发） */
+    const SEARCH_DEBOUNCE_MS = 60;
+    /*
+     * xterm 的 decoration 只接受 `#RRGGBB`（DOM renderer 会丢掉 rgba 的 alpha，渲染成不透明纯色），
+     * 所以用中等亮度的暗色：深色主题下白字可读，浅色主题下黑字也能辨认。
+     * 黄褐 = 全部命中，红 = 当前命中（与滚动条标记同一套语义）。
+     */
+    const SEARCH_MATCH_BG = '#8a6d1f';
+    const SEARCH_ACTIVE_BG = '#b91c1c';
+
+    interface SearchState {
+        term: string;
+        options: TerminalSearchOptions;
+        matches: TerminalSearchMatch[];
+        matchLines: number[];
+        totalLines: number;
+        index: number;
+        token: number;
+        decorations: Array<{ dispose: () => void }>;
+        viewport: HTMLElement | null;
+        viewportListener: (() => void) | null;
+        rebuildTimer: ReturnType<typeof setTimeout> | null;
+        scanTimer: ReturnType<typeof setTimeout> | null;
+    }
+
+    let searchState: SearchState | null = null;
+
+    /**
+     * 清掉装饰并强制重绘一屏。只 dispose 不够：DOM renderer 把底色写在字符 span 上，
+     * 要等下一次重绘才恢复；终端没有新输出时就会"关闭搜索后黄色还留着"。
+     */
+    const disposeSearchDecorations = (state: SearchState, term?: Terminal | null) => {
+        state.decorations.forEach((d) => {
+            try { d.dispose(); } catch { /* ignore */ }
+        });
+        state.decorations = [];
+        if (term) {
+            try { term.refresh(0, term.rows - 1); } catch { /* ignore */ }
         }
-        console.warn(`[会话 ${sessionId}][SSH终端模块] searchNext 调用失败，searchAddon 不可用。`);
-        // Removed state reset on failure
-        return false;
     };
 
-    const searchPrevious = (term: string, options?: ISearchOptions): boolean => {
-        if (searchAddon.value) {
-             console.log(`[会话 ${sessionId}][SSH终端模块] 执行 searchPrevious: "${term}"`);
-            const found = searchAddon.value.findPrevious(term, options);
-            // Removed manual count and state update
-            return found;
+    /** 只给"可视区上下各一屏"的命中建装饰；全 buffer 建几百上千个正是 addon 慢的原因 */
+    const applySearchDecorations = (term: Terminal, state: SearchState) => {
+        disposeSearchDecorations(state, term);
+        const buffer = term.buffer.active;
+        // 备用屏（vim / less / btop）坐标体系不同，不画
+        if (buffer.type === 'alternate' || !state.matches.length) return;
+
+        const cursorAbs = buffer.baseY + buffer.cursorY;
+        const from = Math.max(0, buffer.viewportY - term.rows);
+        const to = buffer.viewportY + term.rows * 2;
+
+        for (let i = 0; i < state.matches.length; i++) {
+            const m = state.matches[i];
+            if (m.row < from || m.row > to) continue;
+            // registerMarker 的入参是"相对光标的行偏移"
+            const marker = term.registerMarker(m.row - cursorAbs);
+            if (!marker) continue;
+            const deco = term.registerDecoration({
+                marker,
+                x: m.col,
+                width: m.length,
+                backgroundColor: i === state.index ? SEARCH_ACTIVE_BG : SEARCH_MATCH_BG,
+            });
+            if (deco) {
+                // marker 跟着 decoration 一起释放，避免长时间搜索累积 marker
+                state.decorations.push({ dispose: () => { deco.dispose(); marker.dispose(); } });
+            } else {
+                marker.dispose();
+            }
         }
-         console.warn(`[会话 ${sessionId}][SSH终端模块] searchPrevious 调用失败，searchAddon 不可用。`);
-         // Removed state reset on failure
-        return false;
     };
+
+    const emitSearchState = (state: SearchState) => {
+        emitWorkspaceEvent('search:markers', {
+            sessionId,
+            matchLines: state.matchLines,
+            totalLines: state.totalLines,
+            index: state.index,
+        });
+        emitWorkspaceEvent('search:results', {
+            sessionId,
+            index: state.index,
+            count: state.matches.length,
+        });
+    };
+
+    const jumpToSearchMatch = (term: Terminal, state: SearchState, index: number) => {
+        if (!state.matches.length) return;
+        const total = state.matches.length;
+        // 循环翻页：-1 -> 最后一个，total -> 0
+        state.index = ((index % total) + total) % total;
+        const m = state.matches[state.index];
+        // 让命中行尽量落在视口中间偏上，而不是贴着顶边
+        term.scrollToLine(Math.max(0, m.row - Math.floor(term.rows / 3)));
+        // 不调用 term.select()：选区渲染会盖住当前命中的红色
+        applySearchDecorations(term, state);
+        emitSearchState(state);
+    };
+
+    const ensureSearchState = (term: Terminal): SearchState => {
+        if (searchState) return searchState;
+        const state: SearchState = {
+            term: '', options: {}, matches: [], matchLines: [], totalLines: 1, index: -1, token: 0,
+            decorations: [], viewport: null, viewportListener: null, rebuildTimer: null, scanTimer: null,
+        };
+        searchState = state;
+        // 滚轮滚动走 .xterm-viewport 的原生 scroll，不会触发 xterm 的 onScroll，
+        // 所以可视区附近的高亮要靠这个元素的 scroll 重建。
+        const viewport = term.element?.querySelector('.xterm-viewport') as HTMLElement | null;
+        if (viewport) {
+            const listener = () => {
+                if (state.rebuildTimer) clearTimeout(state.rebuildTimer);
+                state.rebuildTimer = setTimeout(() => {
+                    state.rebuildTimer = null;
+                    if (searchState === state && terminalInstance.value) {
+                        applySearchDecorations(terminalInstance.value, state);
+                    }
+                }, 120);
+            };
+            viewport.addEventListener('scroll', listener, { passive: true });
+            state.viewport = viewport;
+            state.viewportListener = listener;
+        }
+        return state;
+    };
+
+    const disposeSearchState = () => {
+        const state = searchState;
+        if (!state) return;
+        state.token++;
+        if (state.scanTimer) clearTimeout(state.scanTimer);
+        if (state.rebuildTimer) clearTimeout(state.rebuildTimer);
+        disposeSearchDecorations(state, terminalInstance.value);
+        if (state.viewport && state.viewportListener) {
+            state.viewport.removeEventListener('scroll', state.viewportListener);
+        }
+        searchState = null;
+    };
+
+    /** 搜索入口：同一个词只翻页（不重扫），词/选项变化才重新扫描 */
+    const runTerminalSearch = (term: string, options: TerminalSearchOptions, direction: 'next' | 'previous'): boolean => {
+        const xterm = terminalInstance.value;
+        if (!xterm) {
+            console.warn(`[会话 ${sessionId}][SSH终端模块] 搜索失败，终端尚未就绪。`);
+            return false;
+        }
+        const state = ensureSearchState(xterm);
+        const sameQuery =
+            state.term === term &&
+            !!state.options.regex === !!options.regex &&
+            !!state.options.wholeWord === !!options.wholeWord &&
+            !!state.options.caseSensitive === !!options.caseSensitive;
+
+        if (sameQuery && state.matches.length > 0) {
+            jumpToSearchMatch(xterm, state, state.index + (direction === 'next' ? 1 : -1));
+            return true;
+        }
+        // 同一个词但上次没有命中：终端可能有了新输出，重新扫描
+
+        state.token++;
+        const token = state.token;
+        if (state.scanTimer) clearTimeout(state.scanTimer);
+        disposeSearchDecorations(state, xterm);
+        state.term = term;
+        state.options = { ...options };
+        state.matches = [];
+        state.matchLines = [];
+        state.index = -1;
+
+        if (!term) {
+            emitSearchState(state);
+            return false;
+        }
+
+        state.scanTimer = setTimeout(async () => {
+            state.scanTimer = null;
+            const buffer = xterm.buffer?.active;
+            if (!buffer) return;
+            const result = await scanSearchBuffer(buffer, term, options, () => token !== state.token);
+            if (token !== state.token || searchState !== state) return; // 已被更新的搜索取代
+            state.matches = result.matches;
+            state.matchLines = result.matchLines;
+            // 标记画在整条滚动条轨道上，轨道代表整个 buffer，所以按 buffer 总行数换算
+            state.totalLines = Math.max(1, buffer.length);
+            if (!state.matches.length) {
+                state.index = -1;
+                emitSearchState(state);
+                return;
+            }
+            // 从"当前视口顶部往后"的第一个命中开始，符合"从正在看的位置往下找"的直觉
+            let start = direction === 'next'
+                ? state.matches.findIndex((m) => m.row >= buffer.viewportY)
+                : -1;
+            if (start < 0) start = direction === 'next' ? 0 : state.matches.length - 1;
+            jumpToSearchMatch(xterm, state, start);
+        }, SEARCH_DEBOUNCE_MS);
+        return true;
+    };
+
+    const toSearchOptions = (options?: ISearchOptions): TerminalSearchOptions => ({
+        regex: options?.regex,
+        wholeWord: options?.wholeWord,
+        caseSensitive: options?.caseSensitive,
+    });
+
+    const searchNext = (term: string, options?: ISearchOptions): boolean =>
+        runTerminalSearch(term, toSearchOptions(options), 'next');
+
+    const searchPrevious = (term: string, options?: ISearchOptions): boolean =>
+        runTerminalSearch(term, toSearchOptions(options), 'previous');
 
     const clearTerminalSearch = () => {
-        if (searchAddon.value) {
-            console.log(`[会话 ${sessionId}][SSH终端模块] 清除搜索高亮。`);
-            searchAddon.value.clearDecorations();
-        }
-        // Removed state reset
-        console.log(`[会话 ${sessionId}][SSH终端模块] 搜索高亮已清除 (状态不再管理)。`);
+        disposeSearchState();
+        terminalInstance.value?.clearSelection();
+        // 兼容：老路径可能还在用 addon 的装饰
+        searchAddon.value?.clearDecorations();
+        emitWorkspaceEvent('search:markers', { sessionId, matchLines: [], totalLines: 1, index: -1 });
+        emitWorkspaceEvent('search:results', { sessionId, index: -1, count: 0 });
     };
 
 

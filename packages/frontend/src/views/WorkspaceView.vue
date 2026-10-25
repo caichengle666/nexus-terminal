@@ -259,7 +259,7 @@ onMounted(() => {
   subscribeToWorkspaceEvents('connection:requestAdd', handleRequestAddConnection);
   subscribeToWorkspaceEvents('connection:requestEdit', (payload) => handleRequestEditConnection(payload.connectionInfo));
 
-  subscribeToWorkspaceEvents('search:start', (payload) => handleSearch(payload.term));
+  subscribeToWorkspaceEvents('search:start', handleSearchStart);
   subscribeToWorkspaceEvents('search:findNext', handleFindNext);
   subscribeToWorkspaceEvents('search:findPrevious', handleFindPrevious);
   subscribeToWorkspaceEvents('search:close', handleCloseSearch);
@@ -305,7 +305,7 @@ onBeforeUnmount(() => {
   unsubscribeFromWorkspaceEvents('connection:requestAdd', handleRequestAddConnection);
   unsubscribeFromWorkspaceEvents('connection:requestEdit', (payload) => handleRequestEditConnection(payload.connectionInfo));
 
-  unsubscribeFromWorkspaceEvents('search:start', (payload) => handleSearch(payload.term));
+  unsubscribeFromWorkspaceEvents('search:start', handleSearchStart);
   unsubscribeFromWorkspaceEvents('search:findNext', handleFindNext);
   unsubscribeFromWorkspaceEvents('search:findPrevious', handleFindPrevious);
   unsubscribeFromWorkspaceEvents('search:close', handleCloseSearch);
@@ -461,6 +461,17 @@ const unsubscribeFromWorkspaceEvents = useWorkspaceEventOff();
 };
 
 // --- 搜索事件处理 ---
+/**
+ * 搜索选项（正则/整词/大小写）：从 CommandInputBar 一路带到终端，
+ * 高亮、计数与滚动条标记都按同一套规则扫描。
+ */
+const currentSearchOptions = ref<{ regex?: boolean; wholeWord?: boolean; caseSensitive?: boolean }>({});
+
+const handleSearchStart = (payload: { term: string; options?: { regex?: boolean; wholeWord?: boolean; caseSensitive?: boolean } }) => {
+  currentSearchOptions.value = { ...(payload.options || {}) };
+  handleSearch(payload.term);
+};
+
 const handleSearch = (term: string) => { // +++ 修改 +++
   currentSearchTerm.value = term;
   if (!term) {
@@ -479,7 +490,7 @@ const handleFindNext = () => {
   if (manager && currentSearchTerm.value) {
     const mode = isMobile.value ? 'Mobile' : 'Desktop';
     console.log(`[WorkspaceView ${mode}] Calling findNext for term: "${currentSearchTerm.value}"`);
-    const found = manager.searchNext(currentSearchTerm.value, { incremental: true });
+    const found = manager.searchNext(currentSearchTerm.value, { incremental: true, ...currentSearchOptions.value });
     console.log(`[WorkspaceView ${mode}] findNext returned: ${found}`);
     if (!found) {
       console.log(`[WorkspaceView ${mode}] findNext: No more results for "${currentSearchTerm.value}"`);
@@ -495,7 +506,7 @@ const handleFindPrevious = () => {
   if (manager && currentSearchTerm.value) {
     const mode = isMobile.value ? 'Mobile' : 'Desktop';
     console.log(`[WorkspaceView ${mode}] Calling findPrevious for term: "${currentSearchTerm.value}"`);
-    const found = manager.searchPrevious(currentSearchTerm.value, { incremental: true });
+    const found = manager.searchPrevious(currentSearchTerm.value, { incremental: true, ...currentSearchOptions.value });
     console.log(`[WorkspaceView ${mode}] findPrevious returned: ${found}`);
     if (!found) {
       console.log(`[WorkspaceView ${mode}] findPrevious: No previous results for "${currentSearchTerm.value}"`);

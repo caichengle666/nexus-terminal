@@ -1564,7 +1564,11 @@
     "configureFocusSwitch": "Configure Focus Switcher",
     "clearTerminal": "Clear Terminal",
     "hideKeyboard": "Hide virtual keyboard",
-    "showKeyboard": "Show virtual keyboard"
+    "showKeyboard": "Show virtual keyboard",
+    "matchCase": "Match case",
+    "matchWholeWord": "Match whole word",
+    "useRegex": "Use regular expression",
+    "noResults": "No results"
   },
   "layout": {
     "loading": "Loading...",

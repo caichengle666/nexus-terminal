@@ -1540,7 +1540,11 @@
     "configureFocusSwitch": "フォーカス切り替えの設定",
     "clearTerminal": "ターミナルをクリア",
     "hideKeyboard": "仮想キーボードを隠す",
-    "showKeyboard": "仮想キーボードを表示"
+    "showKeyboard": "仮想キーボードを表示",
+    "matchCase": "大文字と小文字を区別",
+    "matchWholeWord": "単語単位で検索",
+    "useRegex": "正規表現を使用",
+    "noResults": "一致なし"
   },
   "layout": {
     "loading": "読み込み中...",

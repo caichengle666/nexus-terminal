@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch, nextTick, watchEffect } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, watchEffect } from 'vue';
+import { buildSearchMarkers } from '../utils/terminalSearch';
 import { Terminal, ITerminalAddon, IDisposable } from '@xterm/xterm';
 import { useDeviceDetection } from '../composables/useDeviceDetection';
 import { useAppearanceStore } from '../stores/appearance.store';
@@ -32,6 +33,22 @@ const terminalOuterWrapperRef = ref<HTMLElement | null>(null); // 最外层容�
 let terminal: Terminal | null = null;
 let fitAddon: FitAddon | null = null;
 let searchAddon: SearchAddon | null = null; // *** 添加 searchAddon 变量 ***
+
+// --- 终端搜索：滚动条命中标记（移植自上游 terminal-search） ---
+// 会话管理器扫完 buffer 后广播命中行号；这里只负责换算成比例画在右侧轨道上，
+// 翻页时只变 index，不需要重新扫描。
+const searchMatchLines = ref<number[]>([]);
+const searchTotalLines = ref(1);
+const searchMatchIndex = ref(-1);
+const searchMarkers = computed(() =>
+  buildSearchMarkers(searchMatchLines.value, searchTotalLines.value, searchMatchIndex.value)
+);
+const handleSearchMarkers = (payload: { sessionId?: string; matchLines: number[]; totalLines: number; index?: number }) => {
+  if (payload.sessionId && payload.sessionId !== props.sessionId) return;
+  searchMatchLines.value = payload.matchLines;
+  searchTotalLines.value = payload.totalLines;
+  searchMatchIndex.value = payload.index ?? -1;
+};
 let resizeObserver: ResizeObserver | null = null;
 let observedElement: HTMLElement | null = null; // +++ Store the observed element +++
 let debounceTimer: number | null = null; // 用于防抖的计时器 ID
@@ -246,6 +263,7 @@ const handleTouchEnd = (event: TouchEvent) => {
 
 // 初始化终端
 onMounted(() => {
+  subscribeToWorkspaceEvent('search:markers', handleSearchMarkers);
   // xterm 挂载到 terminalRef (内部容器)
   if (terminalRef.value) {
     terminal = new Terminal({
@@ -260,6 +278,8 @@ onMounted(() => {
       convertEol: true,
       scrollback: getScrollbackValue(terminalScrollbackLimitNumber.value), //  Use setting from store
       scrollOnUserInput: true, // 输入时滚动到底部
+      // 终端搜索高亮用 registerDecoration（xterm 的 proposed API），必须显式开启
+      allowProposedApi: true,
       ...props.options, // 合并外部传入的选项
     });
     
@@ -609,6 +629,7 @@ onMounted(() => {
 
 // 组件卸载前清理资源
 onBeforeUnmount(() => {
+  unsubscribeFromWorkspaceEvent('search:markers', handleSearchMarkers);
   // Ensure observer is cleaned up
   if (resizeObserver && observedElement) {
       try {
@@ -755,6 +776,19 @@ watchEffect(() => {
   <div ref="terminalOuterWrapperRef" class="terminal-outer-wrapper">
     <!-- xterm 实际挂载点 -->
     <div ref="terminalRef" class="terminal-inner-container"></div>
+    <!--
+      搜索命中标记：贴着右侧滚动条画小横条，哪些位置有命中一眼可见。
+      pointer-events: none，不抢滚动条拖拽与终端选区。
+    -->
+    <div v-if="searchMarkers.length" class="search-marker-track" aria-hidden="true">
+      <div
+        v-for="(marker, index) in searchMarkers"
+        :key="`search-marker-${index}`"
+        class="search-marker"
+        :class="{ 'is-active': marker.active }"
+        :style="{ top: `${marker.top * 100}%`, height: `${Math.max(marker.height * 100, 0.35)}%` }"
+      ></div>
+    </div>
   </div>
 </template>
 
@@ -771,6 +805,37 @@ watchEffect(() => {
   height: 100%;
   /* position: relative;  移除了 position relative */
   /* z-index 调整或移除，因为背景层不再在此组件内 */
+}
+
+/* 搜索命中标记轨道：覆盖在 xterm 原生滚动条上方的窄条 */
+.search-marker-track {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.search-marker {
+  position: absolute;
+  right: 1px;
+  width: 5px;
+  min-height: 2px;
+  border-radius: 1px;
+  background-color: rgba(250, 204, 21, 0.85);
+  box-shadow: 0 0 2px rgba(250, 204, 21, 0.45);
+}
+
+/* 当前聚焦的匹配：更宽更亮（红橙），与"全部命中"的黄色区分开 */
+.search-marker.is-active {
+  right: 0;
+  width: 7px;
+  min-height: 3px;
+  background-color: rgba(249, 115, 22, 0.98);
+  box-shadow: 0 0 4px rgba(249, 115, 22, 0.85);
+  z-index: 1;
 }
 
 /* 文字描边和阴影样式 */

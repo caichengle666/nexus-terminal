@@ -1564,7 +1564,11 @@
     "configureFocusSwitch": "配置焦点切换器",
     "clearTerminal": "清空终端",
     "hideKeyboard": "隐藏虚拟键盘",
-    "showKeyboard": "显示虚拟键盘"
+    "showKeyboard": "显示虚拟键盘",
+    "matchCase": "区分大小写",
+    "matchWholeWord": "全词匹配",
+    "useRegex": "使用正则表达式",
+    "noResults": "无匹配"
   },
   "layout": {
     "loading": "加载中...",
