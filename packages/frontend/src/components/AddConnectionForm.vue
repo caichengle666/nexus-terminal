@@ -16,11 +16,12 @@ const props = defineProps<{
   connectionToEdit: ConnectionInfo | null;
 }>();
 
-import { getTranslation } from '../utils/languageUtils';
+import ScriptImportPanel from './connection/ScriptImportPanel.vue';
+import { useDeviceDetection } from '../composables/useDeviceDetection';
 
 
-const { t, locale } = useI18n();
-const scriptModeFormatInfo = ref(getTranslation('connections.form.scriptModeFormatInfo', locale.value));
+const { t } = useI18n();
+const { isMobile } = useDeviceDetection();
 
 const {
   formData,
@@ -180,18 +181,9 @@ const handleHostIconMouseLeave = () => {
              ></span>
            </button>
          </div>
+         <!-- 脚本批量导入：粘贴即实时预检，语法说明默认折叠 -->
          <div v-if="isScriptModeActive" class="mt-4">
-           <textarea
-             id="conn-script-input"
-             v-model="scriptInputText"
-             rows="10"
-             wrap="off"
-             class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
-             :placeholder="t('connections.form.scriptModePlaceholder')"
-           ></textarea>
-           <p class="mt-1 text-xs text-text-secondary whitespace-pre-line">
-             {{ scriptModeFormatInfo }}
-           </p>
+           <ScriptImportPanel v-model="scriptInputText" :compact="isMobile" />
          </div>
        </div>
 

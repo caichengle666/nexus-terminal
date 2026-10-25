@@ -10,6 +10,9 @@ import { useSshKeysStore } from '../stores/sshKeys.store';
 import { useUiNotificationsStore } from '../stores/uiNotifications.store';
 import { useConfirmDialog } from './useConfirmDialog';
 import { useAlertDialog } from './useAlertDialog';
+import { parseScriptText, type ParsedScriptRow } from '../utils/scriptConnectionParser';
+// OpenSSH 命令规范化（ssh -p 2222 user@host / -l / -i / ssh:// / 尾随 -name -tags -note）已移入解析器模块，此处转出保持原入口
+export { normalizeOpenSshCommand } from '../utils/scriptConnectionParser';
 
 // Define Props interface based on the component's props
 interface AddConnectionFormProps {
@@ -247,346 +250,129 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
     return ips;
   };
 
-  // Helper function to parse a single script line using minimist
-
-  
   /**
-   * 把 OpenSSH 命令行转换成脚本格式 "user@host:port ..."。
-   * 支持 ssh [-p PORT] [-l USER] [其它常见选项] [user@]host[:port] 以及 ssh://user@host:port。
-   * 目标之后的参数按原脚本选项继续解析。非 ssh 开头的行原样返回。
+   * 脚本批量导入提交（移植自上游 93fc9d79 的提交流程，解析规则保持本分支原有语法）。
+   * 解析见 utils/scriptConnectionParser：OpenSSH 命令规范化（normalizeOpenSshCommand）、
+   * SSH 无 -p/-k 按空密码、注释行、-folder 别名、-jump 跳板机链、IP 范围展开。
+   * 有错误行时先确认「跳过 N 行、继续导入 M 个」，文件夹按名字懒建且一次批量只建一次。
    */
-  const normalizeOpenSshCommand = (line: string): { line: string; error?: string } => {
-    const tokens = line.trim().split(/\s+/);
-    if (tokens[0]?.toLowerCase() !== 'ssh') return { line };
-    let port: string | null = null;
-    let user: string | null = null;
-    let dest: string | null = null;
-    let i = 1;
-    const valueOpts = new Set(['-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-m', '-O', '-o', '-Q', '-R', '-S', '-W', '-w']);
-    for (; i < tokens.length; i++) {
-      const tok = tokens[i];
-      if (tok === '-p' || tok === '-l') {
-        const val = tokens[++i];
-        if (!val) return { line, error: t('connections.form.scriptErrorMissingValueForKey', { key: tok }) };
-        if (tok === '-p') port = val; else user = val;
-      } else if (/^-p\d+$/.test(tok)) {
-        port = tok.slice(2);
-      } else if (valueOpts.has(tok)) {
-        i++; // 忽略这些选项及其值
-      } else if (/^-[A-Za-z0-9]+$/.test(tok)) {
-        // 无值的开关（-v, -A, -4 等），忽略
-      } else {
-        dest = tok;
-        i++;
-        break;
-      }
-    }
-    if (!dest) return { line, error: t('connections.form.scriptErrorInvalidUserHostPortFormat', { part: line.trim() }) };
-    dest = dest.replace(/^ssh:\/\//i, '').replace(/\/$/, '');
-    let host = dest;
-    const at = dest.lastIndexOf('@');
-    if (at !== -1) {
-      user = dest.slice(0, at);
-      host = dest.slice(at + 1);
-    }
-    const portMatch = host.match(/^(.*):(\d+)$/);
-    if (portMatch) {
-      host = portMatch[1];
-      if (!port) port = portMatch[2];
-    }
-    if (!user || !host) return { line, error: t('connections.form.scriptErrorInvalidUserHostPortFormat', { part: dest }) };
-    const rest = tokens.slice(i).join(' ');
-    return { line: `${user}@${host}${port ? `:${port}` : ''}${rest ? ` ${rest}` : ''}` };
-  };
+  const scriptErrorText = (row: ParsedScriptRow) =>
+    row.error ? t(row.error.key, row.error.params ?? {}) : '';
 
-  const parseScriptLine = (line: string): { type: 'SSH' | 'RDP' | 'VNC', userHostPort: string, name: string, password: string | null, keyName: string | null, proxyName: string | null, tags: string[], note: string | null, error?: string } => {
-    line = line.trim();
-    if (!line) {
-      return { type: 'SSH', userHostPort: '', name: '', password: null, keyName: null, proxyName: null, tags: [], note: null, error: t('connections.form.scriptErrorEmptyLine', 'Input line cannot be empty') };
-    }
-
-    // 0. 兼容直接粘贴的 OpenSSH 命令，如 "ssh -p 2222 user@host [-name xx ...]" 或 "ssh user@host"
-    const openSsh = normalizeOpenSshCommand(line);
-    if (openSsh.error) {
-      return { type: 'SSH', userHostPort: line, name: '', password: null, keyName: null, proxyName: null, tags: [], note: null, error: openSsh.error };
-    }
-    line = openSsh.line;
-
-    // 1. Extract user@host:port
-    const firstSpaceIndex = line.indexOf(' ');
-    const userHostPortPart = firstSpaceIndex === -1 ? line : line.substring(0, firstSpaceIndex);
-    const optionsString = firstSpaceIndex === -1 ? '' : line.substring(firstSpaceIndex + 1).trim();
-
-    // 2. Validate user@host:port (allow user@host without port)
-    const userHostPortRegex = /^([^@\s]+)@([^:\s]+)(?::([0-9]+))?$/;
-    const match = userHostPortPart.match(userHostPortRegex);
-    if (!match) {
-      return { type: 'SSH', userHostPort: userHostPortPart, name: '', password: null, keyName: null, proxyName: null, tags: [], note: null, error: t('connections.form.scriptErrorInvalidUserHostPortFormat', { part: userHostPortPart }) };
-    }
-    const [, user, host /*, portStr */] = match; // portStr not used for now
-    const defaultName = `${user}@${host}`; // Default name
-
-    // 3. Initialize results and defaults
-    let type: 'SSH' | 'RDP' | 'VNC' = 'SSH';
-    let name: string = defaultName;
-    let password: string | null = null;
-    let keyName: string | null = null;
-    let proxyName: string | null = null;
-    let tags: string[] = [];
-    let note: string | null = null;
-
-    // 4. Parse optionsString
-    // Regex to split by space, respecting quotes
-    const args = optionsString.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
-    let i = 0;
-    while (i < args.length) {
-      const arg = args[i];
-      if (arg.startsWith('-')) {
-        const key = arg.substring(1).toLowerCase();
-        i++; // Move to the expected position of the value
-
-        if (key === 'tags') {
-          // Handle -tags, which can be followed by zero or more tags
-          tags = [];
-          while (i < args.length && !args[i].startsWith('-')) {
-            tags.push(args[i].replace(/^"|"$/g, '')); // Remove surrounding quotes
-            i++;
-          }
-          // No need to i++ here, the next loop iteration or outer loop handles it
-        } else if (key === 'note') {
-          // Handle -note, which consumes the rest of the line
-          const noteParts = [];
-          while (i < args.length) {
-            noteParts.push(args[i]);
-            i++;
-          }
-          note = noteParts.join(' ').replace(/^"|"$/g, ''); // Join parts and remove quotes
-          break; // Exit the outer loop as note consumes the rest
-        } else if (i >= args.length) {
-           // All other options require a value
-           return { type, userHostPort: userHostPortPart, name, password, keyName, proxyName, tags, note, error: t('connections.form.scriptErrorMissingValueForKey', { key: arg }) };
-        } else {
-           // Handle options that require a single value
-           const value = args[i].replace(/^"|"$/g, ''); // Remove surrounding quotes
-           switch (key) {
-             case 'type':
-               const typeValue = value.toUpperCase();
-               if (typeValue === 'SSH' || typeValue === 'RDP' || typeValue === 'VNC') {
-                 type = typeValue;
-               } else {
-                 return { type, userHostPort: userHostPortPart, name, password, keyName, proxyName, tags, note, error: t('connections.form.scriptErrorInvalidType', { value: args[i] }) };
-               }
-               break;
-             case 'name':
-               name = value;
-               break;
-             case 'p': // password
-               password = value;
-               break;
-             case 'k': // key name
-               keyName = value;
-               break;
-             case 'proxy':
-               proxyName = value;
-               break;
-             default:
-               return { type, userHostPort: userHostPortPart, name, password, keyName, proxyName, tags, note, error: t('connections.form.scriptErrorUnknownOption', { option: arg }) };
-           }
-           i++; // Move past the value
-        }
-      } else {
-        // Arguments after user@host:port must start with '-'
-        return { type, userHostPort: userHostPortPart, name, password, keyName, proxyName, tags, note, error: t('connections.form.scriptErrorUnexpectedArgument', { argument: arg }) };
-      }
-    }
-
-    // 5. Validation based on type
-    if (type === 'SSH') {
-      // SSH 未提供 -p/-k 时按空密码的密码认证处理（内网设备可能无密码）
-      if (!password && !keyName) password = '';
-    } else if (type === 'RDP') {
-      if (!password) {
-        return { type, userHostPort: userHostPortPart, name, password, keyName, proxyName, tags, note, error: t('connections.form.scriptErrorMissingPasswordForRdp') };
-      }
-      if (keyName) {
-         return { type, userHostPort: userHostPortPart, name, password, keyName, proxyName, tags, note, error: t('connections.form.scriptErrorKeyNotApplicableForRdp') };
-      }
-    } else if (type === 'VNC') {
-      if (!password) {
-         return { type, userHostPort: userHostPortPart, name, password, keyName, proxyName, tags, note, error: t('connections.form.scriptErrorMissingPasswordForVnc') };
-      }
-       if (keyName) {
-         return { type, userHostPort: userHostPortPart, name, password, keyName, proxyName, tags, note, error: t('connections.form.scriptErrorKeyNotApplicableForVnc') };
-      }
-    }
-
-    return { type, userHostPort: userHostPortPart, name, password, keyName, proxyName, tags, note };
-  };
-
-  // 处理表单提交
   const handleScriptModeSubmit = async () => {
-    const lines = scriptInputText.value.split('\n').filter(line => line.trim() !== '');
+    const result = parseScriptText(scriptInputText.value);
+    const connectionsToAdd = result.validConnections;
 
-    if (lines.length === 0) {
-      uiNotificationsStore.showError(t('connections.form.scriptModeEmpty', '脚本输入不能为空。'));
+    if (connectionsToAdd.length === 0) {
+      if (result.errorRows.length > 0) {
+        const first = result.errorRows[0];
+        uiNotificationsStore.showError(t('connections.form.scriptErrorInLineNumber', { line: first.lineIndex, error: scriptErrorText(first) }));
+      } else {
+        uiNotificationsStore.showError(t('connections.form.scriptModeEmpty', '脚本输入不能为空。'));
+      }
       return;
     }
 
-    let allConnectionsValid = true;
-    const connectionsToAdd = [];
+    if (result.errorRows.length > 0) {
+      const first = result.errorRows[0];
+      const proceed = await showConfirmDialog({
+        message: t('connections.form.scriptConfirmSkipErrors', {
+          errors: result.errorRows.length,
+          line: first.lineIndex,
+          error: scriptErrorText(first),
+          ok: connectionsToAdd.length,
+        }),
+      });
+      if (!proceed) return;
+    }
 
-    for (const line of lines) {
-      const parsed = parseScriptLine(line);
-      if (parsed.error) {
-        uiNotificationsStore.showError(t('connections.form.scriptErrorInLine', { line, error: parsed.error }));
-        allConnectionsValid = false;
-        break;
+    // --- 名字 → id 解析（文件夹懒建并缓存，密钥 / 代理 / 跳板机找不到时明确报错并中止） ---
+    const folderIdCache = new Map<string, number>();
+    const resolveFolderId = async (folderName: string): Promise<number | null> => {
+      if (folderIdCache.has(folderName)) return folderIdCache.get(folderName)!;
+      let found = tags.value.find(tag => tag.name === folderName);
+      if (!found) {
+        const created = await tagsStore.addTag(folderName);
+        if (!created) {
+          uiNotificationsStore.showError(t('connections.form.scriptErrorTagCreationFailed', { tagName: folderName }));
+          return null;
+        }
+        found = created;
+        uiNotificationsStore.showInfo(t('connections.form.scriptTagCreated', { tagName: folderName }));
       }
+      folderIdCache.set(folderName, found.id);
+      return found.id;
+    };
 
-      if (!parsed.type) {
-          uiNotificationsStore.showError(t('connections.form.scriptErrorMissingType', { line }));
-          allConnectionsValid = false;
-          break;
-      }
-
-      const [userHost, portStr] = parsed.userHostPort.split(':');
-      const [username, host] = userHost.split('@');
-      const port = portStr ? parseInt(portStr, 10) : (parsed.type === 'RDP' ? 3389 : (parsed.type === 'VNC' ? 5900 : 22));
-
-      if (!username || !host) {
-          uiNotificationsStore.showError(t('connections.form.scriptErrorInvalidUserHostFormat', { line }));
-          allConnectionsValid = false;
-          break;
-      }
-      if (isNaN(port) || port <= 0 || port > 65535) {
-          uiNotificationsStore.showError(t('connections.form.scriptErrorInvalidPort', { line, port: portStr || (parsed.type === 'RDP' ? '3389' : (parsed.type === 'VNC' ? '5900' : '22')) }));
-          allConnectionsValid = false;
-          break;
-      }
-
-      const connectionData: any = {
-        type: parsed.type,
-        name: parsed.name || `${username}@${host}`,
-        host,
-        port,
-        username,
-        notes: parsed.note || '',
-        tag_names: parsed.tags,
-        proxy_name: parsed.proxyName,
+    const payloads: any[] = [];
+    for (const item of connectionsToAdd) {
+      const data: any = {
+        type: item.type,
+        name: item.name,
+        host: item.host,
+        port: item.port,
+        username: item.username,
+        notes: item.note || '',
+        tag_ids: [] as number[],
       };
 
-      if (parsed.type === 'SSH') {
-        connectionData.auth_method = parsed.keyName ? 'key' : 'password';
-        if (connectionData.auth_method === 'password') {
-          connectionData.password = parsed.password ?? '';
+      for (const folderName of item.tags) {
+        const id = await resolveFolderId(folderName);
+        if (id === null) return;
+        if (!data.tag_ids.includes(id)) data.tag_ids.push(id);
+      }
+
+      if (item.type === 'SSH') {
+        if (item.keyName) {
+          const foundKey = sshKeys.value.find(k => k.name === item.keyName);
+          if (!foundKey) {
+            uiNotificationsStore.showError(t('connections.form.scriptErrorSshKeyNotFound', { keyName: item.keyName }));
+            return;
+          }
+          data.auth_method = 'key';
+          data.ssh_key_id = foundKey.id;
         } else {
-          if (!parsed.keyName) {
-            uiNotificationsStore.showError(t('connections.form.scriptErrorMissingKeyNameForSsh', { line }));
-            allConnectionsValid = false;
-            break;
-          }
-          connectionData.ssh_key_name = parsed.keyName;
+          data.auth_method = 'password';
+          data.password = item.password ?? '';
         }
-      } else if (parsed.type === 'RDP' || parsed.type === 'VNC') {
-        if (!parsed.password) {
-          uiNotificationsStore.showError(t('connections.form.scriptErrorMissingPasswordForType', { line, type: parsed.type }));
-          allConnectionsValid = false;
-          break;
-        }
-        connectionData.password = parsed.password;
-      }
-      connectionsToAdd.push(connectionData);
-    }
-
-    if (!allConnectionsValid || connectionsToAdd.length === 0) {
-      if (connectionsToAdd.length > 0 && !allConnectionsValid) {
-          // Errors were already shown
-      } else if (lines.length > 0 && connectionsToAdd.length === 0 && allConnectionsValid) {
-          uiNotificationsStore.showError(t('connections.form.scriptErrorInternal', '内部解析错误。'));
-      }
-      return;
-    }
-
-    const fullyProcessedConnections = [];
-    let resolutionErrorOccurred = false;
-
-    for (const connData of connectionsToAdd) {
-      if (connData.tag_names && connData.tag_names.length > 0) {
-        const tagIds = [];
-        for (const tagName of connData.tag_names) {
-          let foundTag = tags.value.find(t_ => t_.name === tagName); // Renamed t to t_ to avoid conflict
-          if (!foundTag) {
-            // 自动创建不存在的标签
-            const newTag = await tagsStore.addTag(tagName);
-            if (newTag) {
-              foundTag = newTag;
-              uiNotificationsStore.showInfo(t('connections.form.scriptTagCreated', { tagName }));
-              // 确保标签列表已更新
-              await tagsStore.fetchTags();
-            } else {
-              uiNotificationsStore.showError(t('connections.form.scriptErrorTagCreationFailed', { tagName }));
-              resolutionErrorOccurred = true;
-              break;
-            }
-          }
-          tagIds.push(foundTag.id);
-        }
-        if (resolutionErrorOccurred) break;
-        connData.tag_ids = tagIds;
       } else {
-        connData.tag_ids = [];
+        data.password = item.password;
       }
-      delete connData.tag_names;
 
-      if (connData.type === 'SSH' && connData.auth_method === 'key' && connData.ssh_key_name) {
-        const foundKey = sshKeys.value.find(k => k.name === connData.ssh_key_name);
-        if (foundKey) {
-          connData.ssh_key_id = foundKey.id;
-        } else {
-          uiNotificationsStore.showError(t('connections.form.scriptErrorSshKeyNotFound', { keyName: connData.ssh_key_name }));
-          resolutionErrorOccurred = true;
-          break;
+      if (item.proxyName) {
+        const foundProxy = proxies.value.find(p => p.name === item.proxyName);
+        if (!foundProxy) {
+          uiNotificationsStore.showError(t('proxies.errors.notFound', { name: item.proxyName }));
+          return;
         }
-        delete connData.ssh_key_name;
+        data.proxy_id = foundProxy.id;
       }
-      
-      if (connData.proxy_name) {
-       const foundProxy = proxies.value.find(p => p.name === connData.proxy_name);
-       if (foundProxy) {
-         connData.proxy_id = foundProxy.id;
-       } else {
-         uiNotificationsStore.showError(t('proxies.errors.notFound', { name: connData.proxy_name })); // Assuming you add this translation
-         resolutionErrorOccurred = true;
-         break;
-       }
-       delete connData.proxy_name;
-     }
 
-      if (connData.type !== 'SSH' || connData.auth_method !== 'key') delete connData.ssh_key_id;
-      if (connData.type === 'SSH' && connData.auth_method === 'key') delete connData.password;
-      if (connData.type !== 'SSH') delete connData.auth_method;
-
-      fullyProcessedConnections.push(connData);
-    }
-
-    if (resolutionErrorOccurred || (fullyProcessedConnections.length === 0 && lines.length > 0)) {
-      if (!resolutionErrorOccurred && lines.length > 0 && fullyProcessedConnections.length === 0) {
-           uiNotificationsStore.showError(t('connections.form.scriptErrorNothingToProcess', '没有可处理的有效连接数据。'));
+      if (item.jumpNames.length) {
+        const chain: number[] = [];
+        for (const jumpName of item.jumpNames) {
+          const jumpConn = connections.value.find(c => c.name === jumpName && c.type === 'SSH');
+          if (!jumpConn) {
+            uiNotificationsStore.showError(t('connections.form.scriptErrorJumpNotFound', { name: jumpName }));
+            return;
+          }
+          chain.push(jumpConn.id);
+        }
+        data.proxy_type = 'jump';
+        data.proxy_id = null;
+        data.jump_chain = chain;
       }
-      return;
-    }
-    
-    if (fullyProcessedConnections.length === 0) {
-      return;
+
+      payloads.push(data);
     }
 
-    uiNotificationsStore.showInfo(t('connections.form.scriptModeAddingConnections', { count: fullyProcessedConnections.length }));
+    uiNotificationsStore.showInfo(t('connections.form.scriptModeAddingConnections', { count: payloads.length }));
 
     let successCount = 0;
     let errorCount = 0;
     let firstErrorEncountered: string | null = null;
 
-    for (const finalConnectionData of fullyProcessedConnections) {
+    for (const finalConnectionData of payloads) {
       const success = await connectionsStore.addConnection(finalConnectionData);
       if (success) {
         successCount++;
@@ -599,6 +385,10 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
       }
     }
 
+    if (folderIdCache.size > 0) {
+      await tagsStore.fetchTags();
+    }
+
     if (errorCount > 0) {
       const message = t('connections.form.errorBatchAddResult', { successCount, errorCount, firstErrorEncountered: firstErrorEncountered || t('errors.unknown', '未知错误') });
       if (successCount > 0) {
@@ -607,14 +397,14 @@ export function useAddConnectionForm(props: AddConnectionFormProps, emit: AddCon
         uiNotificationsStore.showError(message);
       }
     }
-    
+
     if (successCount > 0) {
       if (errorCount === 0) {
-          uiNotificationsStore.showSuccess(t('connections.form.successBatchAddResult', { successCount }));
+        uiNotificationsStore.showSuccess(t('connections.form.successBatchAddResult', { successCount }));
       }
       emit('connection-added');
-      if (errorCount === 0) {
-          scriptInputText.value = '';
+      if (errorCount === 0 && result.errorRows.length === 0) {
+        scriptInputText.value = '';
       }
     }
   };
