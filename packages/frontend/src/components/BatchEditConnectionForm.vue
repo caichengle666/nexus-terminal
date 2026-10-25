@@ -296,7 +296,7 @@ onMounted(() => {
                 </select>
               </div>
               <div>
-                <label class="block text-sm font-medium text-text-secondary">{{ t('connections.table.tags', '标签') }}</label>
+                <label class="block text-sm font-medium text-text-secondary">{{ t('connections.table.tags', '文件夹') }}</label>
                 <TagInput
                   :modelValue="formData.tag_ids || []"
                   @update:modelValue="val => formData.tag_ids = val"

@@ -56,7 +56,7 @@ export const useQuickCommandTagsStore = defineStore('quickCommandTags', () => {
             return true;
         } catch (err: any) {
             console.error('[QuickCmdTagStore] Failed to fetch tags:', err);
-            error.value = err.response?.data?.message || err.message || '获取快捷指令标签列表失败';
+            error.value = err.response?.data?.message || err.message || '获取快捷指令文件夹列表失败';
             if (error.value) { // Check if error.value is not null
                 uiNotificationsStore.showError(error.value); // 显示错误通知
             }
@@ -76,11 +76,11 @@ export const useQuickCommandTagsStore = defineStore('quickCommandTags', () => {
             const newTag = response.data.tag;
             localStorage.removeItem('quickCommandTagsCache'); // 清除缓存
             await fetchTags(); // 重新获取以更新列表
-            uiNotificationsStore.showSuccess('快捷指令标签已添加');
+            uiNotificationsStore.showSuccess('快捷指令文件夹已添加');
             return newTag;
         } catch (err: any) {
             console.error('[QuickCmdTagStore] Failed to add tag:', err);
-            error.value = err.response?.data?.message || err.message || '添加快捷指令标签失败';
+            error.value = err.response?.data?.message || err.message || '添加快捷指令文件夹失败';
             if (error.value) { // Check if error.value is not null
                 uiNotificationsStore.showError(error.value);
             }
@@ -99,11 +99,11 @@ export const useQuickCommandTagsStore = defineStore('quickCommandTags', () => {
             await apiClient.put(`/quick-command-tags/${id}`, { name });
             localStorage.removeItem('quickCommandTagsCache');
             await fetchTags();
-            uiNotificationsStore.showSuccess('快捷指令标签已更新');
+            uiNotificationsStore.showSuccess('快捷指令文件夹已更新');
             return true;
         } catch (err: any) {
             console.error('[QuickCmdTagStore] Failed to update tag:', err);
-            error.value = err.response?.data?.message || err.message || '更新快捷指令标签失败';
+            error.value = err.response?.data?.message || err.message || '更新快捷指令文件夹失败';
             if (error.value) { // Check if error.value is not null
                 uiNotificationsStore.showError(error.value);
             }
@@ -122,11 +122,11 @@ export const useQuickCommandTagsStore = defineStore('quickCommandTags', () => {
             await apiClient.delete(`/quick-command-tags/${id}`);
             localStorage.removeItem('quickCommandTagsCache');
             await fetchTags();
-            uiNotificationsStore.showSuccess('快捷指令标签已删除');
+            uiNotificationsStore.showSuccess('快捷指令文件夹已删除');
             return true;
         } catch (err: any) {
             console.error('[QuickCmdTagStore] Failed to delete tag:', err);
-            error.value = err.response?.data?.message || err.message || '删除快捷指令标签失败';
+            error.value = err.response?.data?.message || err.message || '删除快捷指令文件夹失败';
             if (error.value) { // Check if error.value is not null
                 uiNotificationsStore.showError(error.value);
             }

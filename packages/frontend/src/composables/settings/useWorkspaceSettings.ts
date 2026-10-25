@@ -153,11 +153,11 @@ export function useWorkspaceSettings() {
     showConnectionTagsSuccess.value = false;
     try {
       await settingsStore.updateSetting('showConnectionTags', showConnectionTagsLocal.value);
-      showConnectionTagsMessage.value = t('settings.workspace.success.showConnectionTagsSaved', '连接标签显示设置已保存');
+      showConnectionTagsMessage.value = t('settings.workspace.success.showConnectionTagsSaved', '连接文件夹分组设置已保存');
       showConnectionTagsSuccess.value = true;
     } catch (error: any) {
       console.error('更新显示连接标签设置失败:', error);
-      showConnectionTagsMessage.value = error.message || t('settings.workspace.error.showConnectionTagsSaveFailed', '保存连接标签显示设置失败');
+      showConnectionTagsMessage.value = error.message || t('settings.workspace.error.showConnectionTagsSaveFailed', '保存连接文件夹分组设置失败');
       showConnectionTagsSuccess.value = false;
     } finally {
       showConnectionTagsLoading.value = false;
@@ -176,11 +176,11 @@ export function useWorkspaceSettings() {
     showQuickCommandTagsSuccess.value = false;
     try {
       await settingsStore.updateSetting('showQuickCommandTags', showQuickCommandTagsLocal.value);
-      showQuickCommandTagsMessage.value = t('settings.workspace.success.showQuickCommandTagsSaved', '快捷指令标签显示设置已保存');
+      showQuickCommandTagsMessage.value = t('settings.workspace.success.showQuickCommandTagsSaved', '快捷指令文件夹分组设置已保存');
       showQuickCommandTagsSuccess.value = true;
     } catch (error: any) {
       console.error('更新显示快捷指令标签设置失败:', error);
-      showQuickCommandTagsMessage.value = error.message || t('settings.workspace.error.showQuickCommandTagsSaveFailed', '保存快捷指令标签显示设置失败');
+      showQuickCommandTagsMessage.value = error.message || t('settings.workspace.error.showQuickCommandTagsSaveFailed', '保存快捷指令文件夹分组设置失败');
       showQuickCommandTagsSuccess.value = false;
     } finally {
       showQuickCommandTagsLoading.value = false;

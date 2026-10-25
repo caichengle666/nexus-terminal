@@ -193,7 +193,7 @@ export const assignTagToCommands = async (req: Request, res: Response): Promise<
         // 调用 Service 函数处理批量分配
         console.log(`[Controller] assignTagToCommands: Received commandIds: ${JSON.stringify(commandIds)}, tagId: ${tagId}`); 
         await QuickCommandsService.assignTagToCommands(commandIds, tagId);
-        res.status(200).json({ success: true, message: `标签 ${tagId} 已成功尝试关联到 ${commandIds.length} 个指令。` });
+        res.status(200).json({ success: true, message: `文件夹 ${tagId} 已成功尝试关联到 ${commandIds.length} 个指令。` });
     } catch (error: any) {
         console.error('[Controller] 批量分配标签时出错:', error.message);
         // 根据错误类型返回不同的状态码可能更好，但这里简化处理

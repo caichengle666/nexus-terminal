@@ -661,7 +661,7 @@ export const addTagToConnections = async (req: Request, res: Response): Promise<
         // 调用服务层批量添加标签
         await ConnectionService.addTagToConnections(connection_ids, tag_id);
 
-        res.status(200).json({ message: '标签已成功添加到指定连接。' });
+        res.status(200).json({ message: '文件夹已成功添加到指定连接。' });
 
     } catch (error: any) {
         console.error(`Controller: 为多个连接添加标签 ${req.body?.tag_id} 时发生错误:`, error);
@@ -696,9 +696,9 @@ export const updateConnectionTags = async (req: Request, res: Response): Promise
         const success = await ConnectionService.updateConnectionTags(connectionId, tag_ids);
 
         if (!success) {
-            res.status(404).json({ message: '连接未找到或更新标签失败。' });
+            res.status(404).json({ message: '连接未找到或更新文件夹失败。' });
         } else {
-            res.status(200).json({ message: '连接标签更新成功。' });
+            res.status(200).json({ message: '连接文件夹更新成功。' });
         }
     } catch (error: any) {
         console.error(`Controller: 更新连接 ${req.params.id} 的标签时发生错误:`, error);

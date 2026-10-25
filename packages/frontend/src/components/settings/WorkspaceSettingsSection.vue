@@ -127,14 +127,14 @@
       <hr class="border-border/50"> 
       <!-- Show Connection Tags -->
       <div class="settings-section-content">
-         <h3 class="text-base font-semibold text-foreground mb-3">{{ $t('settings.workspace.showConnectionTagsTitle', '显示连接标签') }}</h3>
+         <h3 class="text-base font-semibold text-foreground mb-3">{{ $t('settings.workspace.showConnectionTagsTitle', '按文件夹分组显示连接') }}</h3>
          <form @submit.prevent="handleUpdateShowConnectionTags" class="space-y-4">
              <div class="flex items-center">
                  <input type="checkbox" id="showConnectionTags" v-model="showConnectionTagsLocal"
                         class="h-4 w-4 rounded border-border text-primary focus:ring-primary mr-2 cursor-pointer">
-                 <label for="showConnectionTags" class="text-sm text-foreground cursor-pointer select-none">{{ $t('settings.workspace.showConnectionTagsLabel', '在连接列表中显示标签') }}</label>
+                 <label for="showConnectionTags" class="text-sm text-foreground cursor-pointer select-none">{{ $t('settings.workspace.showConnectionTagsLabel', '连接列表按文件夹分组') }}</label>
              </div>
-             <p class="text-xs text-text-secondary mt-1">{{ $t('settings.workspace.showConnectionTagsDescription', '关闭后将隐藏连接列表中的标签，并从搜索中排除标签。') }}</p>
+             <p class="text-xs text-text-secondary mt-1">{{ $t('settings.workspace.showConnectionTagsDescription', '关闭后连接列表改为平铺显示，并从搜索中排除文件夹名。') }}</p>
              <div class="flex items-center justify-between pt-2">
                 <button type="submit"
                         class="px-4 py-2 bg-button text-button-text rounded-md shadow-sm hover:bg-button-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition duration-150 ease-in-out text-sm font-medium">
@@ -147,14 +147,14 @@
       <hr class="border-border/50"> 
       <!-- Show Quick Command Tags -->
       <div class="settings-section-content">
-         <h3 class="text-base font-semibold text-foreground mb-3">{{ $t('settings.workspace.showQuickCommandTagsTitle', '显示快捷指令标签') }}</h3>
+         <h3 class="text-base font-semibold text-foreground mb-3">{{ $t('settings.workspace.showQuickCommandTagsTitle', '按文件夹分组显示快捷指令') }}</h3>
          <form @submit.prevent="handleUpdateShowQuickCommandTags" class="space-y-4">
              <div class="flex items-center">
                  <input type="checkbox" id="showQuickCommandTags" v-model="showQuickCommandTagsLocal"
                         class="h-4 w-4 rounded border-border text-primary focus:ring-primary mr-2 cursor-pointer">
-                 <label for="showQuickCommandTags" class="text-sm text-foreground cursor-pointer select-none">{{ $t('settings.workspace.showQuickCommandTagsLabel', '在快捷指令列表中显示标签') }}</label>
+                 <label for="showQuickCommandTags" class="text-sm text-foreground cursor-pointer select-none">{{ $t('settings.workspace.showQuickCommandTagsLabel', '快捷指令列表按文件夹分组') }}</label>
              </div>
-             <p class="text-xs text-text-secondary mt-1">{{ $t('settings.workspace.showQuickCommandTagsDescription', '关闭后将隐藏快捷指令列表中的标签，并从搜索中排除标签。') }}</p>
+             <p class="text-xs text-text-secondary mt-1">{{ $t('settings.workspace.showQuickCommandTagsDescription', '关闭后快捷指令列表改为平铺显示，并从搜索中排除文件夹名。') }}</p>
              <div class="flex items-center justify-between pt-2">
                 <button type="submit"
                         class="px-4 py-2 bg-button text-button-text rounded-md shadow-sm hover:bg-button-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition duration-150 ease-in-out text-sm font-medium">

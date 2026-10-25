@@ -97,7 +97,7 @@
                             class="inline-block overflow-hidden text-ellipsis whitespace-nowrap"
                             :style="{ fontSize: `calc(0.875em * max(0.85, var(--qc-row-size-multiplier) * 0.6 + 0.4))` }"
                             :class="{ 'cursor-pointer hover:underline': true }"
-                            :title="t('quickCommands.tags.clickToEditTag', '点击编辑标签')"
+                            :title="t('quickCommands.tags.clickToEditTag', '点击编辑文件夹')"
                             @click.stop="startEditingTag(groupData.tagId, groupData.groupName)"
                         >
                             {{ groupData.groupName }}
@@ -665,7 +665,7 @@ const finishEditingTag = async () => {
         }
 
         // Update expanded group state
-        const untaggedGroupName = t('quickCommands.untagged', '未标记');
+        const untaggedGroupName = t('quickCommands.untagged', '未分类');
         if (expandedGroups.value[untaggedGroupName] !== undefined) {
           const currentState = expandedGroups.value[untaggedGroupName];
           delete expandedGroups.value[untaggedGroupName]; // Remove old key

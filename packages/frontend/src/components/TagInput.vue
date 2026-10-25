@@ -31,7 +31,7 @@ const selectedTagIds = ref<number[]>([]); // 本地维护选中的 tag_ids
 
 // Default values for props
 const availableTags = computed(() => props.availableTags ?? []);
-const placeholder = computed(() => props.placeholder ?? t('tags.inputPlaceholder', '添加或选择标签...'));
+const placeholder = computed(() => props.placeholder ?? t('tags.inputPlaceholder', '添加或选择文件夹...'));
 const allowCreate = computed(() => props.allowCreate !== false); // Default true
 const allowDelete = computed(() => props.allowDelete !== false); // Default true
 

@@ -259,7 +259,7 @@
       "port": "Port",
       "user": "User",
       "authMethod": "Auth Method",
-      "tags": "Tags",
+      "tags": "Folders",
       "lastConnected": "Last Connected",
       "actions": "Actions"
     },
@@ -333,7 +333,7 @@
       "keyUpdateNote": "Leave private key and passphrase blank to keep the existing key.",
       "proxy": "Proxy:",
       "noProxy": "No Proxy",
-      "tags": "Tags:",
+      "tags": "Folders:",
       "notes": "Notes:",
       "notesPlaceholder": "Enter connection notes...",
       "connectionMode": "Proxy Type:",
@@ -372,7 +372,7 @@
       "sectionScriptMode": "Script Mode",
       "scriptModeInputLabel": "Connection Script (one per line)",
       "scriptModePlaceholder": "Enter connection script, one connection configuration per line.",
-      "scriptModeFormatInfo": "Format: user{'@'}host:port [-type TYPE] [-name NAME] [-p PASSWORD] [-k KEY_NAME] [-proxy PROXY_NAME] [-tags TAG1 TAG2...] [-note NOTE_TEXT]\nParameter Explanation:\n  user{'@'}host:port  - Username{'@'}Hostname or IP:Port (required)\n  -type TYPE      - Connection type (SSH, RDP, VNC; defaults to SSH)\n  -name NAME      - Display name for the connection (optional; defaults to user{'@'}host)\n  -p PASSWORD     - Password (required for SSH password auth, RDP, VNC)\n  -k KEY_NAME     - SSH key name (required for SSH key auth, corresponds to an uploaded key)\n  -proxy PROXY_NAME - Proxy name (optional, corresponds to a configured proxy)\n  -tags TAG1 TAG2 - List of tags, space-separated (optional)\n  -note NOTE_TEXT - Connection notes (optional, supports text with spaces, use quotes if it includes special characters)\nYou can also paste an OpenSSH command, e.g. ssh -p 2222 user{'@'}host (without -p/-k an empty password is used)",
+      "scriptModeFormatInfo": "Format: user{'@'}host:port [-type TYPE] [-name NAME] [-p PASSWORD] [-k KEY_NAME] [-proxy PROXY_NAME] [-tags TAG1 TAG2...] [-note NOTE_TEXT]\nParameter Explanation:\n  user{'@'}host:port  - Username{'@'}Hostname or IP:Port (required)\n  -type TYPE      - Connection type (SSH, RDP, VNC; defaults to SSH)\n  -name NAME      - Display name for the connection (optional; defaults to user{'@'}host)\n  -p PASSWORD     - Password (required for SSH password auth, RDP, VNC)\n  -k KEY_NAME     - SSH key name (required for SSH key auth, corresponds to an uploaded key)\n  -proxy PROXY_NAME - Proxy name (optional, corresponds to a configured proxy)\n  -tags TAG1 TAG2 - List of folders, space-separated (optional)\n  -note NOTE_TEXT - Connection notes (optional, supports text with spaces, use quotes if it includes special characters)\nYou can also paste an OpenSSH command, e.g. ssh -p 2222 user{'@'}host (without -p/-k an empty password is used)",
       "scriptErrorMissingHost": "Script line '{line}' is missing the 'user{'@'}host:port' part.",
       "scriptErrorInvalidType": "Invalid type '{type}' in script line '{line}'. Valid types are SSH, RDP, VNC.",
       "scriptErrorUnknownArg": "Unknown argument '{arg}' in script line '{line}'.",
@@ -386,7 +386,7 @@
       "scriptErrorMissingKeyNameForSsh": "Script line '{line}' (SSH key auth) is missing key name (-k).",
       "scriptErrorMissingPasswordForType": "Script line '{line}' (type {type}) is missing password (-p).",
       "scriptErrorInternal": "Internal parsing error while processing script input.",
-      "scriptErrorTagNotFound": "Script processing error: Tag '{tagName}' not found.",
+      "scriptErrorTagNotFound": "Script processing error: Folder '{tagName}' not found.",
       "scriptErrorSshKeyNotFound": "Script processing error: SSH Key '{keyName}' not found.",
       "scriptErrorNothingToProcess": "No valid connection data to process.",
       "scriptErrorMissingAuthForSsh": "SSH connection must provide password (-p) or key name (-k)",
@@ -399,8 +399,8 @@
       "scriptErrorUnexpectedArgument": "Unexpected argument '{argument}'",
       "scriptErrorEmptyLine": "Input line cannot be empty",
       "scriptErrorInvalidUserHostPortFormat": "Invalid format for '{part}', expected format is 'user{'@'}host' or 'user{'@'}host:port'",
-      "scriptTagCreated": "Tag '{tagName}' created",
-      "scriptErrorTagCreationFailed": "Failed to create tag '{tagName}'",
+      "scriptTagCreated": "Folder '{tagName}' created",
+      "scriptErrorTagCreationFailed": "Failed to create folder '{tagName}'",
       "scriptModeAddingConnections": "Adding {count} connections in script mode...",
       "jumpHostsTitle": "Jump Host Chain Configuration",
       "jumpHostLabel": "Jump Host",
@@ -435,8 +435,8 @@
     "status": {
       "never": "Never"
     },
-    "untaggedGroup": "Untagged",
-    "noUntaggedConnections": "No untagged connections found.",
+    "untaggedGroup": "Uncategorized",
+    "noUntaggedConnections": "No uncategorized connections found.",
     "messages": {
       "noSshConnectionsToConnectAll": "No SSH connections in the current filter to connect."
     },
@@ -724,25 +724,25 @@
     "copyIpError": "Failed to copy IP"
   },
   "tags": {
-    "title": "Tag Management",
-    "addTag": "Add New Tag",
-    "loading": "Loading tags...",
-    "error": "Failed to load tags: {error}",
-    "noTags": "No tags yet. Click 'Add New Tag' to create one!",
+    "title": "Folder Management",
+    "addTag": "Add New Folder",
+    "loading": "Loading folders...",
+    "error": "Failed to load folders: {error}",
+    "noTags": "No folders yet. Click 'Add New Folder' to create one!",
     "prompts": {
-      "confirmDelete": "Are you sure you want to delete the tag \"{name}\"? This cannot be undone."
+      "confirmDelete": "Are you sure you want to delete the folder \"{name}\"? This cannot be undone."
     },
-    "inputPlaceholder": "Type to search or create tags...",
-    "removeSelection": "Remove this tag selection",
-    "deleteTagGlobally": "Delete this tag globally",
-    "createSuccess": "Tag created successfully.",
-    "updateSuccess": "Tag updated successfully.",
-    "deleteSuccess": "Tag \"{name}\" deleted successfully.",
-    "deleteFailed": "Failed to delete tag \"{name}\": {error}",
-    "errorDelete": "Error deleting tag: {error}",
-    "createFailed": "Failed to create tag \"{name}\": {error}",
-    "deleteFailedWithName": "Failed to delete tag \"{name}\": {error}",
-    "deleteSuccessWithName": "Tag \"{name}\" deleted."
+    "inputPlaceholder": "Type to search or create folders...",
+    "removeSelection": "Remove this folder selection",
+    "deleteTagGlobally": "Delete this folder globally",
+    "createSuccess": "Folder created successfully.",
+    "updateSuccess": "Folder updated successfully.",
+    "deleteSuccess": "Folder \"{name}\" deleted successfully.",
+    "deleteFailed": "Failed to delete folder \"{name}\": {error}",
+    "errorDelete": "Error deleting folder: {error}",
+    "createFailed": "Failed to create folder \"{name}\": {error}",
+    "deleteFailedWithName": "Failed to delete folder \"{name}\": {error}",
+    "deleteSuccessWithName": "Folder \"{name}\" deleted."
   },
   "settings": {
     "popupFileManager": {
@@ -1018,9 +1018,9 @@
         "PROXY_CREATED": "Proxy Created",
         "PROXY_UPDATED": "Proxy Updated",
         "PROXY_DELETED": "Proxy Deleted",
-        "TAG_CREATED": "Tag Created",
-        "TAG_UPDATED": "Tag Updated",
-        "TAG_DELETED": "Tag Deleted",
+        "TAG_CREATED": "Folder Created",
+        "TAG_UPDATED": "Folder Updated",
+        "TAG_DELETED": "Folder Deleted",
         "SETTINGS_UPDATED": "Settings Updated",
         "IP_WHITELIST_UPDATED": "IP Whitelist Updated",
         "IP_BLOCKED": "IP Blocked",
@@ -1085,20 +1085,20 @@
       "sidebarPersistentDescription": "When enabled, clicking outside the sidebar will not automatically collapse it.",
       "success": {
         "sidebarPersistentSaved": "Sidebar setting saved.",
-        "showConnectionTagsSaved": "Connection tags visibility setting saved.",
-        "showQuickCommandTagsSaved": "Quick command tags visibility setting saved."
+        "showConnectionTagsSaved": "Connection folder grouping setting saved.",
+        "showQuickCommandTagsSaved": "Quick command folder grouping setting saved."
       },
       "error": {
         "sidebarPersistentSaveFailed": "Failed to save sidebar setting.",
-        "showConnectionTagsSaveFailed": "Failed to save connection tags visibility setting.",
-        "showQuickCommandTagsSaveFailed": "Failed to save quick command tags visibility setting."
+        "showConnectionTagsSaveFailed": "Failed to save connection folder grouping setting.",
+        "showQuickCommandTagsSaveFailed": "Failed to save quick command folder grouping setting."
       },
-      "showConnectionTagsTitle": "Show Connection Tags",
-      "showConnectionTagsLabel": "Show tags in connection list",
-      "showConnectionTagsDescription": "Disable to hide tags in the connection list and exclude them from search.",
-      "showQuickCommandTagsTitle": "Show Quick Command Tags",
-      "showQuickCommandTagsLabel": "Show tags in quick command list",
-      "showQuickCommandTagsDescription": "Disable to hide tags in the quick command list and exclude them from search.",
+      "showConnectionTagsTitle": "Group Connections by Folder",
+      "showConnectionTagsLabel": "Group the connection list by folder",
+      "showConnectionTagsDescription": "When off, the connection list is shown flat and folder names are excluded from search.",
+      "showQuickCommandTagsTitle": "Group Quick Commands by Folder",
+      "showQuickCommandTagsLabel": "Group the quick command list by folder",
+      "showQuickCommandTagsDescription": "When off, the quick command list is shown flat and folder names are excluded from search.",
       "fileManagerDeleteConfirmTitle": "File Manager Delete Confirmation",
       "fileManagerShowDeleteConfirmationLabel": "Show confirmation dialog when deleting files or folders",
       "fileManagerDeleteConfirmSuccess": "File manager delete confirmation setting saved.",
@@ -1418,9 +1418,9 @@
       "PROXY_CREATED": "Proxy Created",
       "PROXY_UPDATED": "Proxy Updated",
       "PROXY_DELETED": "Proxy Deleted",
-      "TAG_CREATED": "Tag Created",
-      "TAG_UPDATED": "Tag Updated",
-      "TAG_DELETED": "Tag Deleted",
+      "TAG_CREATED": "Folder Created",
+      "TAG_UPDATED": "Folder Updated",
+      "TAG_DELETED": "Folder Deleted",
       "SETTINGS_UPDATED": "Settings Updated",
       "IP_WHITELIST_UPDATED": "IP Whitelist Updated",
       "NOTIFICATION_SETTING_CREATED": "Notification Setting Created",
@@ -1444,12 +1444,12 @@
     }
   },
   "workspaceConnectionList": {
-    "untagged": "Untagged",
+    "untagged": "Uncategorized",
     "searchPlaceholder": "Search name or host...",
     "noResults": "No connections found matching \"{searchTerm}\".",
-    "allConnectionsTaggedSuccess": "All connections tagged successfully.",
-    "noConnectionsToTag": "No connections to tag.",
-    "clickToEditTag": "Click to edit tag name",
+    "allConnectionsTaggedSuccess": "All connections moved into this folder.",
+    "noConnectionsToTag": "No connections to move into this folder.",
+    "clickToEditTag": "Click to edit folder name",
     "connectAllInGroup": "Connect All in Group (SSH)",
     "connectingAllInGroup": "Connecting all in group '{groupName}'...",
     "noConnectionsInGroup": "No connections to connect in group '{groupName}'.",
@@ -1459,22 +1459,22 @@
     "connectAllSshInGroupMenu": "Connect All",
     "noSshConnectionsToConnectMenu": "No SSH Connections",
     "manageTags": {
-      "title": "Manage Tag Connections",
+      "title": "Manage Folder Connections",
       "searchPlaceholder": "Search connections...",
       "selectAll": "Select All",
       "deselectAll": "Deselect All",
       "noConnectionsFound": "No connections found.",
-      "saveSuccess": "Tag connections updated successfully.",
-      "saveFailed": "Failed to update tag connections.",
-      "menuItem": "Manage Tag",
-      "cannotManageUntagged": "Cannot manage connections for 'Untagged' group.",
+      "saveSuccess": "Folder connections updated successfully.",
+      "saveFailed": "Failed to update folder connections.",
+      "menuItem": "Manage Folder",
+      "cannotManageUntagged": "Cannot manage connections for 'Uncategorized' group.",
       "invertSelection": "Invert Selection"
     },
     "deleteAllConnectionsInGroupMenu": "Delete All Connections in Group",
     "noConnectionsToDeleteInGroup": "No connections to delete in group '{groupName}'.",
     "confirmDeleteAllConnectionsInGroup": "Are you sure you want to delete all {count} connections in group '{groupName}'? This cannot be undone.",
     "allConnectionsInGroupDeletedSuccess": "{count} connections successfully deleted from group '{groupName}'.",
-    "cannotDeleteFromUntagged": "Cannot use this option to delete connections from the 'Untagged' group.",
+    "cannotDeleteFromUntagged": "Cannot use this option to delete connections from the 'Uncategorized' group.",
     "someConnectionsInGroupDeleteFailed": "{count} connections in group '{groupName}' failed to delete."
   },
   "remoteDesktopModal": {
@@ -1543,7 +1543,7 @@
     "searchPlaceholder": "Search RDP name, host, or user...",
     "groupLabel": "Group",
     "allGroups": "All groups",
-    "tagGroup": "Tag {id}",
+    "tagGroup": "Folder {id}",
     "empty": "No RDP connections available. Add an RDP connection first."
   },
   "vncModal": {
@@ -1643,8 +1643,8 @@
       "commandPlaceholder": "e.g.,",
       "errorCommandRequired": "Command cannot be empty",
       "add": "Add",
-      "tags": "Tags:",
-      "tagsPlaceholder": "Select or create tags...",
+      "tags": "Folders:",
+      "tagsPlaceholder": "Select or create folders...",
       "variablesTitle": "Variable Management",
       "noVariables": "No variables yet. Click the button below to add one.",
       "variableNamePlaceholder": "Variable Name",
@@ -1654,12 +1654,12 @@
       "warningUndefinedVariables": "Warning: Undefined variables in command template: {variables}",
       "errorNoActiveSession": "No active SSH session to execute the command."
     },
-    "untagged": "Untagged",
+    "untagged": "Uncategorized",
     "tags": {
-      "clickToEditTag": "Click to edit tag name",
-      "createSuccess": "Tag created successfully.",
-      "noCommandsToAssign": "No commands to assign the tag to.",
-      "updateSuccess": "Tag updated successfully."
+      "clickToEditTag": "Click to edit folder name",
+      "createSuccess": "Folder created successfully.",
+      "noCommandsToAssign": "No commands to move into this folder.",
+      "updateSuccess": "Folder updated successfully."
     },
     "actions": {
       "sendToAllSessions": "Send to All Sessions"
@@ -1775,9 +1775,9 @@
       "created": "Created"
     },
     "filterTags": {
-      "all": "All Tags"
+      "all": "All Folders"
     },
-    "noConnectionsWithTag": "No connections found with this tag",
+    "noConnectionsWithTag": "No connections in this folder",
     "noConnectionsMatchSearch": "No connections match your search.",
     "searchConnectionsPlaceholder": "Search connections..."
   },
@@ -1960,14 +1960,14 @@
     "loadingConnections": "Loading connections...",
     "noConnections": "No connections available. Please add connections first.",
     "noConnectionsFound": "No connections found matching your search.",
-    "untaggedConnections": "Untagged",
+    "untaggedConnections": "Uncategorized",
     "itemsToSendTitle": "Items to send:",
     "noItemsSelected": "No items selected to send.",
     "sendButton": "Send",
     "cancelButton": "Cancel",
     "errorFetchingData": "Error fetching data for modal.",
     "errorFetchingConnections": "Error fetching connections.",
-    "errorFetchingTags": "Error fetching tags.",
+    "errorFetchingTags": "Error fetching folders.",
     "validationError": "Please select at least one connection and specify a target path.",
     "transferInitiated": "Transfer task created",
     "transferInitiatedGeneric": "Transfer task created successfully.",

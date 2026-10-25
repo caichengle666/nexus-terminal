@@ -485,7 +485,7 @@ async setCaptchaConfig(req: Request, res: Response): Promise<void> {
      res.json({ enabled: isEnabled });
    } catch (error: any) {
      console.error('[控制器] 获取“显示连接标签”设置时出错:', error);
-     res.status(500).json({ message: '获取“显示连接标签”设置失败', error: error.message });
+     res.status(500).json({ message: '获取“显示连接文件夹”设置失败', error: error.message });
    }
  }, // *** 确保这里有逗号 ***
 
@@ -508,10 +508,10 @@ async setCaptchaConfig(req: Request, res: Response): Promise<void> {
      notificationService.sendNotification('SETTINGS_UPDATED', { updatedKeys: ['showConnectionTags'] });
 
      
-     res.status(200).json({ message: '“显示连接标签”设置已成功更新' });
+     res.status(200).json({ message: '“显示连接文件夹”设置已成功更新' });
    } catch (error: any) {
      console.error('[控制器] 设置“显示连接标签”时出错:', error);
-     res.status(500).json({ message: '设置“显示连接标签”失败', error: error.message });
+     res.status(500).json({ message: '设置“显示连接文件夹”失败', error: error.message });
    }
  }, // *** 确保这里有逗号 ***
 
@@ -522,7 +522,7 @@ async setCaptchaConfig(req: Request, res: Response): Promise<void> {
      res.json({ enabled: isEnabled });
    } catch (error: any) {
      console.error('[控制器] 获取“显示快捷指令标签”设置时出错:', error);
-     res.status(500).json({ message: '获取“显示快捷指令标签”设置失败', error: error.message });
+     res.status(500).json({ message: '获取“显示快捷指令文件夹”设置失败', error: error.message });
    }
  }, // *** 确保这里有逗号 ***
 
@@ -545,10 +545,10 @@ async setCaptchaConfig(req: Request, res: Response): Promise<void> {
      notificationService.sendNotification('SETTINGS_UPDATED', { updatedKeys: ['showQuickCommandTags'] });
 
      
-     res.status(200).json({ message: '“显示快捷指令标签”设置已成功更新' });
+     res.status(200).json({ message: '“显示快捷指令文件夹”设置已成功更新' });
    } catch (error: any) {
      console.error('[控制器] 设置“显示快捷指令标签”时出错:', error);
-     res.status(500).json({ message: '设置“显示快捷指令标签”失败', error: error.message });
+     res.status(500).json({ message: '设置“显示快捷指令文件夹”失败', error: error.message });
    }
  }, 
 

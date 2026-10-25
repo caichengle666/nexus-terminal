@@ -54,7 +54,7 @@ export const useTagsStore = defineStore('tags', () => {
             return true; // 表示获取成功（即使数据未变）
         } catch (err: any) {
             console.error('[TagsStore] Failed to fetch tags:', err);
-            error.value = err.response?.data?.message || err.message || '获取标签列表失败';
+            error.value = err.response?.data?.message || err.message || '获取文件夹列表失败';
             // 保留缓存数据，仅设置错误状态
             return false; // 表示获取失败
         } finally {
@@ -75,7 +75,7 @@ export const useTagsStore = defineStore('tags', () => {
             return newTag; // 返回新标签信息
         } catch (err: any) {
             console.error('Failed to add tag:', err);
-            error.value = err.response?.data?.message || err.message || '添加标签失败';
+            error.value = err.response?.data?.message || err.message || '添加文件夹失败';
             return null; // 返回 null 表示失败
         } finally {
             isLoading.value = false;
@@ -94,7 +94,7 @@ export const useTagsStore = defineStore('tags', () => {
             return true;
         } catch (err: any) {
             console.error('Failed to update tag:', err);
-            error.value = err.response?.data?.message || err.message || '更新标签失败';
+            error.value = err.response?.data?.message || err.message || '更新文件夹失败';
             return false;
         } finally {
             isLoading.value = false;
@@ -113,7 +113,7 @@ export const useTagsStore = defineStore('tags', () => {
             return true;
         } catch (err: any) {
             console.error('Failed to delete tag:', err);
-            error.value = err.response?.data?.message || err.message || '删除标签失败';
+            error.value = err.response?.data?.message || err.message || '删除文件夹失败';
             return false;
         } finally {
             isLoading.value = false;
@@ -143,7 +143,7 @@ export const useTagsStore = defineStore('tags', () => {
             return true;
         } catch (err: any) {
             console.error(`Failed to update connections for tag ${tagId}:`, err);
-            error.value = err.response?.data?.message || err.message || '更新标签连接失败';
+            error.value = err.response?.data?.message || err.message || '更新文件夹连接失败';
             return false;
         } finally {
             isLoading.value = false;

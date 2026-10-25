@@ -158,7 +158,7 @@ const getAvailableJumpHostsForIndex = (currentIndex: number): ConnectionInfo[] =
           :allow-delete="true"
           @create-tag="handleCreateTagEvent"
           @delete-tag="handleDeleteTagEvent"
-          :placeholder="t('tags.inputPlaceholder', '添加或选择标签...')"
+          :placeholder="t('tags.inputPlaceholder', '添加或选择文件夹...')"
       />
       <div v-if="props.isTagLoading" class="mt-1 text-xs text-text-secondary">{{ t('tags.loading') }}</div>
       <div v-if="props.tagStoreError" class="mt-1 text-xs text-error">{{ t('tags.error', { error: props.tagStoreError }) }}</div>

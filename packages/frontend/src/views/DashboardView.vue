@@ -310,7 +310,7 @@ const handleConnectionModified = async () => {
                 aria-label="Filter connections by tag"
                 :disabled="isLoadingTags"
               >
-                <option :value="null">{{ t('dashboard.filterTags.all', '所有标签') }}</option>
+                <option :value="null">{{ t('dashboard.filterTags.all', '所有文件夹') }}</option>
                 <option v-if="isLoadingTags" disabled>{{ t('common.loading') }}</option>
                 <!-- 修正 v-for 循环中的类型 -->
                 <option v-for="tag in (tags as TagInfo[])" :key="tag.id" :value="tag.id">
@@ -385,7 +385,7 @@ const handleConnectionModified = async () => {
           </ul>
           <!-- Adjust no connections message based on filtering and search -->
           <div v-else-if="!isLoadingConnections && searchQuery && filteredAndSortedConnections.length === 0" class="text-center text-text-secondary">{{ t('dashboard.noConnectionsMatchSearch', '没有连接匹配搜索条件') }}</div>
-          <div v-else-if="!isLoadingConnections && selectedTagId !== null && filteredAndSortedConnections.length === 0" class="text-center text-text-secondary">{{ t('dashboard.noConnectionsWithTag', '该标签下没有连接记录') }}</div>
+          <div v-else-if="!isLoadingConnections && selectedTagId !== null && filteredAndSortedConnections.length === 0" class="text-center text-text-secondary">{{ t('dashboard.noConnectionsWithTag', '该文件夹下没有连接记录') }}</div>
           <div v-else class="text-center text-text-secondary">{{ t('dashboard.noConnections', '没有连接记录') }}</div>
         </div>
       </div>

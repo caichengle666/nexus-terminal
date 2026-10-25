@@ -312,7 +312,7 @@ export const useConnectionsStore = defineStore('connections', {
                  return true; // 表示成功
              } catch (err: any) {
                  console.error(`为连接 ${connectionIds.join(', ')} 添加标签 ${tagId} 失败:`, err);
-                 this.error = err.response?.data?.message || err.message || `为连接添加标签时发生未知错误。`;
+                 this.error = err.response?.data?.message || err.message || `为连接添加文件夹时发生未知错误。`;
                   if (err.response?.status === 401) {
                      console.warn('未授权，需要登录才能为连接添加标签。');
                  }
@@ -334,7 +334,7 @@ export const useConnectionsStore = defineStore('connections', {
                 return true;
             } catch (err: any) {
                 console.error(`更新连接 ${connectionId} 的标签失败:`, err);
-                this.error = err.response?.data?.message || err.message || `更新连接标签时发生未知错误。`;
+                this.error = err.response?.data?.message || err.message || `更新连接文件夹时发生未知错误。`;
                 return false;
             } finally {
                 this.isLoading = false;

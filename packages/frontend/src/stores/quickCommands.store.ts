@@ -53,7 +53,7 @@ export const useQuickCommandsStore = defineStore('quickCommands', () => {
         const term = searchTerm.value.toLowerCase().trim();
         const allTags = quickCommandTagsStore.tags; // 获取快捷指令专属标签
         const tagMap = new Map(allTags.map(tag => [tag.id, tag.name]));
-        const untaggedGroupName = t('quickCommands.untagged', '未标记'); // 获取 "未标记" 的翻译
+        const untaggedGroupName = t('quickCommands.untagged', '未分类'); // 获取 "未标记" 的翻译
 
         // 1. 过滤 (New logic: filter by command name, command content, OR tag name)
         let filtered = quickCommandsList.value;
@@ -471,13 +471,13 @@ export const useQuickCommandsStore = defineStore('quickCommands', () => {
                     return true;
                 } else {
                     // This case might not happen if backend throws errors instead
-                    error.value = response.data.message || '批量分配标签失败 (未知)';
+                    error.value = response.data.message || '批量分配文件夹失败 (未知)';
                     if (error.value) uiNotificationsStore.showError(error.value); // Check if error.value is not null
                     return false;
                 }
             } catch (err: any) {
                 console.error('[Store] Error assigning tag to commands:', err);
-                error.value = err.response?.data?.message || err.message || '批量分配标签时发生网络或服务器错误';
+                error.value = err.response?.data?.message || err.message || '批量分配文件夹时发生网络或服务器错误';
                 if (error.value) uiNotificationsStore.showError(error.value); // Check if error.value is not null
                 return false;
             } finally {

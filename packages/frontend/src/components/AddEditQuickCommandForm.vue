@@ -70,12 +70,12 @@
         </div>
         <!-- +++ 标签输入区 +++ -->
         <div>
-           <label for="qc-tags" class="block mb-1.5 text-sm font-medium text-text-secondary">{{ t('quickCommands.form.tags', '标签:') }}</label>
+           <label for="qc-tags" class="block mb-1.5 text-sm font-medium text-text-secondary">{{ t('quickCommands.form.tags', '文件夹:') }}</label>
            <TagInput
                id="qc-tags"
                v-model="formData.tagIds"
                :available-tags="quickCommandTagsStore.tags"
-               :placeholder="t('quickCommands.form.tagsPlaceholder', '添加或选择标签...')"
+               :placeholder="t('quickCommands.form.tagsPlaceholder', '添加或选择文件夹...')"
                @create-tag="handleCreateTag"
                :allow-create="true"
                :allow-delete="true"

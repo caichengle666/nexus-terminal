@@ -242,7 +242,7 @@
       "port": "ポート",
       "user": "ユーザー",
       "authMethod": "認証方式",
-      "tags": "タグ",
+      "tags": "フォルダ",
       "lastConnected": "最終接続",
       "actions": "操作"
     },
@@ -308,7 +308,7 @@
       "keyUpdateNote": "既存の鍵を維持する場合は、秘密鍵とパスフレーズを空欄のままにしてください。",
       "proxy": "プロキシ:",
       "noProxy": "プロキシなし",
-      "tags": "タグ:",
+      "tags": "フォルダ:",
       "notes": "メモ:",
       "notesPlaceholder": "接続のメモを入力...",
       "connectionMode": "プロキシの種類:",
@@ -347,7 +347,7 @@
       "sectionScriptMode": "スクリプトモード",
       "scriptModeInputLabel": "接続スクリプト（1 行に 1 件）",
       "scriptModePlaceholder": "接続スクリプトを入力してください。1 行に 1 件の接続設定を記述します。",
-      "scriptModeFormatInfo": "形式: user{'@'}host:port [-type TYPE] [-name NAME] [-p PASSWORD] [-k KEY_NAME] [-proxy PROXY_NAME] [-tags TAG1 TAG2...] [-note NOTE_TEXT]\nパラメーターの説明:\n  user{'@'}host:port  - ユーザー名{'@'}ホスト名または IP:ポート（必須）\n  -type TYPE      - 接続の種類（SSH、RDP、VNC。既定は SSH）\n  -name NAME      - 接続の表示名（任意。既定は user{'@'}host）\n  -p PASSWORD     - パスワード（SSH パスワード認証、RDP、VNC では必須）\n  -k KEY_NAME     - SSH キー名（SSH 鍵認証では必須。アップロード済みのキーに対応）\n  -proxy PROXY_NAME - プロキシ名（任意。設定済みのプロキシに対応）\n  -tags TAG1 TAG2 - タグの一覧、スペース区切り（任意）\n  -note NOTE_TEXT - 接続のメモ（任意。スペースを含むテキスト可。特殊文字を含む場合は引用符で囲む）\nOpenSSH コマンド（例: ssh -p 2222 user{'@'}host）もそのまま貼り付け可能（-p/-k なしの場合は空パスワード）",
+      "scriptModeFormatInfo": "形式: user{'@'}host:port [-type TYPE] [-name NAME] [-p PASSWORD] [-k KEY_NAME] [-proxy PROXY_NAME] [-tags TAG1 TAG2...] [-note NOTE_TEXT]\nパラメーターの説明:\n  user{'@'}host:port  - ユーザー名{'@'}ホスト名または IP:ポート（必須）\n  -type TYPE      - 接続の種類（SSH、RDP、VNC。既定は SSH）\n  -name NAME      - 接続の表示名（任意。既定は user{'@'}host）\n  -p PASSWORD     - パスワード（SSH パスワード認証、RDP、VNC では必須）\n  -k KEY_NAME     - SSH キー名（SSH 鍵認証では必須。アップロード済みのキーに対応）\n  -proxy PROXY_NAME - プロキシ名（任意。設定済みのプロキシに対応）\n  -tags TAG1 TAG2 - フォルダの一覧、スペース区切り（任意）\n  -note NOTE_TEXT - 接続のメモ（任意。スペースを含むテキスト可。特殊文字を含む場合は引用符で囲む）\nOpenSSH コマンド（例: ssh -p 2222 user{'@'}host）もそのまま貼り付け可能（-p/-k なしの場合は空パスワード）",
       "scriptErrorMissingHost": "スクリプト行 '{line}' に 'user{'@'}host:port' の部分がありません。",
       "scriptErrorInvalidType": "スクリプト行 '{line}' の種類 '{type}' が無効です。有効な種類は SSH、RDP、VNC です。",
       "scriptErrorUnknownArg": "スクリプト行 '{line}' に不明な引数 '{arg}' があります。",
@@ -361,7 +361,7 @@
       "scriptErrorMissingKeyNameForSsh": "スクリプト行 '{line}'（SSH 鍵認証）に鍵名 (-k) がありません。",
       "scriptErrorMissingPasswordForType": "スクリプト行 '{line}'（種類 {type}）にパスワード (-p) がありません。",
       "scriptErrorInternal": "スクリプト入力の処理中に内部解析エラーが発生しました。",
-      "scriptErrorTagNotFound": "スクリプト処理エラー: タグ '{tagName}' が見つかりません。",
+      "scriptErrorTagNotFound": "スクリプト処理エラー: フォルダ '{tagName}' が見つかりません。",
       "scriptErrorSshKeyNotFound": "スクリプト処理エラー: SSH キー '{keyName}' が見つかりません。",
       "scriptErrorNothingToProcess": "処理できる有効な接続データがありません。",
       "scriptErrorMissingAuthForSsh": "SSH 接続にはパスワード (-p) または鍵名 (-k) が必要です",
@@ -374,8 +374,8 @@
       "scriptErrorUnexpectedArgument": "予期しない引数 '{argument}'",
       "scriptErrorEmptyLine": "入力行を空にすることはできません",
       "scriptErrorInvalidUserHostPortFormat": "'{part}' の形式が無効です。'user{'@'}host' または 'user{'@'}host:port' の形式で指定してください",
-      "scriptTagCreated": "タグ '{tagName}' を作成しました",
-      "scriptErrorTagCreationFailed": "タグ '{tagName}' の作成に失敗しました",
+      "scriptTagCreated": "フォルダ '{tagName}' を作成しました",
+      "scriptErrorTagCreationFailed": "フォルダ '{tagName}' の作成に失敗しました",
       "scriptModeAddingConnections": "スクリプトモードで {count} 件の接続を追加中...",
       "jumpHostsTitle": "踏み台ホストチェーンの設定",
       "jumpHostLabel": "踏み台ホスト",
@@ -410,8 +410,8 @@
     "status": {
       "never": "なし"
     },
-    "untaggedGroup": "タグなし",
-    "noUntaggedConnections": "タグなしの接続はありません。",
+    "untaggedGroup": "未分類",
+    "noUntaggedConnections": "未分類の接続はありません。",
     "filters": {
       "viewLabel": "接続ビュー",
       "all": "すべて",
@@ -707,25 +707,25 @@
     "copyIpError": "IP のコピーに失敗しました"
   },
   "tags": {
-    "title": "タグ管理",
-    "addTag": "タグを追加",
-    "loading": "タグを読み込み中...",
-    "error": "タグの読み込みに失敗しました: {error}",
-    "noTags": "タグはまだありません。「タグを追加」をクリックして作成してください。",
+    "title": "フォルダ管理",
+    "addTag": "フォルダを追加",
+    "loading": "フォルダを読み込み中...",
+    "error": "フォルダの読み込みに失敗しました: {error}",
+    "noTags": "フォルダはまだありません。「フォルダを追加」をクリックして作成してください。",
     "prompts": {
-      "confirmDelete": "タグ「{name}」を削除してもよろしいですか？この操作は元に戻せません。"
+      "confirmDelete": "フォルダ「{name}」を削除してもよろしいですか？この操作は元に戻せません。"
     },
-    "inputPlaceholder": "入力してタグを検索または作成...",
-    "removeSelection": "このタグの選択を解除",
-    "deleteTagGlobally": "このタグを全体から削除",
-    "createSuccess": "タグを作成しました。",
-    "updateSuccess": "タグを更新しました。",
-    "deleteSuccess": "タグ「{name}」を削除しました。",
-    "deleteFailed": "タグ「{name}」の削除に失敗しました: {error}",
-    "errorDelete": "タグの削除中にエラーが発生しました: {error}",
-    "createFailed": "タグ「{name}」の作成に失敗しました: {error}",
-    "deleteFailedWithName": "タグ「{name}」の削除に失敗しました: {error}",
-    "deleteSuccessWithName": "タグ「{name}」を削除しました。"
+    "inputPlaceholder": "入力してフォルダを検索または作成...",
+    "removeSelection": "このフォルダの選択を解除",
+    "deleteTagGlobally": "このフォルダを全体から削除",
+    "createSuccess": "フォルダを作成しました。",
+    "updateSuccess": "フォルダを更新しました。",
+    "deleteSuccess": "フォルダ「{name}」を削除しました。",
+    "deleteFailed": "フォルダ「{name}」の削除に失敗しました: {error}",
+    "errorDelete": "フォルダの削除中にエラーが発生しました: {error}",
+    "createFailed": "フォルダ「{name}」の作成に失敗しました: {error}",
+    "deleteFailedWithName": "フォルダ「{name}」の削除に失敗しました: {error}",
+    "deleteSuccessWithName": "フォルダ「{name}」を削除しました。"
   },
   "settings": {
     "popupFileManager": {
@@ -1001,9 +1001,9 @@
         "PROXY_CREATED": "プロキシの作成",
         "PROXY_UPDATED": "プロキシの更新",
         "PROXY_DELETED": "プロキシの削除",
-        "TAG_CREATED": "タグの作成",
-        "TAG_UPDATED": "タグの更新",
-        "TAG_DELETED": "タグの削除",
+        "TAG_CREATED": "フォルダの作成",
+        "TAG_UPDATED": "フォルダの更新",
+        "TAG_DELETED": "フォルダの削除",
         "SETTINGS_UPDATED": "設定の更新",
         "IP_WHITELIST_UPDATED": "IP ホワイトリストの更新",
         "IP_BLOCKED": "IP のブロック",
@@ -1068,20 +1068,20 @@
       "sidebarPersistentDescription": "有効にすると、サイドバーの外側をクリックしても自動で折りたたまれません。",
       "success": {
         "sidebarPersistentSaved": "サイドバーの設定を保存しました。",
-        "showConnectionTagsSaved": "接続タグの表示設定を保存しました。",
-        "showQuickCommandTagsSaved": "クイックコマンドタグの表示設定を保存しました。"
+        "showConnectionTagsSaved": "接続のフォルダグループ設定を保存しました。",
+        "showQuickCommandTagsSaved": "クイックコマンドのフォルダグループ設定を保存しました。"
       },
       "error": {
         "sidebarPersistentSaveFailed": "サイドバーの設定を保存できませんでした。",
-        "showConnectionTagsSaveFailed": "接続タグの表示設定を保存できませんでした。",
-        "showQuickCommandTagsSaveFailed": "クイックコマンドタグの表示設定を保存できませんでした。"
+        "showConnectionTagsSaveFailed": "接続のフォルダグループ設定を保存できませんでした。",
+        "showQuickCommandTagsSaveFailed": "クイックコマンドのフォルダグループ設定を保存できませんでした。"
       },
-      "showConnectionTagsTitle": "接続タグを表示",
-      "showConnectionTagsLabel": "接続一覧にタグを表示",
-      "showConnectionTagsDescription": "無効にすると、接続一覧のタグが非表示になり、検索対象からも除外されます。",
-      "showQuickCommandTagsTitle": "クイックコマンドタグを表示",
-      "showQuickCommandTagsLabel": "クイックコマンド一覧にタグを表示",
-      "showQuickCommandTagsDescription": "無効にすると、クイックコマンド一覧のタグが非表示になり、検索対象からも除外されます。",
+      "showConnectionTagsTitle": "接続をフォルダごとにグループ表示",
+      "showConnectionTagsLabel": "接続一覧をフォルダでグループ化",
+      "showConnectionTagsDescription": "オフにすると接続一覧はフラット表示になり、フォルダ名は検索対象から除外されます。",
+      "showQuickCommandTagsTitle": "クイックコマンドをフォルダごとにグループ表示",
+      "showQuickCommandTagsLabel": "クイックコマンド一覧をフォルダでグループ化",
+      "showQuickCommandTagsDescription": "オフにするとクイックコマンド一覧はフラット表示になり、フォルダ名は検索対象から除外されます。",
       "fileManagerDeleteConfirmTitle": "ファイルマネージャーの削除確認",
       "fileManagerShowDeleteConfirmationLabel": "ファイルやフォルダーを削除するときに確認ダイアログを表示",
       "fileManagerDeleteConfirmSuccess": "ファイルマネージャーの削除確認設定を保存しました。",
@@ -1401,9 +1401,9 @@
       "PROXY_CREATED": "プロキシを作成",
       "PROXY_UPDATED": "プロキシを更新",
       "PROXY_DELETED": "プロキシを削除",
-      "TAG_CREATED": "タグを作成",
-      "TAG_UPDATED": "タグを更新",
-      "TAG_DELETED": "タグを削除",
+      "TAG_CREATED": "フォルダを作成",
+      "TAG_UPDATED": "フォルダを更新",
+      "TAG_DELETED": "フォルダを削除",
       "SETTINGS_UPDATED": "設定を更新",
       "IP_WHITELIST_UPDATED": "IP ホワイトリストを更新",
       "NOTIFICATION_SETTING_CREATED": "通知設定を作成",
@@ -1427,12 +1427,12 @@
     }
   },
   "workspaceConnectionList": {
-    "untagged": "タグなし",
+    "untagged": "未分類",
     "searchPlaceholder": "名前またはホストを検索...",
     "noResults": "「{searchTerm}」に一致する接続が見つかりません。",
-    "allConnectionsTaggedSuccess": "すべての接続にタグを付けました。",
-    "noConnectionsToTag": "タグを付ける接続がありません。",
-    "clickToEditTag": "クリックしてタグ名を編集",
+    "allConnectionsTaggedSuccess": "すべての接続をフォルダに移動しました。",
+    "noConnectionsToTag": "フォルダに移動する接続がありません。",
+    "clickToEditTag": "クリックしてフォルダ名を編集",
     "connectAllInGroup": "グループ内をすべて接続 (SSH)",
     "connectingAllInGroup": "グループ「{groupName}」内をすべて接続しています...",
     "noConnectionsInGroup": "グループ「{groupName}」に接続できる項目がありません。",
@@ -1442,22 +1442,22 @@
     "connectAllSshInGroupMenu": "すべて接続",
     "noSshConnectionsToConnectMenu": "SSH 接続なし",
     "manageTags": {
-      "title": "タグの接続を管理",
+      "title": "フォルダの接続を管理",
       "searchPlaceholder": "接続を検索...",
       "selectAll": "すべて選択",
       "deselectAll": "すべて選択解除",
       "noConnectionsFound": "接続が見つかりません。",
-      "saveSuccess": "タグの接続を更新しました。",
-      "saveFailed": "タグの接続の更新に失敗しました。",
-      "menuItem": "タグを管理",
-      "cannotManageUntagged": "「タグなし」グループの接続は管理できません。",
+      "saveSuccess": "フォルダの接続を更新しました。",
+      "saveFailed": "フォルダの接続の更新に失敗しました。",
+      "menuItem": "フォルダを管理",
+      "cannotManageUntagged": "「未分類」グループの接続は管理できません。",
       "invertSelection": "選択を反転"
     },
     "deleteAllConnectionsInGroupMenu": "グループ内の接続をすべて削除",
     "noConnectionsToDeleteInGroup": "グループ「{groupName}」に削除できる接続がありません。",
     "confirmDeleteAllConnectionsInGroup": "グループ「{groupName}」内の {count} 件の接続をすべて削除してもよろしいですか？この操作は元に戻せません。",
     "allConnectionsInGroupDeletedSuccess": "グループ「{groupName}」から {count} 件の接続を削除しました。",
-    "cannotDeleteFromUntagged": "このオプションでは「タグなし」グループの接続を削除できません。",
+    "cannotDeleteFromUntagged": "このオプションでは「未分類」グループの接続を削除できません。",
     "someConnectionsInGroupDeleteFailed": "グループ「{groupName}」内の {count} 件の接続を削除できませんでした。"
   },
   "remoteDesktopModal": {
@@ -1619,8 +1619,8 @@
       "commandPlaceholder": "例:",
       "errorCommandRequired": "コマンドを入力してください",
       "add": "追加",
-      "tags": "タグ:",
-      "tagsPlaceholder": "タグを選択または作成...",
+      "tags": "フォルダ:",
+      "tagsPlaceholder": "フォルダを選択または作成...",
       "variablesTitle": "変数の管理",
       "noVariables": "変数はまだありません。下のボタンから追加してください。",
       "variableNamePlaceholder": "変数名",
@@ -1630,12 +1630,12 @@
       "warningUndefinedVariables": "警告: コマンドテンプレートに未定義の変数があります: {variables}",
       "errorNoActiveSession": "コマンドを実行できるアクティブな SSH セッションがありません。"
     },
-    "untagged": "タグなし",
+    "untagged": "未分類",
     "tags": {
-      "clickToEditTag": "クリックしてタグ名を編集",
-      "createSuccess": "タグを作成しました。",
-      "noCommandsToAssign": "タグを割り当てるコマンドがありません。",
-      "updateSuccess": "タグを更新しました。"
+      "clickToEditTag": "クリックしてフォルダ名を編集",
+      "createSuccess": "フォルダを作成しました。",
+      "noCommandsToAssign": "フォルダに移動するコマンドがありません。",
+      "updateSuccess": "フォルダを更新しました。"
     },
     "actions": {
       "sendToAllSessions": "すべてのセッションに送信"
@@ -1751,9 +1751,9 @@
       "created": "作成日時"
     },
     "filterTags": {
-      "all": "すべてのタグ"
+      "all": "すべてのフォルダ"
     },
-    "noConnectionsWithTag": "このタグの接続はありません",
+    "noConnectionsWithTag": "このフォルダの接続はありません",
     "noConnectionsMatchSearch": "検索に一致する接続はありません。",
     "searchConnectionsPlaceholder": "接続を検索..."
   },
@@ -1936,14 +1936,14 @@
     "loadingConnections": "接続を読み込み中...",
     "noConnections": "利用できる接続がありません。先に接続を追加してください。",
     "noConnectionsFound": "検索に一致する接続が見つかりません。",
-    "untaggedConnections": "タグなし",
+    "untaggedConnections": "未分類",
     "itemsToSendTitle": "送信する項目:",
     "noItemsSelected": "送信する項目が選択されていません。",
     "sendButton": "送信",
     "cancelButton": "キャンセル",
     "errorFetchingData": "データの取得中にエラーが発生しました。",
     "errorFetchingConnections": "接続の取得中にエラーが発生しました。",
-    "errorFetchingTags": "タグの取得中にエラーが発生しました。",
+    "errorFetchingTags": "フォルダの取得中にエラーが発生しました。",
     "validationError": "接続を 1 つ以上選択し、送信先パスを指定してください。",
     "transferInitiated": "転送タスクを作成しました",
     "transferInitiatedGeneric": "転送タスクを作成しました。",
@@ -2490,7 +2490,7 @@
     "searchPlaceholder": "RDP 名、ホスト、ユーザーを検索...",
     "groupLabel": "グループ",
     "allGroups": "すべてのグループ",
-    "tagGroup": "タグ {id}",
+    "tagGroup": "フォルダ {id}",
     "empty": "利用可能な RDP 接続がありません。先に接続管理で RDP 接続を追加してください。"
   },
   "errors": {
