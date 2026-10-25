@@ -63,4 +63,10 @@ test('compares four-part versions numerically', () => {
   assert.equal(isVersionNewer('v0.9.22', '0.9.22.45'), false);
   assert.equal(isVersionNewer('v0.10.0', '0.9.99.99'), true);
   assert.equal(isVersionNewer('v0.9.22.44', '0.9.22.45'), false);
+  // 0.9.23 drops the 4th segment: missing parts count as 0.
+  assert.equal(isVersionNewer('v0.9.23', '0.9.22.50'), true);
+  assert.equal(isVersionNewer('v0.9.22.50', '0.9.23'), false);
+  assert.equal(isVersionNewer('v0.9.23', '0.9.23'), false);
+  assert.equal(isVersionNewer('v0.9.23.0', '0.9.23'), false);
+  assert.equal(isVersionNewer('v0.9.23.1', '0.9.23'), true);
 });

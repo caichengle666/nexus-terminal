@@ -153,6 +153,9 @@ test('startup check compares versions like the About page', () => {
   assert.equal(isVersionNewer('v0.9.23', '0.9.22.46'), true);
   assert.equal(isVersionNewer('v0.9.22.46', '0.9.22.46'), false);
   assert.equal(isVersionNewer('v0.9.22', '0.9.22.46'), false);
+  assert.equal(isVersionNewer('v0.9.23', '0.9.22.50'), true);
+  assert.equal(isVersionNewer('v0.9.22.50', '0.9.23'), false);
+  assert.equal(isVersionNewer('v0.9.23.0', '0.9.23'), false);
 });
 
 test('startup check only reports a newer, published, well-formed release', () => {
