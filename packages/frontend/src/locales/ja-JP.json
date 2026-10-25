@@ -1241,6 +1241,14 @@
     },
     "stepUp": {
       "currentPasswordLabel": "現在のパスワード（本人確認）"
+    },
+    "testTimeout": {
+      "title": "接続テストのタイムアウト",
+      "label": "タイムアウト",
+      "unit": "秒",
+      "description": "「接続テスト」が SSH ハンドシェイクの完了を待つ最大時間です（5〜120 秒、既定 15）。遠距離のホストやプロキシ / 踏み台経由の接続では大きめに設定してください。",
+      "saved": "保存しました",
+      "saveFailed": "保存に失敗しました"
     }
   },
   "notificationController": {

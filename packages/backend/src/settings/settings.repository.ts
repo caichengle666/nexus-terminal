@@ -272,6 +272,7 @@ export const ensureDefaultSettingsExist = async (db: sqlite3.Database): Promise<
         dockerStatusIntervalSeconds: '5',
         dockerDefaultExpand: 'false',
         statusMonitorIntervalSeconds: '3',
+        connectionTestTimeoutSeconds: '15',
         [SIDEBAR_CONFIG_KEY]: JSON.stringify(defaultSidebarPanesStructure),
         [CAPTCHA_CONFIG_KEY]: JSON.stringify(defaultCaptchaSettings),
         timezone: 'UTC', // 时区默认值

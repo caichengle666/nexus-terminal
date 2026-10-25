@@ -66,6 +66,37 @@
         <p v-if="gpuError" class="mt-2 text-sm text-error">{{ gpuError }}</p>
       </div>
       <hr v-if="isElectronRuntime && gpuStatus" class="border-border/50">
+      <!-- 「测试连接」超时（Issue #123） -->
+      <div class="settings-section-content">
+        <h3 class="text-base font-semibold text-foreground mb-3">{{ $t('settings.testTimeout.title') }}</h3>
+        <form @submit.prevent="handleUpdateTestTimeout" class="space-y-4">
+          <div>
+            <label for="connectionTestTimeout" class="block text-sm font-medium text-text-secondary mb-1">{{ $t('settings.testTimeout.label') }}</label>
+            <div class="flex items-center gap-2">
+              <input
+                id="connectionTestTimeout"
+                v-model.number="testTimeoutLocal"
+                type="number"
+                min="5"
+                max="120"
+                step="1"
+                required
+                class="w-32 px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+              >
+              <span class="text-sm text-text-secondary">{{ $t('settings.testTimeout.unit') }}</span>
+            </div>
+            <small class="block mt-1 text-xs text-text-secondary">{{ $t('settings.testTimeout.description') }}</small>
+          </div>
+          <div class="flex items-center justify-between">
+            <button type="submit"
+                    class="px-4 py-2 bg-button text-button-text rounded-md shadow-sm hover:bg-button-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition duration-150 ease-in-out text-sm font-medium">
+              {{ $t('common.save') }}
+            </button>
+            <p v-if="testTimeoutMessage" :class="['text-sm', testTimeoutSuccess ? 'text-success' : 'text-error']">{{ testTimeoutMessage }}</p>
+          </div>
+        </form>
+      </div>
+      <hr class="border-border/50">
       <!-- Timezone Setting -->
       <div class="settings-section-content">
          <h3 class="text-base font-semibold text-foreground mb-3">{{ $t('settings.timezone.title') }}</h3>
@@ -99,11 +130,43 @@ import { useSettingsStore } from '../../stores/settings.store';
 import { useI18n } from 'vue-i18n';
 import { storeToRefs } from 'pinia';
 import { useSystemSettings } from '../../composables/settings/useSystemSettings';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 
 const settingsStore = useSettingsStore();
 const { settings } = storeToRefs(settingsStore); 
 const { t } = useI18n();
+
+// --- 「测试连接」超时（Issue #123）：5–120 秒，默认 15 ---
+const TEST_TIMEOUT_MIN = 5;
+const TEST_TIMEOUT_MAX = 120;
+const TEST_TIMEOUT_DEFAULT = 15;
+const testTimeoutLocal = ref<number>(TEST_TIMEOUT_DEFAULT);
+const testTimeoutMessage = ref('');
+const testTimeoutSuccess = ref(true);
+watch(
+  () => settings.value?.connectionTestTimeoutSeconds,
+  (val) => {
+    const n = parseInt(String(val ?? ''), 10);
+    testTimeoutLocal.value = Number.isFinite(n) && n > 0 ? n : TEST_TIMEOUT_DEFAULT;
+  },
+  { immediate: true },
+);
+const handleUpdateTestTimeout = async () => {
+  let n = Number(testTimeoutLocal.value);
+  if (!Number.isFinite(n) || n <= 0) n = TEST_TIMEOUT_DEFAULT;
+  n = Math.min(TEST_TIMEOUT_MAX, Math.max(TEST_TIMEOUT_MIN, Math.round(n)));
+  testTimeoutLocal.value = n;
+  testTimeoutMessage.value = '';
+  try {
+    await settingsStore.updateSetting('connectionTestTimeoutSeconds', String(n));
+    testTimeoutSuccess.value = true;
+    testTimeoutMessage.value = t('settings.testTimeout.saved');
+    setTimeout(() => { testTimeoutMessage.value = ''; }, 2000);
+  } catch (err: any) {
+    testTimeoutSuccess.value = false;
+    testTimeoutMessage.value = err?.message || t('settings.testTimeout.saveFailed');
+  }
+};
 const electronApi = (window as any).electronAPI;
 const isElectronRuntime = Boolean(electronApi);
 const floatingNotificationBellEnabled = ref(true);

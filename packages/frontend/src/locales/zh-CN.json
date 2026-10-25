@@ -1258,6 +1258,14 @@
     },
     "stepUp": {
       "currentPasswordLabel": "当前密码（安全确认）"
+    },
+    "testTimeout": {
+      "title": "测试连接超时",
+      "label": "超时时间",
+      "unit": "秒",
+      "description": "连接管理中「测试连接」等待 SSH 握手完成的最长时间（5–120 秒，默认 15）。跨洋或经代理 / 跳板机的连接可适当调大。",
+      "saved": "已保存",
+      "saveFailed": "保存失败"
     }
   },
   "notificationController": {

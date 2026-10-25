@@ -49,6 +49,7 @@ interface SettingsState {
   dockerStatusIntervalSeconds?: string; //  Docker 状态刷新间隔 (秒)
   dockerDefaultExpand?: string; //  Docker 默认展开详情 'true' or 'false'
   statusMonitorIntervalSeconds?: string; //  状态监控轮询间隔 (秒)
+  connectionTestTimeoutSeconds?: string; // 「测试连接」超时 (秒)，5–120，默认 15
   workspaceSidebarPersistent?: string; //  工作区侧边栏是否固定 'true' or 'false'
   sidebarPaneWidths?: string; //  存储各侧边栏组件宽度的 JSON 字符串
   fileManagerRowSizeMultiplier?: string; //  文件管理器行大小乘数 (e.g., '1.0')
@@ -424,6 +425,7 @@ export const useSettingsStore = defineStore('settings', () => {
         'showPopupFileEditor', 'showPopupFileManager', 'shareFileEditorTabs', 'ipWhitelistEnabled', // +++  showPopupFileManager +++
         'autoCopyOnSelect', 'dockerStatusIntervalSeconds', 'dockerDefaultExpand',
         'statusMonitorIntervalSeconds', // +++ 状态监控间隔键 +++
+        'connectionTestTimeoutSeconds',
         'workspaceSidebarPersistent', // +++ 侧边栏固定键 +++
         'sidebarPaneWidths', // +++ 侧边栏宽度对象键 +++
         'fileManagerRowSizeMultiplier', // +++ 文件管理器行大小键 +++
@@ -534,6 +536,7 @@ export const useSettingsStore = defineStore('settings', () => {
         'showPopupFileEditor', 'showPopupFileManager', 'shareFileEditorTabs', 'ipWhitelistEnabled', // +++  showPopupFileManager +++
         'autoCopyOnSelect', 'dockerStatusIntervalSeconds', 'dockerDefaultExpand',
         'statusMonitorIntervalSeconds', // +++ 状态监控间隔键 +++
+        'connectionTestTimeoutSeconds',
         'workspaceSidebarPersistent', // +++ 侧边栏固定键 +++
         'sidebarPaneWidths', // +++ 侧边栏宽度对象键 +++
         'fileManagerRowSizeMultiplier', // +++ 文件管理器行大小键 +++

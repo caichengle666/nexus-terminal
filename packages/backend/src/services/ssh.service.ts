@@ -9,11 +9,22 @@ import { decrypt } from '../utils/crypto';
 import * as SshKeyService from '../ssh_keys/ssh_key.service';
 import { withLegacyCompatAlgorithms } from '../utils/ssh-algorithms';
 import { computeFingerprint, decideHostKey, HostKeyMismatchError, isHostKeyMismatchError } from './host-key';
+import { settingsService } from '../settings/settings.service';
 
 export { HostKeyMismatchError, isHostKeyMismatchError } from './host-key';
 
 const CONNECT_TIMEOUT = 20000; // 连接超时时间 (毫秒)
-const TEST_TIMEOUT = 15000; // 测试连接超时时间 (毫秒)
+const TEST_TIMEOUT = 15000; // 测试连接超时时间 (毫秒)，设置读取失败时的兜底值
+
+/** 「测试连接」超时：读设置项 connectionTestTimeoutSeconds（Issue #123），读不到退回 TEST_TIMEOUT */
+export const getTestTimeoutMs = async (): Promise<number> => {
+    try {
+        const seconds = await settingsService.getConnectionTestTimeoutSeconds();
+        return seconds > 0 ? seconds * 1000 : TEST_TIMEOUT;
+    } catch {
+        return TEST_TIMEOUT;
+    }
+};
 
 
 interface JumpHostRawConfig {
@@ -410,6 +421,9 @@ const _setupSshClientListenersAndConnect = (
                 client.removeListener('ready', eventHandlers.ready);
                 client.removeListener('error', eventHandlers.error);
                 client.removeListener('close', eventHandlers.close);
+                // 握手超时后 ssh2 还会在套接字关闭时再抛一次「Connection lost before handshake」，
+                // 没有 error 监听器会变成 uncaughtException 把进程带崩，这里兜一个空监听器。
+                client.on('error', () => { /* 已经 reject，后续错误忽略 */ });
                 console.error(`${logPrefix} SSH connection error:`, err);
                 try { client.end(); } catch (e) { console.error(`${logPrefix} Error ending client in errorHandler:`, e); }
                 const mismatchError = hostKeyGuard?.getMismatchError();
@@ -869,7 +883,7 @@ export const testConnection = async (connectionId: number): Promise<{ latency: n
     const startTime = Date.now();
     try {
         const connDetails = await getConnectionDetails(connectionId);
-        sshClient = await establishSshConnection(connDetails, TEST_TIMEOUT);
+        sshClient = await establishSshConnection(connDetails, await getTestTimeoutMs());
         const endTime = Date.now();
         const latency = endTime - startTime;
         console.log(`SshService: 测试连接 ${connectionId} 成功，延迟: ${latency}ms。`);
@@ -1012,7 +1026,7 @@ export const testUnsavedConnection = async (connectionConfig: {
             tempConnDetails.proxy = null;
         }
 
-        sshClient = await establishSshConnection(tempConnDetails, TEST_TIMEOUT);
+        sshClient = await establishSshConnection(tempConnDetails, await getTestTimeoutMs());
 
         const endTime = Date.now();
         const latency = endTime - startTime;

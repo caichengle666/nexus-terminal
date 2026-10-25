@@ -29,6 +29,27 @@ const NAV_BAR_VISIBLE_KEY = 'navBarVisible'; // 导航栏可见性设置键
 const LAYOUT_TREE_KEY = 'layoutTree'; // 布局树设置键
 const AUTO_COPY_ON_SELECT_KEY = 'autoCopyOnSelect'; // 终端选中自动复制设置键
 const STATUS_MONITOR_INTERVAL_SECONDS_KEY = 'statusMonitorIntervalSeconds'; // 状态监控间隔设置键
+export const CONNECTION_TEST_TIMEOUT_SECONDS_KEY = 'connectionTestTimeoutSeconds'; // 「测试连接」超时（秒）
+export const DEFAULT_CONNECTION_TEST_TIMEOUT_SECONDS = 15;
+export const MIN_CONNECTION_TEST_TIMEOUT_SECONDS = 5;
+export const MAX_CONNECTION_TEST_TIMEOUT_SECONDS = 120;
+
+/**
+ * 规范化「测试连接」超时（秒）：未配置 / 非数字 / 非正数回落默认 15，超出 [5,120] 夹到边界。
+ * 只接受纯整数字符串或有限数字，"10abc" 这类脏值按无效处理。
+ */
+export const normalizeConnectionTestTimeoutSeconds = (raw: unknown): number => {
+  let n: number;
+  if (typeof raw === 'number') {
+    n = raw;
+  } else if (typeof raw === 'string' && /^\s*\d+(\.\d+)?\s*$/.test(raw)) {
+    n = Number(raw);
+  } else {
+    return DEFAULT_CONNECTION_TEST_TIMEOUT_SECONDS;
+  }
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_CONNECTION_TEST_TIMEOUT_SECONDS;
+  return Math.min(MAX_CONNECTION_TEST_TIMEOUT_SECONDS, Math.max(MIN_CONNECTION_TEST_TIMEOUT_SECONDS, Math.round(n)));
+};
 const DEFAULT_STATUS_MONITOR_INTERVAL_SECONDS = 3; // 默认状态监控间隔
 const IP_BLACKLIST_ENABLED_KEY = 'ipBlacklistEnabled'; // IP 黑名单启用设置键
 const SHOW_CONNECTION_TAGS_KEY = 'showConnectionTags'; // 连接标签显示设置键
@@ -328,6 +349,17 @@ export const settingsService = {
      throw new Error('Failed to save auto copy on select setting.');
    }
  }, 
+
+ /** 「测试连接」超时（秒），见 normalizeConnectionTestTimeoutSeconds（Issue #123） */
+ async getConnectionTestTimeoutSeconds(): Promise<number> {
+   try {
+     const raw = await settingsRepository.getSetting(CONNECTION_TEST_TIMEOUT_SECONDS_KEY);
+     return normalizeConnectionTestTimeoutSeconds(raw);
+   } catch (error) {
+     console.error(`[Service] Error getting connection test timeout (key: ${CONNECTION_TEST_TIMEOUT_SECONDS_KEY}):`, error);
+     return DEFAULT_CONNECTION_TEST_TIMEOUT_SECONDS;
+   }
+ },
 
  /**
   * 获取状态监控轮询间隔 (秒)

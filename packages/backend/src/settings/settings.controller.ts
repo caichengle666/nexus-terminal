@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { settingsService } from './settings.service';
+import { settingsService, normalizeConnectionTestTimeoutSeconds } from './settings.service';
 import { AuditLogService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service'; 
 import { ipBlacklistService } from '../auth/ip-blacklist.service';
@@ -77,6 +77,7 @@ export const settingsController = {
           'showPopupFileEditor', 'shareFileEditorTabs', 'ipWhitelistEnabled',
           'autoCopyOnSelect', 'dockerStatusIntervalSeconds', 'dockerDefaultExpand',
           'statusMonitorIntervalSeconds', // +++ 状态监控间隔键 +++
+          'connectionTestTimeoutSeconds', // 「测试连接」超时（秒）
           'workspaceSidebarPersistent', // +++ 侧边栏固定键 +++
           'showPopupFileManager', // +++ 弹窗文件管理器设置键 +++
           'sidebarPaneWidths', // +++ 侧边栏宽度对象键 +++
@@ -118,6 +119,8 @@ export const settingsController = {
                       res.status(400).json({ message: '无效的移动端工具栏配置' });
                       return;
                   }
+              } else if (key === 'connectionTestTimeoutSeconds') {
+                  filteredSettings[key] = String(normalizeConnectionTestTimeoutSeconds(settingsToUpdate[key]));
               } else {
                   filteredSettings[key] = settingsToUpdate[key];
               }
