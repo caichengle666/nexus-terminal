@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useSessionStore } from '../stores/session.store';
 import { storeToRefs } from 'pinia';
@@ -41,10 +41,20 @@ const toggleExpand = (containerId: string) => {
   dockerManager.value?.toggleExpand(containerId);
 };
 
-const enterContainer = (containerId: string) => {
-  if (activeSession.value?.sessionId) {
-    const command = `docker exec -it ${containerId} sh\n`; // \n for auto-execution
-    emitWorkspaceEvent('terminal:sendCommand', { command, sessionId: activeSession.value.sessionId });
+/**
+ * 进入容器：命令不再写死 `docker exec -it <id> sh`（Alpine 只有 ash/sh、Windows 容器只有 powershell），
+ * 由后端按容器探测可用 shell，探不到退回 sh。
+ */
+const enteringContainerId = ref<string | null>(null);
+const enterContainer = async (containerId: string) => {
+  const sessionId = activeSession.value?.sessionId;
+  if (!sessionId || enteringContainerId.value) return;
+  enteringContainerId.value = containerId;
+  try {
+    const command = (await dockerManager.value?.getEnterCommand(containerId)) || `docker exec -it ${containerId} sh`;
+    emitWorkspaceEvent('terminal:sendCommand', { command: `${command}\n`, sessionId });
+  } finally {
+    enteringContainerId.value = null;
   }
 };
 
@@ -174,8 +184,8 @@ onMounted(() => {
                    <button @click="sendDockerCommand(container.id, 'remove')" :title="t('dockerManager.action.remove')" class="text-text-secondary hover:text-red-500 disabled:text-text-disabled disabled:cursor-not-allowed transition-colors duration-150 p-0.5 text-base" >
                      <i class="fas fa-trash-alt"></i>
                   </button>
-                  <button @click="enterContainer(container.id)" :title="t('dockerManager.action.enter')" class="text-text-secondary hover:text-blue-400 transition-colors duration-150 p-0.5 text-base">
-                    <i class="fas fa-terminal"></i>
+                  <button @click="enterContainer(container.id)" :disabled="!!enteringContainerId" :title="t('dockerManager.action.enter')" class="text-text-secondary hover:text-blue-400 transition-colors duration-150 p-0.5 text-base disabled:cursor-wait">
+                    <i :class="enteringContainerId === container.id ? 'fas fa-spinner fa-spin' : 'fas fa-terminal'"></i>
                   </button>
                   <button @click="viewContainerLogs(container.id)" :title="t('dockerManager.action.logs')" class="text-text-secondary hover:text-gray-400 transition-colors duration-150 p-0.5 text-base">
                     <i class="fas fa-file-alt"></i>

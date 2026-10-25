@@ -69,6 +69,8 @@ export function createDockerManager(sessionId: string, wsDeps: DockerManagerDepe
     const initialLoadDone = ref(false);
     let refreshInterval: ReturnType<typeof setInterval> | null = null;
     let wsUnsubscribeHooks: (() => void)[] = [];
+    /** 「进入容器」等待后端探测结果的请求（requestId → resolve） */
+    const pendingEnterCommands = new Map<string, (payload: any) => void>();
 
     // --- Settings Store ---
     // Settings need to be accessed here as well for default expansion
@@ -187,7 +189,42 @@ export function createDockerManager(sessionId: string, wsDeps: DockerManagerDepe
             requestDockerStatus(); // Trigger a status refresh immediately
         });
 
-        wsUnsubscribeHooks.push(unsubStatus, unsubStatusError, unsubCommandError, unsubRequestUpdate);
+        const unsubExecCommand = onMessage('docker:exec_command', (payload) => {
+            const rid = typeof payload?.requestId === 'string' ? payload.requestId : '';
+            const waiter = rid ? pendingEnterCommands.get(rid) : undefined;
+            if (waiter) {
+                pendingEnterCommands.delete(rid);
+                waiter(payload);
+            }
+        });
+
+        wsUnsubscribeHooks.push(unsubStatus, unsubStatusError, unsubCommandError, unsubRequestUpdate, unsubExecCommand);
+    };
+
+    /**
+     * 取「进入容器」要执行的命令：由后端按容器探测 shell（bash → ash → sh；
+     * Windows 容器 powershell → pwsh → cmd），探不到或超时退回 sh。结果在后端按容器缓存。
+     */
+    const getEnterCommand = (containerId: string): Promise<string> => {
+        const fallback = `docker exec -it ${containerId} sh`;
+        if (!isConnected.value) return Promise.resolve(fallback);
+        if (wsUnsubscribeHooks.length === 0) setupWsListeners();
+        const requestId = `enter-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        return new Promise<string>((resolve) => {
+            const timer = setTimeout(() => {
+                pendingEnterCommands.delete(requestId);
+                console.warn(`[DockerManager ${sessionId}] 获取进入容器命令超时，回退 ${fallback}`);
+                resolve(fallback);
+            }, 12000);
+            pendingEnterCommands.set(requestId, (payload: any) => {
+                clearTimeout(timer);
+                const cmd = typeof payload?.command === 'string' ? payload.command.trim() : '';
+                if (payload?.error) console.warn(`[DockerManager ${sessionId}] 获取进入容器命令失败:`, payload.error);
+                // 只接受后端生成的 docker exec 命令，防御意外内容被直接发进终端
+                resolve(/^docker exec -it [A-Za-z0-9][A-Za-z0-9_.-]* [a-z]+$/.test(cmd) ? cmd : fallback);
+            });
+            sendMessage({ type: 'docker:get_exec_command', sessionId, payload: { containerId, requestId } });
+        });
     };
 
     // Send command for a specific container via WebSocket
@@ -295,6 +332,7 @@ export function createDockerManager(sessionId: string, wsDeps: DockerManagerDepe
         // Methods
         requestDockerStatus, // Might be useful for manual refresh button in UI
         sendDockerCommand,
+        getEnterCommand, // 「进入容器」：后端探测容器 shell
         toggleExpand, // UI needs this to handle clicks
 
         // Lifecycle

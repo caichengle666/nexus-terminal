@@ -5,6 +5,7 @@ import WebSocket from 'ws';
 import { isValidContainerId, INVALID_CONTAINER_ID_MESSAGE } from '../../docker/docker-validate';
 import { execBackground } from '../../services/ssh-channel-limiter';
 import type { ClientChannel } from 'ssh2';
+import { buildDockerExecCommand, buildShellProbeCommand, parseShellProbeOutput } from '../../docker/exec-command';
 
 const DEFAULT_DOCKER_STATUS_INTERVAL_SECONDS = 2;
 /** 单条 docker 命令的超时：dockerd 卡死时关闭通道，避免占满 exec 通道 */
@@ -178,6 +179,61 @@ export async function fetchRemoteDockerStatus(state: ClientState, options: { bac
     });
 
     return { available: true, containers: allContainers };
+}
+
+/** 探测容器 shell 的超时：dockerd 无响应时不能把「进入容器」按死 */
+export const DOCKER_SHELL_PROBE_TIMEOUT_MS = 8000;
+const DOCKER_SHELL_CACHE_MAX = 200;
+
+/**
+ * 探测容器里可用的交互式 shell（linux: bash → ash → sh；windows: powershell → pwsh → cmd）。
+ * 结果按容器缓存在 state.dockerShellCache；探不到返回空字符串（调用方退回 sh）。
+ */
+export async function detectContainerShell(state: ClientState, containerId: string): Promise<{ shell: string; os: string; cached: boolean }> {
+    if (!isValidContainerId(containerId)) throw new Error(INVALID_CONTAINER_ID_MESSAGE);
+    if (!state.sshClient) throw new Error('SSH client not available or not connected');
+
+    const cached = state.dockerShellCache?.get(containerId);
+    if (cached) return { shell: cached, os: '', cached: true };
+
+    const result = await runDockerExec(state, buildShellProbeCommand(containerId), { timeoutMs: DOCKER_SHELL_PROBE_TIMEOUT_MS });
+    const { shell, os } = parseShellProbeOutput(result.stdout);
+    if (shell) {
+        if (!state.dockerShellCache) state.dockerShellCache = new Map();
+        if (state.dockerShellCache.size >= DOCKER_SHELL_CACHE_MAX) {
+            const oldest = state.dockerShellCache.keys().next().value;
+            if (oldest !== undefined) state.dockerShellCache.delete(oldest);
+        }
+        state.dockerShellCache.set(containerId, shell);
+    }
+    return { shell, os, cached: false };
+}
+
+/**
+ * 「进入容器」：探测容器里能用的 shell，回一条成品命令给前端（docker:exec_command）。
+ * 探测失败 / 超时也要能进容器：退回 `sh`。
+ */
+export async function handleDockerGetExecCommand(ws: AuthenticatedWebSocket, sessionId: string | undefined, payload: any): Promise<void> {
+    const state = sessionId ? clientStates.get(sessionId) : undefined;
+    const containerId = payload?.containerId;
+    const requestId = typeof payload?.requestId === 'string' ? payload.requestId.slice(0, 100) : undefined;
+    const reply = (data: Record<string, unknown>) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'docker:exec_command', payload: { containerId: isValidContainerId(containerId) ? containerId : '', requestId, ...data } }));
+        }
+    };
+
+    if (!state || !state.sshClient) { reply({ error: 'SSH connection not active.' }); return; }
+    if (!isValidContainerId(containerId)) { reply({ error: INVALID_CONTAINER_ID_MESSAGE }); return; }
+
+    try {
+        const { shell } = await detectContainerShell(state, containerId);
+        const command = buildDockerExecCommand(containerId, shell);
+        reply({ command, shell: shell || 'sh', detected: !!shell });
+    } catch (error: any) {
+        console.warn(`[docker:get_exec_command] 会话 ${sessionId} 容器 ${containerId} 探测失败:`, error?.message || error);
+        reply({ command: buildDockerExecCommand(containerId, 'sh'), shell: 'sh', detected: false, error: error?.message || String(error) });
+    }
 }
 
 export async function handleDockerGetStatus(ws: AuthenticatedWebSocket, sessionId: string | undefined): Promise<void> {

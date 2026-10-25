@@ -34,6 +34,8 @@ export interface ClientState { // 导出以便 Service 可以导入
     detachedOutput?: Buffer[];
     detachedOutputBytes?: number;
     detachedOutputTruncated?: boolean;
+    /** 「进入容器」探测到的 shell，按容器 ID 缓存（同一容器的 shell 不会变） */
+    dockerShellCache?: Map<string, string>;
     activeExecCommands?: Map<string, {
         channel: ClientChannel;
         cancel: () => void;
