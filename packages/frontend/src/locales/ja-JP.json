@@ -523,7 +523,8 @@
       "search": "検索",
       "showHiddenFiles": "隠しファイル（. で始まる）を表示",
       "hideHiddenFiles": ". で始まるファイルを隠す",
-      "changePermissionsMultiple": "権限 / 所有者を変更（{count} 件）"
+      "changePermissionsMultiple": "権限 / 所有者を変更（{count} 件）",
+      "addToFavorites": "お気に入りパスに追加"
     },
     "contextMenu": {
       "compress": "圧縮",
@@ -580,7 +581,8 @@
       "readFileTimeout": "ファイルの読み込みがタイムアウトしました。",
       "sessionInvalidOrNotReady": "セッションが無効か、まだ準備ができていません。",
       "uploadFailed": "アップロードに失敗しました",
-      "chownFailed": "所有者の変更に失敗しました"
+      "chownFailed": "所有者の変更に失敗しました",
+      "invalidName": "名前が無効です"
     },
     "notifications": {
       "copySuccess": "コピーしました",
@@ -590,7 +592,8 @@
       "decompressSuccess": "{name} を展開しました",
       "pathCopied": "パスをクリップボードにコピーしました",
       "ownerChanged": "所有者を変更しました",
-      "ownerChangedMultiple": "{count} 件の所有者を変更しました"
+      "ownerChangedMultiple": "{count} 件の所有者を変更しました",
+      "createdAt": "{path} を作成しました"
     },
     "warnings": {
       "moveSameDirectory": "同じディレクトリ内で切り取りと貼り付けはできません。"
@@ -652,8 +655,8 @@
       "placeholders": {
         "newName": "新しい名前を入力",
         "newPermissions": "例: 755 または 0755",
-        "newFile": "ファイル名を入力",
-        "newFolder": "フォルダー名を入力"
+        "newFile": "ファイル名、または ./a/b/1.txt のようなパス",
+        "newFolder": "フォルダ名、または ./a/b/c のようなパス"
       },
       "chmodHelp": "権限を 8 進数で入力してください（例: 755 または 0755）。"
     },
@@ -673,7 +676,9 @@
       "chownHint": "所有者 / グループにはユーザー名または数値 ID を指定できます。他のユーザーの所有にするには通常 root 権限が必要です。",
       "invalidName": "英数字・ドット・アンダースコア・ハイフン、または数値 ID のみ使用できます",
       "batchHint": "選択した {count} 件に適用されます（右クリックした項目の現在の権限が初期値です）。"
-    }
+    },
+    "fixSearchBar": "検索ボックスを固定（フォーカスが外れても表示）",
+    "unfixSearchBar": "固定を解除（フォーカスが外れたら閉じる）"
   },
   "statusMonitor": {
     "title": "サーバーステータス",
@@ -1995,7 +2000,8 @@
       "deleteError": "お気に入りパスの削除に失敗しました。",
       "markAsUsedError": "パスを使用済みにできませんでした。"
     },
-    "sendToTerminal": "ターミナルに送信"
+    "sendToTerminal": "ターミナルに送信",
+    "fileItemHint": "ファイル: クリックで直接開く"
   },
   "pathHistory": {
     "loading": "読み込み中...",

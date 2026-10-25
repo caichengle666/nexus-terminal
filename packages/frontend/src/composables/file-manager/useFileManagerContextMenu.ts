@@ -49,6 +49,7 @@ export interface UseFileManagerContextMenuOptions {
   onCompressRequest: (items: FileListItem[], format: CompressFormat) => void; // +++ 压缩回调 +++
   onDecompressRequest: (item: FileListItem) => void; // +++ 解压回调 +++
   onCopyPath?: (item: FileListItem) => void; // +++ 复制路径回调 +++
+  onAddToFavorites?: (item: FileListItem) => void; // 添加到收藏路径（文件与目录都可收藏）
 }
 
 // 辅助函数：检查文件是否为支持的压缩格式
@@ -91,6 +92,7 @@ export function useFileManagerContextMenu(options: UseFileManagerContextMenuOpti
     onCompressRequest, // +++ 解构压缩回调 +++
     onDecompressRequest, // +++ 解构解压回调 +++
     onCopyPath, // +++ 解构复制路径回调 +++
+    onAddToFavorites,
   } = options;
 
   const contextMenuVisible = ref(false);
@@ -189,6 +191,10 @@ export function useFileManagerContextMenu(options: UseFileManagerContextMenuOpti
        // +++ 添加复制路径菜单项 +++
        if (onCopyPath) {
          menu.push({ label: t('fileManager.actions.copyPath', 'Copy Path'), action: () => onCopyPath(targetItem), disabled: !(isConnected.value && isSftpReady.value) });
+       }
+       // 文件和目录都能收藏：文件收藏点击时直接打开，目录收藏点击时跳转（移植自上游 8118e29a）
+       if (onAddToFavorites && targetItem.filename !== '..') {
+         menu.push({ label: t('fileManager.actions.addToFavorites', '添加到收藏路径'), action: () => onAddToFavorites(targetItem), disabled: !(isConnected.value && isSftpReady.value) });
        }
 
         // --- 分隔符 (视觉) ---

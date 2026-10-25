@@ -3,6 +3,7 @@ import type { FileListItem, FileAttributes, EditorFileContent, SftpReadFileSucce
 import type { WebSocketMessage, MessagePayload, MessageHandler } from '../types/websocket.types';
 
 import { useUiNotificationsStore } from '../stores/uiNotifications.store'; 
+import { resolveRemotePath, parentOfRemotePath } from '../utils/pathUtils';
 
 /**
  * @interface WebSocketDependencies
@@ -382,15 +383,24 @@ export function createSftpActionsManager(
         return result;
     };
 
-    const createDirectory = (newDirName: string) => {
+    /**
+     * 新建目录。`target` 既可以是名字，也可以是路径（`./a/b`、`../c`、`/etc/d`）：
+     * 先按当前目录解析成绝对路径，再让后端逐级补齐缺失的父目录（移植自上游 cb310dc7）。
+     */
+    const createDirectory = (target: string) => {
         if (!isSftpReady.value) {
             uiNotificationsStore.showError(t('fileManager.errors.sftpNotReady'));
-            console.warn(`[SFTP ${instanceSessionId}] 尝试创建目录 ${newDirName} 但 SFTP 未就绪。`); // 日志改为中文
+            console.warn(`[SFTP ${instanceSessionId}] 尝试创建目录 ${target} 但 SFTP 未就绪。`);
             return;
         }
-        const newFolderPath = joinPath(currentPathRef.value, newDirName);
+        const newFolderPath = resolveRemotePath(currentPathRef.value, target);
+        if (newFolderPath === '/') {
+            uiNotificationsStore.showError(t('fileManager.errors.invalidName', '名称无效'));
+            return;
+        }
         const requestId = generateRequestId();
-        sendMessage({ type: 'sftp:mkdir', requestId: requestId, payload: { path: newFolderPath } });
+        trackCreateFeedback(requestId, newFolderPath);
+        sendMessage({ type: 'sftp:mkdir', requestId: requestId, payload: { path: newFolderPath, createParents: true } });
     };
 
     const ensureDirectory = (fullPath: string) => {
@@ -405,19 +415,46 @@ export function createSftpActionsManager(
         sendMessage({ type: 'sftp:mkdir', requestId, payload: { path: fullPath } });
     };
 
-    const createFile = (newFileName: string) => {
+    /** 新建文件。同 `createDirectory`：支持相对 / 绝对路径，缺失的父目录由后端补建 */
+    const createFile = (target: string) => {
         if (!isSftpReady.value) {
             uiNotificationsStore.showError(t('fileManager.errors.sftpNotReady'));
-            console.warn(`[SFTP ${instanceSessionId}] 尝试创建文件 ${newFileName} 但 SFTP 未就绪。`); // 日志改为中文
+            console.warn(`[SFTP ${instanceSessionId}] 尝试创建文件 ${target} 但 SFTP 未就绪。`);
             return;
         }
-        const newFilePath = joinPath(currentPathRef.value, newFileName);
+        const newFilePath = resolveRemotePath(currentPathRef.value, target);
+        if (newFilePath === '/' || /\/$/.test(target.trim())) {
+            uiNotificationsStore.showError(t('fileManager.errors.invalidName', '名称无效'));
+            return;
+        }
         const requestId = generateRequestId();
+        trackCreateFeedback(requestId, newFilePath);
         sendMessage({
             type: 'sftp:writefile',
             requestId: requestId,
-            payload: { path: newFilePath, content: '', encoding: 'utf8' }
+            payload: { path: newFilePath, content: '', encoding: 'utf8', createParents: true }
         });
+    };
+
+    /**
+     * 新建文件 / 文件夹的收尾反馈：建在当前目录里时列表会自己冒出来，不提示；
+     * 建在 `./a/b/x`、`../y`、`/etc/z` 这种当前视图看不见的地方时，提示「已创建 <路径>」，
+     * 并静默刷新当前目录（中间层级可能是这次才建出来的）。
+     */
+    const pendingCreateFeedback = new Map<string, string>();
+    const trackCreateFeedback = (requestId: string, fullPath: string) => {
+        pendingCreateFeedback.set(requestId, fullPath);
+        // 兜底清理，避免请求无响应时 Map 无限增长
+        setTimeout(() => pendingCreateFeedback.delete(requestId), 120000);
+    };
+    const notifyNestedCreate = (requestId: string | undefined) => {
+        if (!requestId) return;
+        const createdPath = pendingCreateFeedback.get(requestId);
+        if (!createdPath) return; // 不是本实例发起的新建（如编辑器保存）
+        pendingCreateFeedback.delete(requestId);
+        if (parentOfRemotePath(createdPath) === currentPathRef.value) return;
+        uiNotificationsStore.showSuccess(t('fileManager.notifications.createdAt', { path: createdPath }));
+        loadDirectory(currentPathRef.value, true);
     };
 
     const deleteItems = (items: FileListItem[]) => {
@@ -975,6 +1012,7 @@ export function createSftpActionsManager(
         const parentPath = message.path?.substring(0, message.path.lastIndexOf('/')) || '/';
 
         console.log(`[SFTP ${instanceSessionId}] 创建目录成功: ${message.path}`);
+        notifyNestedCreate(message.requestId);
 
         // *** 修改：直接修改文件树 ***
         if (newItem) {
@@ -1122,6 +1160,7 @@ export function createSftpActionsManager(
         const filename = filePath?.substring(filePath.lastIndexOf('/') + 1);
 
         console.log(`[SFTP ${instanceSessionId}] 写入文件成功: ${filePath}`);
+        notifyNestedCreate(message.requestId);
 
         // *** 修改：直接修改文件树 ***
         if (updatedItem) {

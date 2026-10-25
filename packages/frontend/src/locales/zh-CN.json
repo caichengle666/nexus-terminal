@@ -540,7 +540,8 @@
       "search": "搜索",
       "showHiddenFiles": "显示以 . 开头的隐藏文件",
       "hideHiddenFiles": "隐藏以 . 开头的文件",
-      "changePermissionsMultiple": "修改权限 / 所有者 ({count} 项)"
+      "changePermissionsMultiple": "修改权限 / 所有者 ({count} 项)",
+      "addToFavorites": "添加到收藏路径"
     },
     "contextMenu": {
       "compress": "压缩",
@@ -597,7 +598,8 @@
       "readFileTimeout": "读取文件超时。",
       "sessionInvalidOrNotReady": "会话无效或尚未就绪。",
       "uploadFailed": "上传失败",
-      "chownFailed": "修改所有者失败"
+      "chownFailed": "修改所有者失败",
+      "invalidName": "名称无效"
     },
     "notifications": {
       "copySuccess": "复制成功",
@@ -607,7 +609,8 @@
       "decompressSuccess": "解压 {name} 成功",
       "pathCopied": "路径已复制到剪贴板",
       "ownerChanged": "所有者已修改",
-      "ownerChangedMultiple": "已修改 {count} 项的所有者"
+      "ownerChangedMultiple": "已修改 {count} 项的所有者",
+      "createdAt": "已创建 {path}"
     },
     "warnings": {
       "moveSameDirectory": "不能在同一目录下剪切和粘贴。"
@@ -669,8 +672,8 @@
       "placeholders": {
         "newName": "输入新名称",
         "newPermissions": "例如 755 或 0755",
-        "newFile": "输入文件名",
-        "newFolder": "输入文件夹名称"
+        "newFile": "输入文件名，或 ./a/b/1.txt",
+        "newFolder": "输入文件夹名，或 ./a/b/c"
       },
       "chmodHelp": "请输入八进制格式的权限 (例如 755 或 0755)。"
     },
@@ -690,7 +693,9 @@
       "chownHint": "所有者 / 所属组可填用户名或数字 ID；改成其他用户所有通常需要 root 权限。",
       "invalidName": "只能包含字母、数字、点、下划线、连字符，或为数字 ID",
       "batchHint": "将应用到选中的 {count} 项（以右键的那一项的当前权限为初始值）。"
-    }
+    },
+    "fixSearchBar": "固定搜索框（失焦后仍常驻显示）",
+    "unfixSearchBar": "取消固定（失焦后收起搜索框）"
   },
   "statusMonitor": {
     "title": "服务器状态",
@@ -2019,7 +2024,8 @@
       "deleteError": "删除收藏路径失败。",
       "markAsUsedError": "标记路径为已使用失败。"
     },
-    "sendToTerminal": "发送到终端"
+    "sendToTerminal": "发送到终端",
+    "fileItemHint": "文件：点击直接打开"
   },
   "pathHistory": {
     "loading": "加载中...",

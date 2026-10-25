@@ -540,7 +540,8 @@
       "search": "Search",
       "showHiddenFiles": "Show hidden (dot) files",
       "hideHiddenFiles": "Hide hidden (dot) files",
-      "changePermissionsMultiple": "Change permissions / owner ({count} items)"
+      "changePermissionsMultiple": "Change permissions / owner ({count} items)",
+      "addToFavorites": "Add to Favorites"
     },
     "contextMenu": {
       "compress": "Compress",
@@ -597,7 +598,8 @@
       "readFileTimeout": "Timed out while reading the file.",
       "sessionInvalidOrNotReady": "Session is invalid or not ready.",
       "uploadFailed": "Upload failed",
-      "chownFailed": "Failed to change owner"
+      "chownFailed": "Failed to change owner",
+      "invalidName": "Invalid name"
     },
     "notifications": {
       "copySuccess": "Copy successful",
@@ -607,7 +609,8 @@
       "decompressSuccess": "Decompressed {name} successfully",
       "pathCopied": "Path copied to clipboard",
       "ownerChanged": "Owner changed",
-      "ownerChangedMultiple": "Owner changed for {count} items"
+      "ownerChangedMultiple": "Owner changed for {count} items",
+      "createdAt": "Created {path}"
     },
     "warnings": {
       "moveSameDirectory": "Cannot cut and paste in the same directory."
@@ -669,8 +672,8 @@
       "placeholders": {
         "newName": "Enter new name",
         "newPermissions": "e.g., 755 or 0755",
-        "newFile": "Enter file name",
-        "newFolder": "Enter folder name"
+        "newFile": "File name, or a path like ./a/b/1.txt",
+        "newFolder": "Folder name, or a path like ./a/b/c"
       },
       "chmodHelp": "Enter permissions in octal format (e.g., 755 or 0755)."
     },
@@ -690,7 +693,9 @@
       "chownHint": "Owner / group accept a name or a numeric ID. Giving files to another user usually requires root.",
       "invalidName": "Letters, digits, dot, underscore and hyphen only, or a numeric ID",
       "batchHint": "Applies to the {count} selected items (starting from the permissions of the item you right-clicked)."
-    }
+    },
+    "fixSearchBar": "Pin search box (stays visible when unfocused)",
+    "unfixSearchBar": "Unpin (collapse search box when unfocused)"
   },
   "statusMonitor": {
     "title": "Server Status",
@@ -2019,7 +2024,8 @@
       "deleteError": "Failed to delete favorite path.",
       "markAsUsedError": "Failed to mark path as used."
     },
-    "sendToTerminal": "Send to Terminal"
+    "sendToTerminal": "Send to Terminal",
+    "fileItemHint": "File: click to open it directly"
   },
   "pathHistory": {
     "loading": "Loading...",

@@ -20,7 +20,10 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['close', 'navigateToPath']);
+const emit = defineEmits(['close', 'navigateToPath', 'openFavoriteFile']);
+
+/** is_file 后端存 0/1，兼容布尔与字符串 */
+const isFileFavorite = (item: FavoritePathItem): boolean => Number(item.is_file) === 1;
 
 const { t } = useI18n();
 const favoritePathsStore = useFavoritePathsStore();
@@ -69,7 +72,12 @@ const handleItemClick = async (pathItem: FavoritePathItem) => {
     console.error('Failed to mark path as used:', error);
     // Optionally, inform the user about the failure, though navigation will still proceed.
   }
-  emit('navigateToPath', pathItem.path);
+  // 收藏的是文件 → 直接打开；是目录 → 照旧跳转
+  if (isFileFavorite(pathItem)) {
+    emit('openFavoriteFile', { path: pathItem.path, name: pathItem.name });
+  } else {
+    emit('navigateToPath', pathItem.path);
+  }
   closeModal();
 };
 
@@ -99,7 +107,12 @@ const handleDelete = async (pathItem: FavoritePathItem) => {
 const handleSendToTerminal = (pathItem: FavoritePathItem) => {
   const activeSession = sessionStore.activeSession;
   if (activeSession && activeSession.terminalManager) {
-    const escapedPath = `"${pathItem.path.replace(/"/g, '\\"')}"`;
+    // 文件收藏：cd 到它所在的目录（cd 一个文件会报错）
+    const targetDir = isFileFavorite(pathItem)
+      ? (pathItem.path.replace(/\/+$/, '').replace(/\/[^/]*$/, '') || '/')
+      : pathItem.path;
+    // 单引号整体转义：路径里的 $ ` " 等都不会被 shell 解释
+    const escapedPath = `'${targetDir.replace(/'/g, `'\\''`)}'`;
     const command = `cd ${escapedPath}\n`;
     try {
       activeSession.terminalManager.sendData(command);
@@ -269,7 +282,11 @@ onBeforeUnmount(() => {
           >
             <div class="flex-grow overflow-hidden mr-2">
               <p class="font-medium truncate text-foreground">
-                {{ favPath.name || favPath.path }}
+                <i
+                  :class="isFileFavorite(favPath) ? 'fas fa-file' : 'fas fa-folder'"
+                  class="text-[10px] mr-1 text-text-secondary"
+                  :title="isFileFavorite(favPath) ? t('favoritePaths.fileItemHint', '文件：点击直接打开') : undefined"
+                ></i>{{ favPath.name || favPath.path }}
               </p>
               <p v-if="favPath.name" class="text-xs text-text-secondary truncate">
                 {{ favPath.path }}

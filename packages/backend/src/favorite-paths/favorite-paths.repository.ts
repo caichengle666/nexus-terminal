@@ -5,6 +5,8 @@ export interface FavoritePath {
     id: number;
     name: string | null; // 名称可选
     path: string;
+    /** 收藏的是文件(1)还是目录(0)。前端据此决定点击是「打开文件」还是「跳转目录」；老记录默认 0 */
+    is_file: number;
     last_used_at?: number | null; // 上次使用时间，允许为空
     created_at: number; // Unix 时间戳 (秒)
     updated_at: number; // Unix 时间戳 (秒)
@@ -16,11 +18,11 @@ export interface FavoritePath {
  * @param path - 路径内容
  * @returns 返回插入记录的 ID
  */
-export const addFavoritePath = async (name: string | null, path: string): Promise<number> => {
-    const sql = `INSERT INTO favorite_paths (name, path, created_at, updated_at) VALUES (?, ?, strftime('%s', 'now'), strftime('%s', 'now'))`;
+export const addFavoritePath = async (name: string | null, path: string, isFile = false): Promise<number> => {
+    const sql = `INSERT INTO favorite_paths (name, path, is_file, created_at, updated_at) VALUES (?, ?, ?, strftime('%s', 'now'), strftime('%s', 'now'))`;
     try {
         const db = await getDbInstance();
-        const result = await runDb(db, sql, [name, path]);
+        const result = await runDb(db, sql, [name, path, isFile ? 1 : 0]);
         if (typeof result.lastID !== 'number' || result.lastID <= 0) {
              throw new Error('添加收藏路径后未能获取有效的 lastID');
         }
@@ -38,11 +40,11 @@ export const addFavoritePath = async (name: string | null, path: string): Promis
  * @param path - 新的路径内容
  * @returns 返回是否成功更新 (true/false)
  */
-export const updateFavoritePath = async (id: number, name: string | null, path: string): Promise<boolean> => {
-    const sql = `UPDATE favorite_paths SET name = ?, path = ?, updated_at = strftime('%s', 'now') WHERE id = ?`;
+export const updateFavoritePath = async (id: number, name: string | null, path: string, isFile = false): Promise<boolean> => {
+    const sql = `UPDATE favorite_paths SET name = ?, path = ?, is_file = ?, updated_at = strftime('%s', 'now') WHERE id = ?`;
     try {
         const db = await getDbInstance();
-        const result = await runDb(db, sql, [name, path, id]);
+        const result = await runDb(db, sql, [name, path, isFile ? 1 : 0, id]);
         return result.changes > 0;
     } catch (err: any) {
         console.error('更新收藏路径时出错:', err.message);
@@ -77,7 +79,7 @@ export const getAllFavoritePaths = async (sortBy: 'name' | 'last_used_at' = 'nam
     if (sortBy === 'last_used_at') {
         orderByClause = 'ORDER BY last_used_at DESC, name ASC'; // 按上次使用时间降序，同时间的按名称升序
     }
-    const sql = `SELECT id, name, path, last_used_at, created_at, updated_at FROM favorite_paths ${orderByClause}`;
+    const sql = `SELECT id, name, path, is_file, last_used_at, created_at, updated_at FROM favorite_paths ${orderByClause}`;
     try {
         const db = await getDbInstance();
         const rows = await allDb<FavoritePath>(db, sql);
@@ -111,7 +113,7 @@ export const updateFavoritePathLastUsedAt = async (id: number): Promise<boolean>
  * @returns 返回找到的收藏路径条目，如果未找到则返回 undefined
  */
 export const findFavoritePathById = async (id: number): Promise<FavoritePath | undefined> => {
-    const sql = `SELECT id, name, path, last_used_at, created_at, updated_at FROM favorite_paths WHERE id = ?`;
+    const sql = `SELECT id, name, path, is_file, last_used_at, created_at, updated_at FROM favorite_paths WHERE id = ?`;
     try {
         const db = await getDbInstance();
         const row = await getDbRow<FavoritePath>(db, sql, [id]);

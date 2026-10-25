@@ -46,10 +46,32 @@ test('migration #13 repairs columns skipped by the old multi-statement migration
     const users = await all(db, 'SELECT session_version FROM users');
     assert.deepEqual(users, [{ session_version: 0 }]);
     const recorded = await all(db, 'SELECT MAX(id) AS v FROM migrations');
-    assert.equal(recorded[0].v, 14);
+    assert.equal(recorded[0].v, 15);
 
     // Running again is a no-op.
     await runMigrations(db);
+  } finally {
+    await close(db);
+  }
+});
+
+test('migration #15 adds favorite_paths.is_file (default 0 = directory) and keeps existing rows', async () => {
+  const db = openMemoryDb();
+  try {
+    await run(db, `
+      CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, hashed_password TEXT, two_factor_secret TEXT, session_version INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE favorite_paths (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NULL, path TEXT NOT NULL, last_used_at INTEGER NULL,
+        created_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0);
+      INSERT INTO favorite_paths (name, path) VALUES ('logs', '/var/log');
+      CREATE TABLE migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL DEFAULT 0);
+      ${Array.from({ length: 14 }, (_, i) => `INSERT INTO migrations (id, name) VALUES (${i + 1}, 'm${i + 1}');`).join('\n')}
+    `);
+    await runMigrations(db);
+    assert.equal(await columnExists(db, 'favorite_paths', 'is_file'), true);
+    assert.deepEqual(await all(db, 'SELECT path, is_file FROM favorite_paths'), [{ path: '/var/log', is_file: 0 }]);
+    const recorded = await all(db, 'SELECT MAX(id) AS v FROM migrations');
+    assert.equal(recorded[0].v, 15);
+    await runMigrations(db); // no-op
   } finally {
     await close(db);
   }

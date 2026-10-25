@@ -63,11 +63,12 @@ export async function handleSftpOperation(
                         }
                         return;
                     }
-                    sftpService.writefile(sessionId, payload.path, dataToSend, requestId, encoding);
+                    // createParents：新建文件时允许路径里带目录（`./a/b/1.txt`），缺失层级由后端补建
+                    sftpService.writefile(sessionId, payload.path, dataToSend, requestId, encoding, payload?.createParents === true);
                 } else throw new Error("Missing 'path' in payload for writefile");
                 break;
             case 'sftp:mkdir':
-                 if (payload?.path) sftpService.mkdir(sessionId, payload.path, requestId);
+                 if (payload?.path) sftpService.mkdir(sessionId, payload.path, requestId, payload?.createParents === true);
                  else throw new Error("Missing 'path' in payload for mkdir");
                  break;
             case 'sftp:rmdir':

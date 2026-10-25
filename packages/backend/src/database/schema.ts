@@ -249,6 +249,7 @@ CREATE TABLE IF NOT EXISTS favorite_paths (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NULL, 
     path TEXT NOT NULL, 
+    is_file INTEGER NOT NULL DEFAULT 0,
     last_used_at INTEGER NULL, 
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))

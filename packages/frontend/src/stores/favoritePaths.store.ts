@@ -9,6 +9,8 @@ export interface FavoritePathItem {
   id: string;
   path: string;
   name?: string;
+  /** 收藏的是文件(1)还是目录(0)；文件收藏点击后直接打开，目录收藏点击后跳转 */
+  is_file?: number | boolean;
   last_used_at?: number | null; // Added last_used_at
   // Add other relevant fields from the API if any
   createdAt?: string;

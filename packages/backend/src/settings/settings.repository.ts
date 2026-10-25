@@ -274,6 +274,7 @@ export const ensureDefaultSettingsExist = async (db: sqlite3.Database): Promise<
         statusMonitorIntervalSeconds: '3',
         connectionTestTimeoutSeconds: '15',
         fileManagerShowHidden: 'true', // 默认显示隐藏文件（保持升级前的行为）
+        fileManagerSearchFixed: 'false', // 文件管理器搜索框默认不固定
         [SIDEBAR_CONFIG_KEY]: JSON.stringify(defaultSidebarPanesStructure),
         [CAPTCHA_CONFIG_KEY]: JSON.stringify(defaultCaptchaSettings),
         timezone: 'UTC', // 时区默认值

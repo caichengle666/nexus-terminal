@@ -10,13 +10,13 @@ export type FavoritePathSortBy = 'name' | 'last_used_at';
  * @param path - 路径内容
  * @returns 返回添加记录的 ID
  */
-export const addFavoritePath = async (name: string | null, path: string): Promise<number> => {
+export const addFavoritePath = async (name: string | null, path: string, isFile = false): Promise<number> => {
     if (!path || path.trim().length === 0) {
         throw new Error('路径内容不能为空');
     }
     // 如果 name 是空字符串，则视为 null
     const finalName = name && name.trim().length > 0 ? name.trim() : null;
-    const favoritePathId = await FavoritePathsRepository.addFavoritePath(finalName, path.trim());
+    const favoritePathId = await FavoritePathsRepository.addFavoritePath(finalName, path.trim(), isFile);
     return favoritePathId;
 };
 
@@ -27,12 +27,12 @@ export const addFavoritePath = async (name: string | null, path: string): Promis
  * @param path - 新的路径内容
  * @returns 返回是否成功更新 (更新行数 > 0)
  */
-export const updateFavoritePath = async (id: number, name: string | null, path: string): Promise<boolean> => {
+export const updateFavoritePath = async (id: number, name: string | null, path: string, isFile = false): Promise<boolean> => {
     if (!path || path.trim().length === 0) {
         throw new Error('路径内容不能为空');
     }
     const finalName = name && name.trim().length > 0 ? name.trim() : null;
-    const pathUpdated = await FavoritePathsRepository.updateFavoritePath(id, finalName, path.trim());
+    const pathUpdated = await FavoritePathsRepository.updateFavoritePath(id, finalName, path.trim(), isFile);
     return pathUpdated;
 };
 

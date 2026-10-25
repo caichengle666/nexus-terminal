@@ -21,6 +21,8 @@ import type { WebSocketMessage } from '../types/websocket.types';
 import PathHistoryDropdown from './PathHistoryDropdown.vue';
 import { usePathHistoryStore } from '../stores/pathHistory.store';
 import FavoritePathsModal from './FavoritePathsModal.vue';
+import { useFavoritePathsStore } from '../stores/favoritePaths.store';
+import { isPathLikeInput } from '../utils/pathUtils';
 import { useUiNotificationsStore } from '../stores/uiNotifications.store';
 
 
@@ -117,6 +119,7 @@ const {
   fileManagerColWidthsObject, // +++ 获取列宽 getter +++
   showPopupFileEditorBoolean, // +++ 获取弹窗设置状态 +++
   fileManagerShowHiddenBoolean, // 显示以 . 开头的文件
+  fileManagerSearchFixedBoolean, // 搜索框固定常驻
   fileManagerShowDeleteConfirmationBoolean, // +++ 获取删除确认设置状态 +++
 } = storeToRefs(settingsStore); // 使用 storeToRefs 保持响应性
  
@@ -674,7 +677,8 @@ const handleModalConfirm = (payload?: FileManagerActionConfirmPayload) => {
      break;
    case 'newFile':
      if (value) {
-       if (manager.fileList.value.some((item: FileListItem) => item.filename === value)) {
+       // 同名拦截只对「建到当前目录」生效（输入带路径时交给后端判断）
+       if (!isPathLikeInput(value) && manager.fileList.value.some((item: FileListItem) => item.filename === value)) {
          console.warn(`[FileManager ${props.sessionId}-${props.instanceId}] File ${value} already exists. Modal should prevent this.`);
          return; // Prevent closing if error
        }
@@ -683,7 +687,7 @@ const handleModalConfirm = (payload?: FileManagerActionConfirmPayload) => {
      break;
    case 'newFolder':
      if (value) {
-       if (manager.fileList.value.some((item: FileListItem) => item.filename === value)) {
+       if (!isPathLikeInput(value) && manager.fileList.value.some((item: FileListItem) => item.filename === value)) {
          console.warn(`[FileManager ${props.sessionId}-${props.instanceId}] Folder ${value} already exists. Modal should prevent this.`);
          return; // Prevent closing if error
        }
@@ -1064,6 +1068,37 @@ const handleDecompress = (item: FileListItem) => {
 
 
 // +++ 复制路径到剪贴板 +++
+// 收藏文件或目录（移植自上游 8118e29a）：文件收藏点击后直接打开，目录收藏点击后跳转
+const favoritePathsStore = useFavoritePathsStore();
+const handleAddToFavorites = async (item: FileListItem) => {
+  if (!currentSftpManager.value) return;
+  const targetPath = currentSftpManager.value.joinPath(currentSftpManager.value.currentPath.value, item.filename);
+  try {
+    await favoritePathsStore.addFavoritePath({
+      path: targetPath,
+      name: item.filename,
+      // 指向目录的符号链接按目录处理之外，其它非目录一律按文件收藏；判错的代价只是点击行为不同
+      is_file: !item.attrs.isDirectory,
+    }, t);
+  } catch (error) {
+    console.error(`[FileManager ${props.sessionId}-${props.instanceId}] 添加收藏失败:`, error);
+  }
+};
+
+/** 按完整路径打开远程文件（与列表里双击文件同一套规则：弹窗编辑器 / 共享标签页） */
+const openRemoteFileByPath = (filePath: string, fileName?: string) => {
+  const name = fileName || filePath.substring(filePath.lastIndexOf('/') + 1) || filePath;
+  const fileInfo: FileInfo = { name, fullPath: filePath };
+  if (props.isMobile || settingsStore.showPopupFileEditorBoolean) {
+    fileEditorStore.triggerPopup(filePath, props.sessionId);
+  }
+  if (shareFileEditorTabsBoolean.value) {
+    fileEditorStore.openFile(filePath, props.sessionId, props.instanceId);
+  } else {
+    sessionStore.openFileInSession(props.sessionId, fileInfo);
+  }
+};
+
 const handleCopyPath = async (item: FileListItem) => {
   if (!currentSftpManager.value) return;
   const fullPath = currentSftpManager.value.joinPath(currentSftpManager.value.currentPath.value, item.filename);
@@ -1120,6 +1155,7 @@ const {
   onCompressRequest: handleCompress,
   onDecompressRequest: handleDecompress,
   onCopyPath: handleCopyPath, // +++ 传递复制路径回调 +++
+  onAddToFavorites: (item: FileListItem) => { void handleAddToFavorites(item); },
 });
 
 // --- 目录加载与导航 ---
@@ -1736,13 +1772,38 @@ const activateSearch = () => {
 };
 
 const deactivateSearch = () => {
-        isSearchActive.value = false;
-
+  // 固定时失焦不收起搜索框
+  if (isSearchFixed.value) return;
+  isSearchActive.value = false;
 };
 
 const cancelSearch = () => {
-    searchQuery.value = ''; // 按 Esc 清空并失活
+  searchQuery.value = ''; // 按 Esc 清空并失活
+  if (isSearchFixed.value) {
+    // 固定时 Esc 只清空内容并退出焦点，搜索框本身留着
+    searchInputRef.value?.blur();
+    return;
+  }
+  isSearchActive.value = false;
+};
+
+/**
+ * 搜索框「固定」（移植自上游 d0ba419c / 1cc04d71）：固定后搜索框常驻，不必每次点放大镜。
+ * 存为设置项 fileManagerSearchFixed，随设置跨端同步；多个文件管理器实例共享同一状态。
+ */
+const isSearchFixed = computed(() => !props.isMobile && fileManagerSearchFixedBoolean.value);
+const showSearchInput = computed(() => isSearchActive.value || isSearchFixed.value);
+
+const toggleSearchFix = () => {
+  const next = !fileManagerSearchFixedBoolean.value;
+  void settingsStore.updateSetting('fileManagerSearchFixed', String(next));
+  if (next) {
+    isSearchActive.value = true;
+    nextTick(() => searchInputRef.value?.focus());
+  } else if (document.activeElement !== searchInputRef.value && !searchQuery.value) {
+    // 取消固定且当前没在搜索：收起，恢复原有行为
     isSearchActive.value = false;
+  }
 };
 
 // --- 发送 CD 命令到终端的方法 ---
@@ -1861,6 +1922,12 @@ const handleOpenEditorClick = () => {
    console.log(`[FileManager ${props.sessionId}-${props.instanceId}] Toggled FavoritePathsModal. Visible: ${showFavoritePathsModal.value}`);
  };
  
+ // 收藏里点的是文件：不跳目录，直接打开
+ const handleOpenFavoriteFile = (fav: { path: string; name?: string }) => {
+   showFavoritePathsModal.value = false;
+   openRemoteFileByPath(fav.path, fav.name);
+ };
+
  const handleNavigateToPathFromFavorites = (path: string) => {
    if (currentSftpManager.value) {
      currentSftpManager.value.loadDirectory(path);
@@ -1917,7 +1984,7 @@ const handleOpenEditorClick = () => {
              <!-- Search Area -->
              <div class="flex items-center flex-shrink-0">
                  <button
-                     v-if="!isSearchActive"
+                     v-if="!showSearchInput"
                      class="file-manager-touch-target flex items-center justify-center w-7 h-7 text-text-secondary rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-black/10 hover:enabled:text-foreground"
                      @click.stop="activateSearch"
                      :disabled="!currentSftpManager || !props.wsDeps.isConnected.value"
@@ -1932,7 +1999,8 @@ const handleOpenEditorClick = () => {
                          type="text"
                          v-model="searchQuery"
                          :placeholder="t('fileManager.searchPlaceholder')"
-                         class="flex-grow bg-background border border-border rounded pl-7 pr-2 py-1 text-foreground text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary min-w-[10px] transition-colors duration-200"
+                         class="flex-grow bg-background border border-border rounded pl-7 py-1 text-foreground text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary min-w-[10px] transition-colors duration-200"
+                         :class="props.isMobile ? 'pr-2' : 'pr-7'"
                          data-focus-id="fileManagerSearch"
                          @blur="deactivateSearch"
                          @keyup.esc="cancelSearch"
@@ -1940,6 +2008,20 @@ const handleOpenEditorClick = () => {
                          @keydown.down.prevent="handleKeydown"
                          @keydown.enter.prevent="handleKeydown"
                      />
+                     <!-- 固定：固定后搜索框常驻（失焦不收起，Esc 只清空） -->
+                     <button
+                         v-if="!props.isMobile"
+                         type="button"
+                         class="absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 rounded flex items-center justify-center transition-colors"
+                         :class="isSearchFixed ? 'bg-primary/15 text-primary hover:bg-primary/25' : 'text-text-secondary/70 hover:text-foreground hover:bg-black/10'"
+                         :title="isSearchFixed ? t('fileManager.unfixSearchBar') : t('fileManager.fixSearchBar')"
+                         :aria-pressed="isSearchFixed"
+                         data-testid="file-manager-search-fix"
+                         @mousedown.prevent
+                         @click.stop="toggleSearchFix"
+                     >
+                         <i class="fas fa-thumbtack text-[10px]"></i>
+                     </button>
                      <!-- Optional: Clear button -->
                      <!-- <button @click="searchQuery = ''; searchInputRef?.focus()" v-if="searchQuery" class="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary hover:text-foreground">&times;</button> -->
                  </div>
@@ -1959,6 +2041,7 @@ const handleOpenEditorClick = () => {
                 :trigger-element="favoritePathsButtonRef"
                 @close="showFavoritePathsModal = false"
                 @navigate-to-path="handleNavigateToPathFromFavorites"
+                @open-favorite-file="handleOpenFavoriteFile"
               />
             </div>
             </div> 

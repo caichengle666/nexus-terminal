@@ -69,6 +69,7 @@ interface SettingsState {
   terminalScrollbackLimit?: string; //  终端回滚行数上限 (e.g., '5000', '0' for unlimited)
   fileManagerShowDeleteConfirmation?: string; //  'true' or 'false' - 文件管理器删除确认提示
   fileManagerShowHidden?: string; // 'true' or 'false' - 文件管理器显示以 . 开头的文件 (默认 true)
+  fileManagerSearchFixed?: string; // 'true' or 'false' - 文件管理器搜索框固定常驻 (默认 false，随设置跨端同步)
   terminalEnableRightClickPaste?: string; //  'true' or 'false' - 终端右键粘贴
   showStatusMonitorIpAddress?: string; // 'true' or 'false' - 状态监视器显示IP地址
   quickCommandRowSizeMultiplier?: string; // +++ 快捷命令列表行大小乘数 (e.g., '1.0') +++
@@ -446,6 +447,7 @@ export const useSettingsStore = defineStore('settings', () => {
         'terminalScrollbackLimit',
         'fileManagerShowDeleteConfirmation',
         'fileManagerShowHidden',
+        'fileManagerSearchFixed',
         'terminalEnableRightClickPaste',
         'showStatusMonitorIpAddress',
         'quickCommandRowSizeMultiplier',
@@ -558,6 +560,7 @@ export const useSettingsStore = defineStore('settings', () => {
         'terminalScrollbackLimit',
         'fileManagerShowDeleteConfirmation',
         'fileManagerShowHidden',
+        'fileManagerSearchFixed',
         'terminalEnableRightClickPaste',
         'showStatusMonitorIpAddress',
         'quickCommandRowSizeMultiplier',
@@ -886,6 +889,8 @@ export const useSettingsStore = defineStore('settings', () => {
   //  Getter for File Manager delete confirmation, returning boolean
   // 文件管理器是否显示以 . 开头的文件（默认显示，与升级前行为一致）
   const fileManagerShowHiddenBoolean = computed(() => settings.value.fileManagerShowHidden !== 'false');
+  // 文件管理器搜索框是否固定常驻（默认不固定）
+  const fileManagerSearchFixedBoolean = computed(() => settings.value.fileManagerSearchFixed === 'true');
 
   const fileManagerShowDeleteConfirmationBoolean = computed(() => {
       return settings.value.fileManagerShowDeleteConfirmation !== 'false'; // Default to true
@@ -968,6 +973,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalScrollbackLimitNumber, //  Expose terminal scrollback limit getter
     fileManagerShowDeleteConfirmationBoolean, //  Expose file manager delete confirmation getter
     fileManagerShowHiddenBoolean, // 文件管理器显示隐藏文件开关
+    fileManagerSearchFixedBoolean, // 文件管理器搜索框固定
     terminalEnableRightClickPasteBoolean, //  Expose terminal right click paste getter
     statusMonitorShowIpBoolean, // 暴露状态监视器显示IP getter
   };

@@ -14,6 +14,7 @@ import {
     SftpDecompressSuccessPayload,
     SftpDecompressErrorPayload
 } from '../websocket/types';
+import { ensureRemoteDirectories, parentRemoteDir } from './ensure-directories';
 
 // +++ Define local interface for readdir results +++
 interface SftpDirEntry {
@@ -694,7 +695,7 @@ export class SftpService {
 
     /** 写入文件内容 (支持指定编码) */
     // --- 修改：添加 encoding 参数 ---
-    async writefile(sessionId: string, path: string, data: string, requestId: string, encoding?: string): Promise<void> {
+    async writefile(sessionId: string, path: string, data: string, requestId: string, encoding?: string, createParents?: boolean): Promise<void> {
          const state = this.clientStates.get(sessionId);
          if (!state || !state.sftp) {
              console.warn(`[SFTP] SFTP 未准备好，无法在 ${sessionId} 上执行 writefile (ID: ${requestId})`);
@@ -703,8 +704,20 @@ export class SftpService {
          }
         // --- 修改：使用传入的 encoding 或默认 utf-8 ---
         const targetEncoding = encoding || 'utf-8';
-        console.debug(`[SFTP ${sessionId}] Received writefile request for ${path} (ID: ${requestId}, Encoding: ${targetEncoding})`);
+        console.debug(`[SFTP ${sessionId}] Received writefile request for ${path} (ID: ${requestId}, Encoding: ${targetEncoding}, createParents: ${!!createParents})`);
         try {
+            // 新建文件允许目标带路径（`./a/b/1.txt`）：先把缺的父目录补齐；编辑器保存 / 上传不带这个标记
+            if (createParents) {
+                const parentDir = parentRemoteDir(path);
+                if (parentDir !== '/') {
+                    try {
+                        await ensureRemoteDirectories(state.sftp, parentDir);
+                    } catch (mkErr: any) {
+                        state.ws.send(JSON.stringify({ type: 'sftp:writefile:error', path: path, payload: `创建父目录失败: ${mkErr?.message || mkErr}`, requestId: requestId }));
+                        return;
+                    }
+                }
+            }
             // --- 修改：使用 iconv-lite 根据指定编码创建 Buffer ---
             let buffer: Buffer;
             try {
@@ -790,15 +803,27 @@ export class SftpService {
     }
 
     /** 创建目录 */
-    async mkdir(sessionId: string, path: string, requestId: string): Promise<void> {
+    async mkdir(sessionId: string, path: string, requestId: string, createParents?: boolean): Promise<void> {
          const state = this.clientStates.get(sessionId);
          if (!state || !state.sftp) {
              console.warn(`[SFTP] SFTP 未准备好，无法在 ${sessionId} 上执行 mkdir (ID: ${requestId})`);
              state?.ws.send(JSON.stringify({ type: 'sftp:mkdir:error', path: path, payload: 'SFTP 会话未就绪', requestId: requestId })); // Use specific error type
              return;
          }
-        console.debug(`[SFTP ${sessionId}] Received mkdir request for ${path} (ID: ${requestId})`);
+        console.debug(`[SFTP ${sessionId}] Received mkdir request for ${path} (ID: ${requestId}, createParents: ${!!createParents})`);
         try {
+            // 新文件夹同样允许写路径：`./a/b/c` 一次建三层（等价于 mkdir -p，但最后一级已存在时仍报错，避免「新建」静默成功）
+            if (createParents) {
+                const parentDir = parentRemoteDir(path);
+                if (parentDir !== '/') {
+                    try {
+                        await ensureRemoteDirectories(state.sftp, parentDir);
+                    } catch (mkErr: any) {
+                        state.ws.send(JSON.stringify({ type: 'sftp:mkdir:error', path: path, payload: `创建目录失败: ${mkErr?.message || mkErr}`, requestId: requestId }));
+                        return;
+                    }
+                }
+            }
             state.sftp.mkdir(path, (err) => {
                 if (err) {
                     console.error(`[SFTP ${sessionId}] mkdir ${path} failed (ID: ${requestId}):`, err);
