@@ -440,8 +440,8 @@ const handleRetryTask = async (taskId: string) => {
         </div>
         <div v-else class="space-y-3">
           <div v-for="task in displayedTasks" :key="task.taskId" class="bg-background-alt p-3 rounded-lg border shadow-sm hover:shadow-md transition-shadow" :style="{ borderColor: 'var(--border-color)' }">
-            <div class="flex justify-between items-start mb-2">
-              <div>
+            <div class="flex flex-col-reverse gap-2 mb-2 sm:flex-row sm:justify-between sm:items-start">
+              <div class="min-w-0 flex-1">
                 <span class="mb-1 inline-block rounded px-2 py-0.5 text-xs font-medium" :class="task.kind === 'local-upload' ? 'bg-cyan-100 text-cyan-700' : 'bg-violet-100 text-violet-700'">
                   {{ task.kind === 'local-upload' ? t('transferProgressModal.types.localUpload', '本地上传') : t('transferProgressModal.types.serverTransfer', '服务器间传输') }}
                 </span>
@@ -470,7 +470,8 @@ const handleRetryTask = async (taskId: string) => {
                 </div>
                 <span class="text-xs text-text-muted">{{ t('transferProgressModal.task.createdAt', '创建于') }}: {{ formatDate(task.createdAt) }}</span>
               </div>
-              <div class="flex items-center space-x-2">
+              <!-- 左侧路径较长时不能挤压状态徽章和按钮（移动端会被挤成一字一行）；窄屏时徽章单独放在卡片顶部右侧 -->
+              <div class="flex shrink-0 items-center space-x-2 whitespace-nowrap self-end sm:self-auto">
                 <span :class="['px-2.5 py-1 text-xs font-semibold rounded-full',
                   { 'bg-green-100 text-green-700': task.status === 'completed' },
                   { 'bg-red-100 text-red-700': task.status === 'failed' },

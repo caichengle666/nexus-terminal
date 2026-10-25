@@ -2178,7 +2178,7 @@ const handleOpenEditorClick = () => {
         <!-- File Table -->
         <table ref="tableRef" class="w-full border-collapse table-fixed border-border rounded" :class="{'pointer-events-none': showExternalDropOverlay}" @contextmenu.prevent>
             <colgroup>
-                <col :style="{ width: props.isMobile ? '44px' : `${colWidths.type}px` }">
+                <col :style="{ width: props.isMobile ? '56px' : `${colWidths.type}px` }"><!-- 44px 放不下「类型」两个字，会竖排换行 -->
                 <col :style="{ width: props.isMobile ? 'auto' : `${colWidths.name}px` }">
                 <col v-if="!props.isMobile" :style="{ width: `${colWidths.size}px` }">
                 <col v-if="!props.isMobile" :style="{ width: `${colWidths.permissions}px` }">

@@ -259,7 +259,7 @@ onUnmounted(() => {
           <li
             @click.stop="handleSendToClick"
             :class="[
-              'px-4 py-1.5 cursor-pointer text-foreground text-sm flex items-center transition-colors duration-150 rounded mx-1',
+              'menu-action-item px-4 py-1.5 cursor-pointer text-foreground text-sm flex items-center transition-colors duration-150 rounded mx-1',
               'hover:bg-primary/10 hover:text-primary'
             ]"
           >
@@ -268,7 +268,7 @@ onUnmounted(() => {
         </template>
           <li
             v-if="menuItem.submenu"
-          class="px-4 py-1.5 text-foreground text-sm flex items-center justify-between transition-colors duration-150 rounded mx-1 hover:bg-primary/10 hover:text-primary relative"
+          class="menu-action-item px-4 py-1.5 text-foreground text-sm flex items-center justify-between transition-colors duration-150 rounded mx-1 hover:bg-primary/10 hover:text-primary relative"
           @mouseenter="showSubmenu(menuItem.label, $event)"
           @mouseleave="hideSubmenu()"
         >
@@ -286,7 +286,7 @@ onUnmounted(() => {
               :key="subIndex"
               @click.stop="handleItemClick(subItem)"
               :class="[
-                'px-4 py-1.5 cursor-pointer text-foreground text-sm flex items-center transition-colors duration-150 rounded mx-1',
+                'menu-action-item px-4 py-1.5 cursor-pointer text-foreground text-sm flex items-center transition-colors duration-150 rounded mx-1',
                 'hover:bg-primary/10 hover:text-primary'
               ]"
             >
@@ -299,7 +299,7 @@ onUnmounted(() => {
           <li
             @click.stop="handleSendToClick"
             :class="[
-              'px-4 py-1.5 cursor-pointer text-foreground text-sm flex items-center transition-colors duration-150 rounded mx-1',
+              'menu-action-item px-4 py-1.5 cursor-pointer text-foreground text-sm flex items-center transition-colors duration-150 rounded mx-1',
               'hover:bg-primary/10 hover:text-primary'
             ]"
           >
