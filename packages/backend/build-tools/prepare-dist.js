@@ -22,4 +22,16 @@ if (fs.existsSync(packageJsonPath)) {
     'utf8'
   );
 }
-copyIfExists(path.join(rootDir, 'package-lock.json'), path.join(distDir, 'package-lock.json'));
+const lockPath = path.join(rootDir, 'package-lock.json');
+if (fs.existsSync(lockPath)) {
+  // 锁文件里标记为 devOptional 的包（目前只有 typescript：既是 devDependency，又是 i18next 的
+  // 可选 peer 依赖）在删掉 devDependencies 后仍会被 `npm install --omit=dev` 当作可选 peer 装进
+  // 生产包（约 23 MB）。生产环境不需要它，从 dist 的锁文件里去掉，npm 便不会再安装缺失的可选 peer。
+  const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+  if (lock.packages) {
+    for (const [key, entry] of Object.entries(lock.packages)) {
+      if (key && entry && entry.devOptional) delete lock.packages[key];
+    }
+  }
+  fs.writeFileSync(path.join(distDir, 'package-lock.json'), `${JSON.stringify(lock, null, 3)}\n`, 'utf8');
+}

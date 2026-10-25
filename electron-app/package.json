@@ -57,7 +57,18 @@
       "window-state.js",
       "gpu-mode.js",
       "main-i18n.js",
-      "package.json"
+      "package.json",
+      "!node_modules/node-pty/{deps,src,scripts,third_party,typings}/**",
+      "!node_modules/node-pty/binding.gyp",
+      "!node_modules/node-pty/lib/**/*.{test.js,map}",
+      "!node_modules/node-pty/build/**",
+      "node_modules/node-pty/build/Release/*.{node,dll,exe}",
+      "node_modules/node-pty/build/Release/spawn-helper",
+      "node_modules/node-pty/build/Release/conpty/**",
+      "!node_modules/node-pty/prebuilds/**",
+      "node_modules/node-pty/prebuilds/${platform}-${arch}/**",
+      "!node_modules/node-addon-api/**",
+      "!node_modules/**/*.map"
     ],
     "extraResources": [
       {
@@ -73,7 +84,26 @@
         "to": "packages/backend",
         "filter": [
           "dist/**",
-          "html-presets/**"
+          "html-presets/**",
+          "!dist/**/*.map",
+          "!dist/node_modules/typescript/**",
+          "!dist/node_modules/node-gyp/**",
+          "!dist/node_modules/@types/**",
+          "!dist/node_modules/**/*.{d.ts,d.mts,d.cts}",
+          "!dist/node_modules/**/{README,readme,Readme,CHANGELOG,changelog,Changelog,HISTORY,History,history}{,.md,.markdown,.txt}",
+          "!dist/node_modules/*/{test,tests,__tests__,example,examples,docs}/**",
+          "!dist/node_modules/@*/*/{test,tests,__tests__,example,examples,docs}/**",
+          "!dist/node_modules/**/build/Release/{obj,obj.target,.deps}/**",
+          "!dist/node_modules/**/build/{Debug,deps,obj.target,.deps}/**",
+          "!dist/node_modules/**/build/*.{vcxproj,filters,sln,gypi,mk}",
+          "!dist/node_modules/**/build/Makefile",
+          "!dist/node_modules/**/*.{pdb,iobj,ipdb,ilk,obj,o,lib,exp,tlog,lastbuildstate,recipe}",
+          "!dist/node_modules/sqlite3/{deps,src}/**",
+          "!dist/node_modules/bcrypt/src/**",
+          "!dist/node_modules/cpu-features/{deps,src}/**",
+          "!dist/node_modules/bcrypt/prebuilds/**",
+          "dist/node_modules/bcrypt/prebuilds/${platform}-${arch}/**",
+          "!dist/node_modules/**/bare-*/prebuilds/**"
         ]
       },
       {

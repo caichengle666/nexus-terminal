@@ -16,7 +16,7 @@ import * as nodemailer from "nodemailer";
 import Mail from "nodemailer/lib/mailer";
 import i18next, { defaultLng, supportedLngs } from "../i18n";
 import { settingsService } from "../settings/settings.service";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone } from "../utils/format-in-time-zone";
 import { sendGotifyMessage } from "./gotify";
 
 const testSubjectKey = "testNotification.subject";
