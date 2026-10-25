@@ -329,6 +329,44 @@ export const reconnectSession = async (sessionId: string): Promise<boolean> => {
   return reconnected;
 };
 
+/**
+ * 主动断开一个会话：先让后端释放 SSH 连接（否则 WebSocket 断开后后端会进入
+ * 断线续连宽限期，SSH 仍保持在线），再关闭 WebSocket。标签、终端内容与分屏都保留，
+ * 之后可通过标签上的「重新连接」或在终端按 Enter 用同一个 sessionId 重新建连。
+ * @returns 是否执行了断开（会话不存在或已断开时返回 false）
+ */
+export const disconnectSession = async (sessionId: string): Promise<boolean> => {
+  const session = sessions.value.get(sessionId);
+  if (!session) return false;
+  const ws = session.wsManager;
+  const status = ws.connectionStatus.value;
+  if (status === 'disconnected' || status === 'error') return false;
+
+  if (status === 'connected') {
+    // 等后端确认释放（最多 3 秒），超时也继续关闭 WebSocket
+    await new Promise<void>((resolve) => {
+      let done = false;
+      let unregister: () => void = () => undefined;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        unregister();
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(finish, 3000);
+      unregister = ws.onMessage('ssh:disconnect:ack', finish);
+      ws.sendMessage({ type: 'ssh:disconnect', sessionId });
+    });
+  }
+
+  session.sftpManagers.forEach((manager) => manager.cleanup());
+  session.sftpManagers.clear();
+  ws.disconnect();
+  console.log(`[SessionActions] 已手动断开会话 ${sessionId}`);
+  return true;
+};
+
 export const refreshSessionSidePanels = (sessionId: string): boolean => {
   console.log(`[SessionActions] 请求刷新会话侧栏信息 ID: ${sessionId}`);
   const sessionToRefresh = sessions.value.get(sessionId);

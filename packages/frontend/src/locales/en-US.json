@@ -1741,7 +1741,10 @@
       "closeRight": "Close Tabs to the Right",
       "closeLeft": "Close Tabs to the Left",
       "suspendSession": "Suspend Session",
-      "unmarkForSuspend": "Unmark Suspend"
+      "unmarkForSuspend": "Unmark Suspend",
+      "editConnection": "Edit Connection",
+      "disconnect": "Disconnect",
+      "reconnect": "Reconnect"
     },
     "closeTabTooltip": "Close Tab",
     "newTabTooltip": "New Connection Tab"
@@ -2004,7 +2007,9 @@
       "closeConfirm": "Stop AI and close",
       "reconnectMessage": "Reconnecting will drop the current terminal channel and stop the running AI task. The AI conversation context will be kept. Continue?",
       "reconnectConfirm": "Stop AI and reconnect",
-      "batchCloseMessage": "{count} of the terminals being closed have an AI task running. Closing them will also stop those AI tasks. Continue?"
+      "batchCloseMessage": "{count} of the terminals being closed have an AI task running. Closing them will also stop those AI tasks. Continue?",
+      "disconnectMessage": "Disconnecting closes this terminal channel and stops the running AI task. The AI conversation context is kept. Continue?",
+      "disconnectConfirm": "Stop AI and disconnect"
     }
   },
   "uxFiles": {

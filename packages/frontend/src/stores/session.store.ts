@@ -61,6 +61,7 @@ export const useSessionStore = defineStore('session', () => {
   const activateSession = (sessionId: string) => sessionActions.activateSession(sessionId);
   const closeSession = (sessionId: string) => sessionActions.closeSession(sessionId);
   const reconnectSession = (sessionId: string) => sessionActions.reconnectSession(sessionId);
+  const disconnectSession = (sessionId: string) => sessionActions.disconnectSession(sessionId);
   const refreshSessionSidePanels = (sessionId: string) => sessionActions.refreshSessionSidePanels(sessionId);
   const handleConnectRequest = (connection: ConnectionInfo) =>
     sessionActions.handleConnectRequest(connection, {
@@ -132,6 +133,7 @@ export const useSessionStore = defineStore('session', () => {
     activateSession,
     closeSession,
     reconnectSession,
+    disconnectSession,
     refreshSessionSidePanels,
     handleConnectRequest,
     handleOpenNewSession,

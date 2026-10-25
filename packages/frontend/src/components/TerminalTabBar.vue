@@ -95,6 +95,20 @@ const confirmReconnectSession = async (sessionId: string) => {
   await sessionStore.reconnectSession(sessionId);
 };
 
+const confirmDisconnectSession = async (sessionId: string) => {
+  if (aiStore.sessionRuntimes[sessionId]?.isRunning) {
+    const confirmed = await showConfirmDialog({
+      title: t('uxTerminal.aiRunning.title'),
+      message: t('uxTerminal.aiRunning.disconnectMessage'),
+      confirmText: t('uxTerminal.aiRunning.disconnectConfirm'),
+      cancelText: t('common.cancel'),
+    });
+    if (!confirmed) return;
+    aiStore.stopRun(sessionId);
+  }
+  await sessionStore.disconnectSession(sessionId);
+};
+
 // --- 本地状态 ---
 const sessionStore = useSessionStore();
 const aiStore = useAiStore();
@@ -213,6 +227,27 @@ const handleContextMenuAction = (payload: { action: string; targetId: string | n
       // 注意：关闭左侧通常不包括当前标签本身
       emitWorkspaceEvent('session:closeToLeft', { targetSessionId: targetId });
       break;
+    case 'edit-connection': {
+      // 右键的标签 → 找到它对应的连接 → 打开编辑窗口（复用 connection:requestEdit）
+      const session = sessionStore.sessions.get(targetId);
+      const connIdNum = session ? parseInt(session.connectionId, 10) : NaN;
+      const conn = Number.isNaN(connIdNum)
+        ? undefined
+        : connectionsStore.connections.find(c => c.id === connIdNum);
+      if (conn) {
+        emitWorkspaceEvent('connection:requestEdit', { connectionInfo: conn });
+      } else {
+        console.warn(`[TabBar] 找不到会话 ${targetId} 对应的连接，无法编辑`);
+      }
+      break;
+    }
+    case 'disconnect':
+      // 只断开 SSH / WebSocket 通道，保留标签与终端内容
+      void confirmDisconnectSession(targetId);
+      break;
+    case 'reconnect':
+      void confirmReconnectSession(targetId);
+      break;
     case 'mark-for-suspend': // +++ 修改 action 名称 +++
       if (typeof targetId === 'string') {
         console.log(`[TabBar] Context menu action 'mark-for-suspend' requested for session ID: ${targetId}`);
@@ -237,7 +272,7 @@ const handleContextMenuAction = (payload: { action: string; targetId: string | n
 
 // 计算右键菜单项
 const contextMenuItems = computed(() => {
-  const items = [];
+  const items: Array<{ label: string; action: string; isSeparator?: boolean; disabled?: boolean }> = [];
   const targetSessionIdValue = contextTargetSessionId.value; // 使用局部变量以避免多次访问 .value
   if (!targetSessionIdValue) return [];
 
@@ -249,6 +284,20 @@ const contextMenuItems = computed(() => {
 
   const currentIndex = props.sessions.findIndex(s => s.sessionId === targetSessionIdValue);
   const totalTabs = props.sessions.length;
+
+  // 编辑连接：能解析到连接时才出现
+  if (connectionInfo) {
+    items.push({ label: 'tabs.contextMenu.editConnection', action: 'edit-connection' });
+    items.push({ label: '', action: '', isSeparator: true });
+  }
+
+  // 断开 / 重连：两项常驻，按当前状态置灰（已连接只能断开，已断开只能重连）
+  const linkStatus = targetSessionState.wsManager.connectionStatus.value;
+  const canDisconnect = linkStatus === 'connected' || linkStatus === 'connecting';
+  const canReconnect = linkStatus === 'disconnected' || linkStatus === 'error';
+  items.push({ label: 'tabs.contextMenu.disconnect', action: 'disconnect', disabled: !canDisconnect });
+  items.push({ label: 'tabs.contextMenu.reconnect', action: 'reconnect', disabled: !canReconnect });
+  items.push({ label: '', action: '', isSeparator: true });
 
   // 添加标记/取消标记挂起会话菜单项（如果适用）
   if (connectionInfo && connectionInfo.type === 'SSH') {

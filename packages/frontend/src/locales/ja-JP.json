@@ -1717,7 +1717,10 @@
       "closeRight": "右側のタブを閉じる",
       "closeLeft": "左側のタブを閉じる",
       "suspendSession": "セッションを一時停止",
-      "unmarkForSuspend": "一時停止の予約を解除"
+      "unmarkForSuspend": "一時停止の予約を解除",
+      "editConnection": "接続を編集",
+      "disconnect": "切断",
+      "reconnect": "再接続"
     },
     "closeTabTooltip": "タブを閉じる",
     "newTabTooltip": "新しい接続タブ"
@@ -1980,7 +1983,9 @@
       "closeConfirm": "AI を停止して閉じる",
       "reconnectMessage": "再接続すると現在のターミナルチャネルが切断され、実行中の AI タスクが停止します。AI の会話コンテキストは保持されます。続行しますか？",
       "reconnectConfirm": "AI を停止して再接続",
-      "batchCloseMessage": "閉じようとしているターミナルのうち {count} 個で AI タスクが実行中です。閉じるとそれらの AI タスクも停止します。続行しますか？"
+      "batchCloseMessage": "閉じようとしているターミナルのうち {count} 個で AI タスクが実行中です。閉じるとそれらの AI タスクも停止します。続行しますか？",
+      "disconnectMessage": "切断するとこのターミナルのチャネルが閉じられ、実行中の AI タスクも停止します。AI の会話コンテキストは保持されます。続行しますか？",
+      "disconnectConfirm": "AI を停止して切断"
     }
   },
   "uxFiles": {

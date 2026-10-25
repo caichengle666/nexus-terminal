@@ -1741,7 +1741,10 @@
       "closeRight": "关闭右侧标签页",
       "closeLeft": "关闭左侧标签页",
       "suspendSession": "挂起会话",
-      "unmarkForSuspend": "取消挂起"
+      "unmarkForSuspend": "取消挂起",
+      "editConnection": "编辑连接",
+      "disconnect": "断开连接",
+      "reconnect": "重新连接"
     },
     "closeTabTooltip": "关闭标签页",
     "newTabTooltip": "新建连接标签页"
@@ -2004,7 +2007,9 @@
       "closeConfirm": "停止 AI 并关闭",
       "reconnectMessage": "重新连接会断开当前终端通道，并停止正在运行的 AI 任务。AI 对话上下文会保留。是否继续？",
       "reconnectConfirm": "停止 AI 并重连",
-      "batchCloseMessage": "将要关闭的终端中有 {count} 个正在运行 AI 任务。关闭会同时停止这些 AI 任务。是否继续？"
+      "batchCloseMessage": "将要关闭的终端中有 {count} 个正在运行 AI 任务。关闭会同时停止这些 AI 任务。是否继续？",
+      "disconnectMessage": "断开连接会关闭当前终端通道，并停止正在运行的 AI 任务。AI 对话上下文会保留。是否继续？",
+      "disconnectConfirm": "停止 AI 并断开"
     }
   },
   "uxFiles": {
