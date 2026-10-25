@@ -8,6 +8,7 @@ import draggable from 'vuedraggable';
 import LayoutNodeEditor from './LayoutNodeEditor.vue';
 import { useConfirmDialog } from '../composables/useConfirmDialog';
 import { useAlertDialog } from '../composables/useAlertDialog';
+import { isDesktopApp } from '../utils/platform';
 
 
 
@@ -41,6 +42,12 @@ const localAvailablePanes: Ref<PaneName[]> = ref([]);
 const originalLayoutTree: Ref<LayoutNode | null> = ref(null);
 const originalSidebarPanes: Ref<{ left: PaneName[], right: PaneName[] }> = ref({ left: [], right: [] });
 
+// 这些面板只能停靠在侧栏，主布局画布不接受（拖进去也不认）
+const SIDEBAR_ONLY_PANES: PaneName[] = ['portForward'];
+// 桌面端专属：web 端连入口都不显示。平台在运行时是固定值，不需要响应式
+const sidebarOnlyPanes: PaneName[] = isDesktopApp() ? [...SIDEBAR_ONLY_PANES] : [];
+const mainLayoutPanes = (): PaneName[] => layoutStore.allPossiblePanes.filter(p => !SIDEBAR_ONLY_PANES.includes(p));
+
 // --- Dialog State ---
 const dialogRef = ref<HTMLElement | null>(null);
 
@@ -62,10 +69,10 @@ watch(() => props.isVisible, (newValue) => {
     const initialUsed = getAllLocalUsedPaneNames(localLayoutTree.value, localSidebarPanes.value);
     if (initialUsed.has('terminal')) {
         // Terminal is used, available list excludes it
-        localAvailablePanes.value = layoutStore.allPossiblePanes.filter(p => p !== 'terminal');
+        localAvailablePanes.value = mainLayoutPanes().filter(p => p !== 'terminal');
     } else {
         // Terminal is not used, available list includes all
-        localAvailablePanes.value = [...layoutStore.allPossiblePanes];
+        localAvailablePanes.value = mainLayoutPanes();
     }
     // Ensure original order is maintained
     localAvailablePanes.value.sort((a, b) =>
@@ -173,6 +180,7 @@ const paneLabels = computed(() => ({ // Assuming labels might depend on i18n
   transferCenter: t('layout.pane.transferCenter', '传输中心'),
   localSystem: t('layout.pane.localSystem', '本机监控'),
   localTerminal: t('layout.pane.localTerminal', '本地终端'),
+  portForward: t('layout.pane.portForward', '端口转发'),
 }));
 
 // --- Methods ---
@@ -204,12 +212,23 @@ const closeDialog = async () => {
   }
 };
 
+// 兜底：侧栏专用面板绝不能落进主布局树（拖拽已经拦了，这里再保一层）
+const stripSidebarOnlyPanes = (node: LayoutNode | null): LayoutNode | null => {
+  if (!node) return null;
+  if (node.type === 'pane') {
+    return node.component && SIDEBAR_ONLY_PANES.includes(node.component) ? null : node;
+  }
+  const children = (node.children ?? []).map(stripSidebarOnlyPanes).filter(Boolean) as LayoutNode[];
+  return children.length ? { ...node, children } : null;
+};
+
 const saveLayout = async () => { // Make async
   console.log('[LayoutConfigurator] Attempting to save layout...');
   try {
     // Save main layout and wait for persistence
     console.log('[LayoutConfigurator] Updating main layout tree in store...');
-    await layoutStore.updateLayoutTree(localLayoutTree.value); // Await the async action
+    const layoutTreeToSave = localLayoutTree.value ? stripSidebarOnlyPanes(JSON.parse(JSON.stringify(localLayoutTree.value))) : null;
+    await layoutStore.updateLayoutTree(layoutTreeToSave); // Await the async action
     console.log('[LayoutConfigurator] Main layout tree update awaited.');
 
     // Save sidebar config and wait for persistence
@@ -242,9 +261,9 @@ const resetToDefault = async () => {
     // Reset available panes: Include 'terminal' only if it's not used in the default layout.
     const defaultUsed = getAllLocalUsedPaneNames(localLayoutTree.value, localSidebarPanes.value);
     if (defaultUsed.has('terminal')) {
-        localAvailablePanes.value = layoutStore.allPossiblePanes.filter(p => p !== 'terminal');
+        localAvailablePanes.value = mainLayoutPanes().filter(p => p !== 'terminal');
     } else {
-        localAvailablePanes.value = [...layoutStore.allPossiblePanes];
+        localAvailablePanes.value = mainLayoutPanes();
     }
     // Ensure original order
     localAvailablePanes.value.sort((a, b) =>
@@ -361,6 +380,12 @@ const onDraggableChange = (event: any, side: 'left' | 'right') => { // Add side 
         if (targetList && typeof addedElement === 'object' && addedElement !== null && addedElement.type === 'pane' && typeof addedElement.component === 'string') {
             // Replace the added LayoutNode object with its component name (PaneName)
             targetList.splice(addedIndex, 1, addedElement.component);
+            // 侧栏专用面板只允许出现一次（左右侧栏合计），重复拖入时撤销本次添加
+            if (SIDEBAR_ONLY_PANES.includes(addedElement.component)) {
+                const sides: Array<'left' | 'right'> = ['left', 'right'];
+                const duplicated = sides.some(s => localSidebarPanes.value[s].some((p, i) => p === addedElement.component && !(s === side && i === addedIndex)));
+                if (duplicated) targetList.splice(addedIndex, 1);
+            }
             console.log(`[LayoutConfigurator] Replaced added LayoutNode at index ${addedIndex} on ${side} sidebar with PaneName: ${addedElement.component}`);
         } else {
              console.log(`[LayoutConfigurator] Added event detected on ${side} sidebar, but element was not a LayoutNode:`, addedElement);
@@ -431,6 +456,30 @@ const handleAvailablePaneDragEnd = (event: any) => {
               </li>
             </template>
           </draggable>
+
+          <!-- 侧栏专用：只允许拖进左右侧栏，主布局画布不接受（仅桌面端显示） -->
+          <div v-if="sidebarOnlyPanes.length" class="mt-2 pt-3 border-t border-border flex-shrink-0">
+            <h4 class="mt-0 mb-2 text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+              <i class="fas fa-columns text-[11px]"></i>
+              {{ t('layoutConfigurator.sidebarOnly', '侧栏专用') }}
+            </h4>
+            <draggable
+              :list="sidebarOnlyPanes"
+              tag="ul"
+              class="list-none p-0 m-0"
+              :item-key="(element: PaneName) => `sidebar-only-${element}`"
+              :group="{ name: 'sidebar-only-items', pull: 'clone', put: false }"
+              :sort="false"
+              :clone="clonePane"
+            >
+              <template #item="{ element }: { element: PaneName }">
+                <li class="flex items-center p-2 mb-2 bg-background-alt border border-dashed border-border-alt rounded cursor-grab transition-colors duration-150 hover:bg-hover active:cursor-grabbing active:bg-border text-sm">
+                  <i class="fas fa-grip-vertical mr-2 text-text-alt cursor-grab active:cursor-grabbing"></i>
+                  {{ paneLabels[element] || element }}
+                </li>
+              </template>
+            </draggable>
+          </div>
         </section>
 
         <!-- Main Layout Preview & Sidebar Config -->
@@ -496,7 +545,7 @@ const handleAvailablePaneDragEnd = (event: any) => {
                         tag="ul"
                         class="list-none p-0 m-0 min-h-[120px] bg-background-alt border border-dashed border-border-alt rounded p-2 flex-grow overflow-y-auto"
                         :item-key="(element: PaneName) => `left-${element}`"
-                        group="layout-items"
+                        :group="{ name: 'layout-items', put: ['layout-items', 'sidebar-only-items'] }"
                         :sort="true"
                         @change="onDraggableChange($event, 'left')"
                     >
@@ -525,7 +574,7 @@ const handleAvailablePaneDragEnd = (event: any) => {
                         tag="ul"
                         class="list-none p-0 m-0 min-h-[120px] bg-background-alt border border-dashed border-border-alt rounded p-2 flex-grow overflow-y-auto"
                         :item-key="(element: PaneName) => `right-${element}`"
-                        group="layout-items"
+                        :group="{ name: 'layout-items', put: ['layout-items', 'sidebar-only-items'] }"
                         :sort="true"
                         @change="onDraggableChange($event, 'right')"
                     >

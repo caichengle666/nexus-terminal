@@ -1,4 +1,6 @@
 import * as ConnectionRepository from './connection.repository';
+import { stopAllForConnection } from '../port-forward/port-forward.service';
+import { deleteRulesByConnection } from '../port-forward/port-forward.repository';
 import { encrypt, decrypt } from '../utils/crypto';
 import { AuditLogService } from '../audit/audit.service';
 import * as SshKeyService from '../ssh_keys/ssh_key.service'; 
@@ -445,6 +447,13 @@ export const updateConnection = async (id: number, input: UpdateConnectionInput)
  * 删除连接
  */
 export const deleteConnection = async (id: number): Promise<boolean> => {
+    // 先把这条连接上跑着的端口转发停掉，再删数据（FK 带 CASCADE，这里再兜一次底）
+    try {
+        await stopAllForConnection(id);
+        await deleteRulesByConnection(id);
+    } catch (e: any) {
+        console.warn(`[PortForward] 删除连接 ${id} 时清理端口转发失败:`, e?.message);
+    }
     const deleted = await ConnectionRepository.deleteConnection(id);
     if (deleted) {
         // 删除成功后记录审计操作

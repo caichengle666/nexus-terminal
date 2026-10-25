@@ -1313,7 +1313,8 @@
     "lockLayout": "レイアウトをロック",
     "lockUpdateError": "レイアウトのロック状態の更新に失敗しました。",
     "confirmClose": "保存されていない変更があります。閉じてもよろしいですか？",
-    "confirmReset": "デフォルトのレイアウトとサイドバー設定に戻しますか？現在の変更は失われます。"
+    "confirmReset": "デフォルトのレイアウトとサイドバー設定に戻しますか？現在の変更は失われます。",
+    "sidebarOnly": "サイドバー専用"
   },
   "layoutNodeEditor": {
     "containerLabel": "コンテナー ({direction})",
@@ -1508,7 +1509,8 @@
       "localSystem": "ローカルモニター",
       "localTerminal": "ローカルターミナル",
       "remoteDesktop": "リモートデスクトップ",
-      "transferCenter": "転送センター"
+      "transferCenter": "転送センター",
+      "portForward": "ポート転送"
     },
     "panes": {
       "suspendedSshSessions": "一時停止セッションマネージャー"
@@ -2474,5 +2476,39 @@
     "loadingSettings": "ユーザー設定とテーマを読み込んでいます...",
     "loadingUi": "画面を読み込んでいます...",
     "recovering": "起動中に問題が発生しました。基本画面を読み込んでいます..."
+  },
+  "portForward": {
+    "title": "ポート転送",
+    "add": "新規ルール",
+    "noSession": "先に SSH セッションを開いてください",
+    "empty": "ルールがありません",
+    "running": "実行中",
+    "stopped": "停止中",
+    "reconnecting": "接続が切れました。再接続中…",
+    "start": "開始",
+    "stop": "停止",
+    "bindHost": "待受アドレス",
+    "bindPort": "ポート",
+    "targetHost": "転送先",
+    "targetPort": "ポート",
+    "autoStart": "起動時に有効化",
+    "confirmDelete": "ポート転送ルール {target} を削除しますか？",
+    "invalidPort": "ポートは 1〜65535 の整数で指定してください",
+    "targetRequired": "転送先を入力してください",
+    "saveFailed": "保存に失敗しました",
+    "desktopOnly": "ポート転送はデスクトップ版でのみ利用できます",
+    "exposedWarning": "ループバック以外のアドレスで待ち受けています。同じネットワーク上の他の端末からもこのポートにアクセスできます",
+    "remoteAssigned": "サーバー割り当てポート {port}",
+    "connections": "接続 {count} 件",
+    "type": {
+      "local": "ローカル (-L)",
+      "dynamic": "動的 SOCKS (-D)",
+      "remote": "リモート (-R)"
+    },
+    "typeHint": {
+      "local": "ローカルポート → SSH サーバー経由 → 転送先",
+      "dynamic": "ローカル SOCKS5 プロキシ（SSH サーバー経由で接続）",
+      "remote": "SSH サーバーのポート → このマシン → 転送先"
+    }
   }
 }

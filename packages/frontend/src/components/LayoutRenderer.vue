@@ -13,6 +13,7 @@ import SandboxedHtmlFrame from './common/SandboxedHtmlFrame.vue';
 import { useAppearanceStore } from '../stores/appearance.store'; // +++ Import appearance store +++
 import { useSidebarResize } from '../composables/useSidebarResize';
 import { storeToRefs } from 'pinia';
+import { isDesktopApp } from '../utils/platform';
 
 
 // --- Props ---
@@ -75,6 +76,10 @@ const {
 const { activeSession } = storeToRefs(sessionStore);
 const { workspaceSidebarPersistentBoolean, getSidebarPaneWidth } = storeToRefs(settingsStore);
 const { sidebarPanes } = storeToRefs(layoutStore);
+// 端口转发只在桌面端可用；web 端即便设置里存了也要过滤掉
+const isDesktop = isDesktopApp();
+const visibleLeftSidebarPanes = computed(() => sidebarPanes.value.left.filter(p => p !== 'portForward' || isDesktop));
+const visibleRightSidebarPanes = computed(() => sidebarPanes.value.right.filter(p => p !== 'portForward' || isDesktop));
 const { orderedTabs: editorTabsFromStore, activeTabId: activeEditorTabIdFromStore } = storeToRefs(fileEditorStore); // <-- Get editor state
 
 const hasTerminalBackgroundContent = computed(() => (
@@ -115,6 +120,7 @@ const componentMap: Record<PaneName, Component> = {
   transferCenter: defineAsyncComponent(() => import('./TransferCenterPane.vue')),
   localSystem: defineAsyncComponent(() => import('./LocalSystemPane.vue')),
   localTerminal: defineAsyncComponent(() => import('./LocalTerminalPane.vue')),
+  portForward: defineAsyncComponent(() => import('../views/PortForwardView.vue')),
 };
 
 // --- Computed ---
@@ -163,6 +169,7 @@ const paneLabels = computed(() => ({
   transferCenter: t('layout.pane.transferCenter', '传输中心'),
   localSystem: t('layout.pane.localSystem', '本机监控'),
   localTerminal: t('layout.pane.localTerminal', '本地终端'),
+  portForward: t('layout.pane.portForward', '端口转发'),
 }));
 
 
@@ -411,6 +418,7 @@ const getIconClasses = (paneName: PaneName): string[] => {
     case 'transferCenter': return ['fas', 'fa-exchange-alt'];
     case 'localSystem': return ['fas', 'fa-chart-line'];
     case 'localTerminal': return ['fas', 'fa-laptop-code'];
+    case 'portForward': return ['fas', 'fa-arrow-right-arrow-left'];
     // Add other specific icons here if needed
     default: return ['fas', 'fa-question-circle']; // Default icon
   }
@@ -500,9 +508,9 @@ onBeforeUnmount(() => {
 <template>
   <div class="relative flex h-full w-full overflow-hidden">
     <!-- Left Sidebar Buttons -->
-    <div class="workspace-sidebar-strip is-left flex flex-col bg-sidebar py-1 z-10 flex-shrink-0 border-r border-border" v-if="isRootRenderer && sidebarPanes.left.length > 0">
+    <div class="workspace-sidebar-strip is-left flex flex-col bg-sidebar py-1 z-10 flex-shrink-0 border-r border-border" v-if="isRootRenderer && visibleLeftSidebarPanes.length > 0">
         <button
-            v-for="pane in sidebarPanes.left"
+            v-for="pane in visibleLeftSidebarPanes"
             :key="`left-${pane}`"
             @click="toggleSidebarPane('left', pane)"
             :class="['flex items-center justify-center w-10 h-10 mb-1 text-text-secondary hover:bg-hover hover:text-foreground transition-colors duration-150 cursor-pointer text-lg',
@@ -746,9 +754,9 @@ onBeforeUnmount(() => {
     </div>
 
      <!-- Right Sidebar Buttons -->
-    <div class="workspace-sidebar-strip is-right flex flex-col bg-sidebar py-1 z-10 flex-shrink-0 border-l border-border" v-if="isRootRenderer && sidebarPanes.right.length > 0">
+    <div class="workspace-sidebar-strip is-right flex flex-col bg-sidebar py-1 z-10 flex-shrink-0 border-l border-border" v-if="isRootRenderer && visibleRightSidebarPanes.length > 0">
          <button
-             v-for="pane in sidebarPanes.right"
+             v-for="pane in visibleRightSidebarPanes"
             :key="`right-${pane}`"
             @click="toggleSidebarPane('right', pane)"
             :class="['flex items-center justify-center w-10 h-10 mb-1 text-text-secondary hover:bg-hover hover:text-foreground transition-colors duration-150 cursor-pointer text-lg',

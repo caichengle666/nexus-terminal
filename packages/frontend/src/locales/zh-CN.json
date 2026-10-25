@@ -1330,7 +1330,8 @@
     "saveError": "保存布局时出错，请稍后再试。",
     "confirmClearLayout": "确定要清空整个布局吗？所有面板将返回可用列表。",
     "lockLayout": "锁定布局",
-    "lockUpdateError": "更新布局锁定状态失败。"
+    "lockUpdateError": "更新布局锁定状态失败。",
+    "sidebarOnly": "侧栏专用"
   },
   "layoutNodeEditor": {
     "containerLabel": "容器 ({direction})",
@@ -1532,7 +1533,8 @@
       "localSystem": "本机监控",
       "localTerminal": "本地终端",
       "remoteDesktop": "远程桌面",
-      "transferCenter": "传输中心"
+      "transferCenter": "传输中心",
+      "portForward": "端口转发"
     },
     "panes": {
       "suspendedSshSessions": "挂起会话管理器"
@@ -2474,5 +2476,39 @@
     "loadingSettings": "正在加载用户设置和主题...",
     "loadingUi": "正在加载界面...",
     "recovering": "启动遇到问题，正在加载基础界面..."
+  },
+  "portForward": {
+    "title": "端口转发",
+    "add": "新建规则",
+    "noSession": "先打开一个 SSH 会话",
+    "empty": "还没有规则",
+    "running": "运行中",
+    "stopped": "已停止",
+    "reconnecting": "连接断开，正在重连…",
+    "start": "启动",
+    "stop": "停止",
+    "bindHost": "监听地址",
+    "bindPort": "端口",
+    "targetHost": "目标地址",
+    "targetPort": "端口",
+    "autoStart": "随应用启动",
+    "confirmDelete": "删除端口转发规则 {target}？",
+    "invalidPort": "端口必须是 1-65535 之间的整数",
+    "targetRequired": "请填写目标地址",
+    "saveFailed": "保存失败",
+    "desktopOnly": "端口转发仅在桌面端可用",
+    "exposedWarning": "监听在非回环地址上，同一网络中的其他设备也能访问此端口",
+    "remoteAssigned": "服务器分配端口 {port}",
+    "connections": "{count} 次连接",
+    "type": {
+      "local": "本地转发 (-L)",
+      "dynamic": "动态 SOCKS (-D)",
+      "remote": "远程转发 (-R)"
+    },
+    "typeHint": {
+      "local": "本机端口 → 经 SSH 服务器 → 目标",
+      "dynamic": "本机 SOCKS5 代理，流量经 SSH 服务器出去",
+      "remote": "SSH 服务器端口 → 回到本机 → 目标"
+    }
   }
 }

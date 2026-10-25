@@ -12,6 +12,16 @@ import { isZipBuffer, readZipEntries, ZipPasswordError } from '../utils/zip-aes'
 
 
 
+/** 端口转发规则（随连接导出；仅桌面端会真正运行） */
+export interface ExportPortForwardRule {
+    type: 'local' | 'remote' | 'dynamic';
+    bind_host: string;
+    bind_port: number;
+    target_host?: string | null;
+    target_port?: number | null;
+    auto_start?: boolean;
+}
+
 interface ImportedConnectionData {
     name: string;
     type: 'SSH' | 'RDP' | 'VNC'; 
@@ -36,6 +46,7 @@ interface ImportedConnectionData {
     proxy_type?: 'proxy' | 'jump' | null;
     jump_chain?: number[] | null; // 原连接 ID (导出端)
     jump_chain_names?: string[] | null; // 跳板机连接名称 (优先用于解析)
+    port_forwards?: ExportPortForwardRule[] | null; // 端口转发规则 (v2 新增，可选)
     proxy?: {
         name: string;
         type: 'SOCKS5' | 'HTTP';
@@ -261,6 +272,7 @@ export interface ExportJsonData {
         proxy_type?: 'proxy' | 'jump' | null;
         jump_chain?: number[];
         jump_chain_names?: string[];
+        port_forwards?: ExportPortForwardRule[];
         proxy?: {
             name: string;
             type: 'SOCKS5' | 'HTTP';
@@ -274,6 +286,49 @@ export interface ExportJsonData {
     ssh_keys?: { name: string; private_key: string; passphrase?: string | null }[];
 }
 
+/** 读出全部端口转发规则，按连接分组（只导出配置，不导出运行态） */
+const getPortForwardsByConnection = async (): Promise<Map<number, ExportPortForwardRule[]>> => {
+    const map = new Map<number, ExportPortForwardRule[]>();
+    try {
+        const db = await getDbInstance();
+        const rows = await allDb<{ connection_id: number; type: ExportPortForwardRule['type']; bind_host: string; bind_port: number; target_host: string | null; target_port: number | null; auto_start: number }>(
+            db,
+            'SELECT connection_id, type, bind_host, bind_port, target_host, target_port, auto_start FROM port_forwards ORDER BY connection_id, id'
+        );
+        for (const row of rows) {
+            const rule: ExportPortForwardRule = { type: row.type, bind_host: row.bind_host, bind_port: row.bind_port, auto_start: !!row.auto_start };
+            if (row.type !== 'dynamic') {
+                rule.target_host = row.target_host;
+                rule.target_port = row.target_port;
+            }
+            const list = map.get(row.connection_id) ?? [];
+            list.push(rule);
+            map.set(row.connection_id, list);
+        }
+    } catch (err: any) {
+        console.warn('Service: 读取端口转发规则失败，导出将不包含端口转发:', err.message);
+    }
+    return map;
+};
+
+const isValidImportPort = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 65535;
+const IMPORT_HOST_RE = /^[A-Za-z0-9._:\-\[\]%]{1,253}$/;
+
+/** 校验导入文件里的一条端口转发规则；不合法返回 null（跳过该条，不影响连接本身） */
+export const normalizeImportedPortForward = (raw: any): ExportPortForwardRule | null => {
+    if (!raw || typeof raw !== 'object') return null;
+    const type = raw.type;
+    if (type !== 'local' && type !== 'remote' && type !== 'dynamic') return null;
+    const bindHost = typeof raw.bind_host === 'string' && raw.bind_host.trim() ? raw.bind_host.trim() : '127.0.0.1';
+    if (!IMPORT_HOST_RE.test(bindHost) || !isValidImportPort(raw.bind_port)) return null;
+    if (type === 'dynamic') {
+        return { type, bind_host: bindHost, bind_port: raw.bind_port, target_host: null, target_port: null, auto_start: !!raw.auto_start };
+    }
+    const targetHost = typeof raw.target_host === 'string' ? raw.target_host.trim() : '';
+    if (!targetHost || !IMPORT_HOST_RE.test(targetHost) || !isValidImportPort(raw.target_port)) return null;
+    return { type, bind_host: bindHost, bind_port: raw.bind_port, target_host: targetHost, target_port: raw.target_port, auto_start: !!raw.auto_start };
+};
+
 export const exportConnectionsAsJson = async (): Promise<Buffer> => {
     const connectionsData = await getPlaintextConnectionsData();
     const allTags = await TagService.getAllTags();
@@ -283,6 +338,7 @@ export const exportConnectionsAsJson = async (): Promise<Buffer> => {
     const sshKeyNames = new Map(allSshKeys.map(k => [k.id, k.name]));
 
     const connectionNamesById = new Map(connectionsData.map(c => [c.id, c.name]));
+    const portForwardsByConnection = await getPortForwardsByConnection();
 
     const exportData: ExportJsonData = {
         version: 2, // v2: 新增 id / proxy_type / jump_chain / jump_chain_names (导入兼容 v1)
@@ -320,6 +376,9 @@ export const exportConnectionsAsJson = async (): Promise<Buffer> => {
                 result.jump_chain = [...conn.jump_chain];
                 result.jump_chain_names = conn.jump_chain.map(id => connectionNamesById.get(id) ?? '');
             }
+
+            const rules = portForwardsByConnection.get(conn.id);
+            if (rules && rules.length > 0) result.port_forwards = rules;
 
             if (conn.proxy) {
                 result.proxy = {
@@ -663,6 +722,7 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
             import_old_id?: number | null;
             import_jump_chain_names?: string[] | null;
             import_jump_chain_old_ids?: number[] | null;
+            import_port_forwards?: unknown[] | null;
         };
         const connectionsToInsert: ConnectionToInsert[] = [];
         const proxyCache: { [key: string]: number } = {};
@@ -766,6 +826,7 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
                     import_old_id: typeof connData.id === 'number' ? connData.id : null,
                     import_jump_chain_names: jumpNames,
                     import_jump_chain_old_ids: jumpOldIds,
+                    import_port_forwards: connData.type === 'SSH' && Array.isArray(connData.port_forwards) ? connData.port_forwards : null,
                 });
 
             } catch (connError: any) {
@@ -784,6 +845,25 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
         // 第二遍：将跳板机 (名称 / 原 ID) 解析为新 ID 并更新 jump_chain
         const jumpWarnings = await resolveImportedJumpChains(db, insertedResults);
         errors.push(...jumpWarnings);
+
+        // 端口转发规则：挂到新连接 ID 上；单条不合法只跳过并给出提示
+        const insertPortForwardSql = `INSERT INTO port_forwards (connection_id, type, bind_host, bind_port, target_host, target_port, auto_start) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+        for (const result of insertedResults) {
+            const rawRules = result.originalData?.import_port_forwards;
+            if (!Array.isArray(rawRules)) continue;
+            let skipped = 0;
+            for (const raw of rawRules) {
+                const rule = normalizeImportedPortForward(raw);
+                if (!rule) { skipped++; continue; }
+                await runDb(db, insertPortForwardSql, [
+                    result.connectionId, rule.type, rule.bind_host, rule.bind_port,
+                    rule.target_host ?? null, rule.target_port ?? null, rule.auto_start ? 1 : 0,
+                ]);
+            }
+            if (skipped > 0) {
+                errors.push({ connectionName: result.originalData?.name, message: `跳过 ${skipped} 条无效的端口转发规则` });
+            }
+        }
 
         const insertTagSql = `INSERT OR IGNORE INTO connection_tags (connection_id, tag_id) VALUES (?, ?)`;
         for (const result of insertedResults) {

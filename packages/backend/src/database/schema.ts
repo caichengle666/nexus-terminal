@@ -267,3 +267,20 @@ CREATE TABLE IF NOT EXISTS transfer_tasks (
     subtasks TEXT NOT NULL
 );
 `;
+
+// 端口转发规则（按连接绑定，仅桌面端使用）。运行态不落库，只在内存里。
+export const createPortForwardsTableSQL = `
+CREATE TABLE IF NOT EXISTS port_forwards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    connection_id INTEGER NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('local', 'remote', 'dynamic')),
+    bind_host TEXT NOT NULL DEFAULT '127.0.0.1',
+    bind_port INTEGER NOT NULL,
+    target_host TEXT NULL,
+    target_port INTEGER NULL,
+    auto_start INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE
+);
+`;

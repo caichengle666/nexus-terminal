@@ -66,6 +66,17 @@ export const tableDefinitions: TableDefinition[] = [
     { name: 'proxies', sql: schemaSql.createProxiesTableSQL },
     { name: 'ssh_keys', sql: schemaSql.createSshKeysTableSQL }, // Added SSH Keys table
     { name: 'connections', sql: schemaSql.createConnectionsTableSQL }, // Depends on proxies, ssh_keys
+    {
+        name: 'port_forwards',
+        sql: schemaSql.createPortForwardsTableSQL, // 端口转发规则，随连接级联删除
+        init: async (db: Database): Promise<void> => {
+            try {
+                await runDb(db, `CREATE INDEX IF NOT EXISTS idx_port_forwards_conn ON port_forwards(connection_id);`);
+            } catch (err: any) {
+                console.error('[DB Init] 创建 port_forwards 索引失败:', err.message);
+            }
+        }
+    },
     { name: 'tags', sql: schemaSql.createTagsTableSQL },
     { name: 'connection_tags', sql: schemaSql.createConnectionTagsTableSQL }, // Depends on connections, tags
 

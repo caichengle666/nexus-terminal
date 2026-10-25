@@ -409,7 +409,10 @@ export const settingsService = {
      const validPaneNames: Set<PaneName> = new Set([
          'connections', 'terminal', 'commandBar', 'fileManager',
          'editor', 'statusMonitor', 'commandHistory', 'quickCommands',
-         'dockerManager', 'suspendedSshSessions', 'aiAssistant' // 添加 "suspendedSshSessions"
+         // 必须与前端 PaneName 保持同步，否则会出现「能拖进侧栏、保存却被 400」
+         'dockerManager', 'suspendedSshSessions', 'aiAssistant',
+         'remoteDesktop', 'transferCenter', 'localSystem', 'localTerminal',
+         'portForward'
       ]);
 
      const validatePaneArray = (arr: any[], side: string) => {

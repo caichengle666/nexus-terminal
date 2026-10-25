@@ -3,7 +3,7 @@ import { ref, computed, watch, type Ref, type ComputedRef } from 'vue';
 import apiClient from '../utils/apiClient';
 
 // 定义所有可用面板的名称
-export type PaneName = 'connections' | 'terminal' | 'commandBar' | 'fileManager' | 'editor' | 'statusMonitor' | 'commandHistory' | 'quickCommands' | 'dockerManager' | 'suspendedSshSessions' | 'aiAssistant' | 'remoteDesktop' | 'transferCenter' | 'localSystem' | 'localTerminal';
+export type PaneName = 'connections' | 'terminal' | 'commandBar' | 'fileManager' | 'editor' | 'statusMonitor' | 'commandHistory' | 'quickCommands' | 'dockerManager' | 'suspendedSshSessions' | 'aiAssistant' | 'remoteDesktop' | 'transferCenter' | 'localSystem' | 'localTerminal' | 'portForward'; // portForward：仅桌面端、且只能停靠在侧栏
 
 // 定义布局节点接口
 export interface LayoutNode {
@@ -200,7 +200,7 @@ export const useLayoutStore = defineStore('layout', () => {
   const allPossiblePanes: Ref<PaneName[]> = ref([
     'connections', 'terminal', 'commandBar', 'fileManager',
     'editor', 'statusMonitor', 'commandHistory', 'quickCommands',
-    'dockerManager', 'suspendedSshSessions', 'aiAssistant', 'remoteDesktop', 'transferCenter', 'localSystem', 'localTerminal' // <-- 添加新的挂起 SSH 会话视图
+    'dockerManager', 'suspendedSshSessions', 'aiAssistant', 'remoteDesktop', 'transferCenter', 'localSystem', 'localTerminal', 'portForward' // portForward 仅桌面端、侧栏专用
   ]);
   // 控制布局（Header/Footer）可见性的状态
   const isLayoutVisible: Ref<boolean> = ref(true); // 控制整体布局（Header/Footer）可见性

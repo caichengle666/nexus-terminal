@@ -36,7 +36,7 @@ if (dataConfigResultGlobal.error && (dataConfigResultGlobal.error as NodeJS.Errn
 
 import express = require('express');
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { shouldRejectDesktopHost } from './auth/desktop-host-guard';
+import { shouldRejectDesktopHost, isDesktopMode } from './auth/desktop-host-guard';
 import http from 'http';
 
 
@@ -65,6 +65,9 @@ import sshSuspendRouter from './ssh-suspend/ssh-suspend.routes';
 import { transfersRoutes } from './transfers/transfers.routes';
 import pathHistoryRoutes from './path-history/path-history.routes';
 import favoritePathsRouter from './favorite-paths/favorite-paths.routes';
+import portForwardRouter from './port-forward/port-forward.routes';
+import { listAutoStartRules } from './port-forward/port-forward.repository';
+import { restoreAutoStart } from './port-forward/port-forward.service';
 import webdavBackupRoutes from './webdav-backup/webdav-backup.routes';
 import aiRoutes from './ai/ai.routes';
 import aiHistoryRoutes from './ai/ai-history.routes';
@@ -320,6 +323,7 @@ const startServer = () => {
     app.use('/api/v1/transfers', transfersRoutes());
     app.use('/api/v1/path-history', pathHistoryRoutes);
     app.use('/api/v1/favorite-paths', favoritePathsRouter);
+    app.use('/api/v1/port-forwards', portForwardRouter); // 仅桌面端可用，路由内部拦截
     app.use('/api/v1/webdav-backup', webdavBackupRoutes);
     app.use('/api/v1/ai/history', aiHistoryRoutes);
     app.use('/api/v1/ai', aiRoutes);
@@ -353,6 +357,16 @@ const main = async () => {
     await initializeDatabase();   // 然后初始化数据库
     await initializeSetupToken(); // 若尚无用户，生成并打印一次性初始设置令牌
     startServer();                // 最后启动服务器
+
+    // 桌面端：把上次开着的端口转发拉起来（Web / Docker 不开放端口转发）
+    // 不 await：SSH 握手可能很慢，不能拖住启动；任何失败都只记日志，不影响后端本身
+    if (isDesktopMode()) {
+        listAutoStartRules()
+            .then(rules => restoreAutoStart(rules))
+            .catch((err: any) => {
+                console.warn('[PortForward] 恢复自动转发失败:', err?.message);
+            });
+    }
 };
 
 main().catch(error => {

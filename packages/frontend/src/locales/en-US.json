@@ -1330,7 +1330,8 @@
     "lockLayout": "Lock Layout",
     "lockUpdateError": "Failed to update layout lock status.",
     "confirmClose": "You have unsaved changes. Are you sure you want to close?",
-    "confirmReset": "Restore the default layout and sidebar configuration? Current changes will be lost."
+    "confirmReset": "Restore the default layout and sidebar configuration? Current changes will be lost.",
+    "sidebarOnly": "Sidebar only"
   },
   "layoutNodeEditor": {
     "containerLabel": "Container ({direction})",
@@ -1532,7 +1533,8 @@
       "localSystem": "Local Monitor",
       "localTerminal": "Local Terminal",
       "remoteDesktop": "Remote Desktop",
-      "transferCenter": "Transfer Center"
+      "transferCenter": "Transfer Center",
+      "portForward": "Port forwarding"
     },
     "panes": {
       "suspendedSshSessions": "Suspended Session Manager"
@@ -2474,5 +2476,39 @@
     "loadingSettings": "Loading your settings and theme...",
     "loadingUi": "Loading interface...",
     "recovering": "Startup ran into a problem, loading the basic interface..."
+  },
+  "portForward": {
+    "title": "Port forwarding",
+    "add": "New rule",
+    "noSession": "Open an SSH session first",
+    "empty": "No rules yet",
+    "running": "Running",
+    "stopped": "Stopped",
+    "reconnecting": "Connection lost, reconnecting…",
+    "start": "Start",
+    "stop": "Stop",
+    "bindHost": "Listen host",
+    "bindPort": "Port",
+    "targetHost": "Target host",
+    "targetPort": "Port",
+    "autoStart": "Run on startup",
+    "confirmDelete": "Delete port forwarding rule {target}?",
+    "invalidPort": "Port must be an integer between 1 and 65535",
+    "targetRequired": "Enter a target host",
+    "saveFailed": "Failed to save",
+    "desktopOnly": "Port forwarding is only available in the desktop app",
+    "exposedWarning": "Listening on a non-loopback address: other devices on your network can reach this port",
+    "remoteAssigned": "Server assigned port {port}",
+    "connections": "{count} connections",
+    "type": {
+      "local": "Local (-L)",
+      "dynamic": "Dynamic SOCKS (-D)",
+      "remote": "Remote (-R)"
+    },
+    "typeHint": {
+      "local": "Local port → via SSH server → target",
+      "dynamic": "Local SOCKS5 proxy, traffic exits via the SSH server",
+      "remote": "SSH server port → back to this machine → target"
+    }
   }
 }
