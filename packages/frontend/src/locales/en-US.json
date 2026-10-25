@@ -492,7 +492,14 @@
       "unknownReason": "Unknown reason",
       "unknownSshError": "Unknown SSH error"
     },
-    "noActiveSession": "No active session"
+    "noActiveSession": "No active session",
+    "recentConnections": {
+      "title": "Recent connections",
+      "empty": "No connections yet",
+      "emptyAction": "Create a connection",
+      "viewAll": "View all connections",
+      "neverConnected": "Never connected"
+    }
   },
   "fileEditor": {
     "title": "File Editor"

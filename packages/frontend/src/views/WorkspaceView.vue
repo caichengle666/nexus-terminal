@@ -8,6 +8,7 @@ import { useConnectionsStore, type ConnectionInfo } from '../stores/connections.
 import AddConnectionFormComponent from '../components/AddConnectionForm.vue';
 import TerminalTabBar from '../components/TerminalTabBar.vue';
 import LayoutRenderer from '../components/LayoutRenderer.vue';
+import RecentConnectionsPanel from '../components/RecentConnectionsPanel.vue';
 import LayoutConfigurator from '../components/LayoutConfigurator.vue';
 import Terminal from '../components/Terminal.vue';
 import CommandInputBar from '../components/CommandInputBar.vue'; 
@@ -115,6 +116,14 @@ const getStoredMobilePane = (): Exclude<PaneName, 'commandBar'> => {
 const mobilePane = ref<Exclude<PaneName, 'commandBar'>>(getStoredMobilePane());
 const isMobilePaneMenuOpen = ref(false);
 const mobilePaneRequiresSession = computed(() => mobilePaneOptions.value.find(option => option.component === mobilePane.value)?.requiresSession ?? false);
+/**
+ * 面板当前能否切换 / 停留。终端页例外：一个会话都没有时也可用，
+ * 内容区会显示「最近连接」（RecentConnectionsPanel），点一下就能开会话。
+ */
+const isMobilePaneAvailable = (option: Pick<MobilePaneOption, 'component' | 'requiresSession'>) =>
+  !option.requiresSession
+  || !!activeSessionId.value
+  || (option.component === 'terminal' && sessionStore.sessions.size === 0);
 const mobileLayoutNode = computed<LayoutNode>(() => ({
   id: `mobile-${mobilePane.value}`,
   type: 'pane',
@@ -123,7 +132,7 @@ const mobileLayoutNode = computed<LayoutNode>(() => ({
 }));
 
 const selectMobilePane = (option: MobilePaneOption) => {
-  if (option.requiresSession && !activeSessionId.value) return;
+  if (!isMobilePaneAvailable(option)) return;
   mobilePane.value = option.component;
   isMobilePaneMenuOpen.value = false;
 };
@@ -144,8 +153,8 @@ watch(mobilePane, (pane) => {
   }
 });
 
-watch(activeSessionId, (nextSessionId) => {
-  if (!nextSessionId && mobilePaneRequiresSession.value) {
+watch([activeSessionId, () => sessionStore.sessions.size], ([nextSessionId]) => {
+  if (!nextSessionId && !isMobilePaneAvailable({ component: mobilePane.value, requiresSession: mobilePaneRequiresSession.value })) {
     mobilePane.value = 'connections';
   }
 }, { immediate: true });
@@ -871,7 +880,7 @@ const closeFileManagerModal = () => {
           type="button"
           class="mobile-pane-tab"
           :class="{ active: mobilePane === option.component }"
-          :disabled="option.requiresSession && !activeSessionId"
+          :disabled="!isMobilePaneAvailable(option)"
           :title="option.label"
           :aria-label="option.label"
           :aria-current="mobilePane === option.component ? 'page' : undefined"
@@ -907,7 +916,7 @@ const closeFileManagerModal = () => {
               type="button"
               class="mobile-pane-menu__item"
               :class="{ active: mobilePane === option.component }"
-              :disabled="option.requiresSession && !activeSessionId"
+              :disabled="!isMobilePaneAvailable(option)"
               @click="selectMobilePane(option)"
             >
               <i :class="option.icon" aria-hidden="true"></i>
@@ -932,6 +941,8 @@ const closeFileManagerModal = () => {
             />
           </KeepAlive>
         </template>
+        <!-- 终端页没有任何会话：直接列最近连接，点一下就能开 -->
+        <RecentConnectionsPanel v-else-if="mobilePane === 'terminal' && sessionStore.sessions.size === 0" :is-mobile="true" class="flex-grow" />
         <div v-else class="pane-placeholder">
           {{ t('workspace.noActiveSession', '没有活动的会话') }}
         </div>

@@ -475,7 +475,14 @@
       "unknownReason": "不明な理由",
       "unknownSshError": "不明な SSH エラー"
     },
-    "noActiveSession": "アクティブなセッションがありません"
+    "noActiveSession": "アクティブなセッションがありません",
+    "recentConnections": {
+      "title": "最近の接続",
+      "empty": "接続がまだありません",
+      "emptyAction": "接続を作成する",
+      "viewAll": "すべての接続を表示",
+      "neverConnected": "未接続"
+    }
   },
   "fileEditor": {
     "title": "ファイルエディター"

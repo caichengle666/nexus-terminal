@@ -492,7 +492,14 @@
       "unknownReason": "未知原因",
       "unknownSshError": "未知 SSH 错误"
     },
-    "noActiveSession": "没有活动的会话"
+    "noActiveSession": "没有活动的会话",
+    "recentConnections": {
+      "title": "最近连接",
+      "empty": "还没有可用的连接",
+      "emptyAction": "去新建连接",
+      "viewAll": "查看全部连接",
+      "neverConnected": "从未连接"
+    }
   },
   "fileEditor": {
     "title": "文件编辑器"

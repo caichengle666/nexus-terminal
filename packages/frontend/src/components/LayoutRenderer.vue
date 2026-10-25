@@ -10,6 +10,7 @@ import { useSessionStore } from '../stores/session.store';
 import { useFileEditorStore } from '../stores/fileEditor.store'; 
 import { useSettingsStore } from '../stores/settings.store';
 import SandboxedHtmlFrame from './common/SandboxedHtmlFrame.vue';
+import RecentConnectionsPanel from './RecentConnectionsPanel.vue';
 import { useAppearanceStore } from '../stores/appearance.store'; // +++ Import appearance store +++
 import { useSidebarResize } from '../composables/useSidebarResize';
 import { storeToRefs } from 'pinia';
@@ -618,7 +619,9 @@ onBeforeUnmount(() => {
                        <div v-if="!activeSessionId || !hasSshSessions"
                             class="absolute inset-0 flex justify-center items-center text-center text-text-secondary bg-header text-sm p-4"
                             :style="{ zIndex: 4 }">
-                           <div class="flex flex-col items-center justify-center p-8 w-full h-full">
+                           <!-- 工作区一个会话都没有：直接列最近连接，点一下就能开会话 -->
+                           <RecentConnectionsPanel v-if="sessionStore.sessions.size === 0" :is-mobile="props.isMobile" />
+                           <div v-else class="flex flex-col items-center justify-center p-8 w-full h-full">
                                <i class="fas fa-plug text-4xl mb-3 text-text-secondary"></i>
                                <span class="text-lg font-medium text-text-secondary mb-2">{{ activeSessionId ? t('layout.noSshSessionActive.title', '无活动的 SSH 会话') : t('layout.noActiveSession.title') }}</span>
                                <div class="text-xs text-text-secondary mt-2">{{ activeSessionId ? t('layout.noSshSessionActive.message', '请激活一个 SSH 会话以使用此终端面板。') : t('layout.noActiveSession.message') }}</div>
