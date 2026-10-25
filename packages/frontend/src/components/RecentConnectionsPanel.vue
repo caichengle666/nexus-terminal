@@ -186,17 +186,19 @@ onBeforeUnmount(() => {
   color: inherit;
 }
 
-/* 行底色：普通主题用应用背景色（放在 bg-header 占位层上会略有层次），毛玻璃下用极淡提亮层 */
+/* 行底色：普通主题用应用背景色（放在 bg-header 占位层上会略有层次），毛玻璃下用极淡提亮层
+ * 注意：scoped 样式里 `:global(X) .y` 会被编译成只剩 `X`（整条规则落到 html 上，给 html 铺了底色，
+ * 导致 body 背景图不再提升到画布，所有 z-index:-1 的玻璃底都被背景图盖住），所以整条选择器都要写在 :global() 里。 */
 .rc-row {
   background-color: var(--app-bg-color);
 }
 .rc-row:hover {
   background-color: color-mix(in srgb, var(--link-active-color) 8%, var(--app-bg-color));
 }
-:global(html[data-ui-effect="glass"]) .rc-row {
+:global(html[data-ui-effect="glass"] .rc-row) {
   background-color: var(--glass-inner);
 }
-:global(html[data-ui-effect="glass"]) .rc-row:hover {
+:global(html[data-ui-effect="glass"] .rc-row:hover) {
   background-color: color-mix(in srgb, var(--link-active-color) 14%, transparent);
 }
 </style>

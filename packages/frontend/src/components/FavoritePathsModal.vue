@@ -235,7 +235,7 @@ onBeforeUnmount(() => {
       v-if="isVisible"
       ref="modalContentRef"
       :style="modalStyle"
-      class="z-50 w-72 md:w-80 rounded-md bg-background shadow-lg border border-border/50 max-h-80 flex flex-col overflow-hidden"
+      class="favorite-paths-popover z-50 w-72 md:w-80 rounded-md bg-background shadow-lg border border-border/50 max-h-80 flex flex-col overflow-hidden"
     >
       <!-- Toolbar: Search and Add Button -->
       <div class="p-2 flex-shrink-0 flex items-center gap-2">
@@ -288,8 +288,9 @@ onBeforeUnmount(() => {
                   :title="isFileFavorite(favPath) ? t('favoritePaths.fileItemHint', '文件：点击直接打开') : undefined"
                 ></i>{{ favPath.name || favPath.path }}
               </p>
-              <p v-if="favPath.name" class="text-xs text-text-secondary truncate">
-                {{ favPath.path }}
+              <!-- 路径太长时省略号放在左侧，保留末尾的目录/文件名（完整路径见 title） -->
+              <p v-if="favPath.name" class="text-xs text-text-secondary truncate text-left [direction:rtl]">
+                <span dir="ltr" class="[unicode-bidi:isolate]">{{ favPath.path }}</span>
               </p>
             </div>
             <div class="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">

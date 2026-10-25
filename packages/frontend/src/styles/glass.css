@@ -452,3 +452,27 @@ html[data-ui-effect="glass"][data-glass-render="lite"] body :is(.absolute, .fixe
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+
+/* 固定定位、盖在文件列表上的弹层（移动端右键底部抽屉 / 收藏夹下拉）：
+ * 半透明玻璃底会透出下面的文件行（视口边缘处 backdrop-filter 也可能不生效），这里给不透明底，
+ * 玻璃色调仍由 ::before 叠加。选择器写长是为了压过「弹出层透明」那条 !important 规则。 */
+html[data-ui-effect="glass"] body .file-manager-context-menu.is-mobile.fixed.border.bg-background,
+html[data-ui-effect="glass"] body .favorite-paths-popover.bg-background.shadow-lg.border.flex {
+  background-color: var(--glass-base-color, #0b1220) !important;
+}
+
+/* 移动端工作区内容区（文件管理器 / 连接列表等单面板）：移动端不走 splitpanes，面板没有玻璃底，
+ * 工具栏图标直接压在背景图亮部上几乎看不见。这里直接给元素本身铺半透明色调：
+ * - 不用 ::before + z-index:-1：html 有底色时 body 的背景图不会提升到画布，负 z-index 伪元素会被盖在背景图下面；
+ * - 不用 backdrop-filter / isolation：会让内部 fixed 弹窗以内容区为定位/层叠基准，盖不住顶栏。 */
+html[data-ui-effect="glass"] body .workspace-view.is-mobile .mobile-content-area {
+  background-color: color-mix(in srgb, var(--glass-surface) 88%, var(--glass-base-color));
+}
+html[data-ui-effect="glass"] body .workspace-view.is-mobile .mobile-content-area .bg-background:not(.terminal-pane-container):not(.fixed):not(.absolute) {
+  background-color: transparent !important;
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-ui-effect="glass"] body .workspace-view.is-mobile .mobile-content-area {
+    background-color: var(--glass-base-color);
+  }
+}
