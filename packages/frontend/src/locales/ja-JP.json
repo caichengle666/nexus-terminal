@@ -520,7 +520,10 @@
       "copyPath": "パスをコピー",
       "exitMultiSelect": "複数選択モードを終了",
       "multiSelect": "複数選択モードに入る",
-      "search": "検索"
+      "search": "検索",
+      "showHiddenFiles": "隠しファイル（. で始まる）を表示",
+      "hideHiddenFiles": ". で始まるファイルを隠す",
+      "changePermissionsMultiple": "権限 / 所有者を変更（{count} 件）"
     },
     "contextMenu": {
       "compress": "圧縮",
@@ -576,7 +579,8 @@
       "copyPathFailed": "パスのコピーに失敗しました",
       "readFileTimeout": "ファイルの読み込みがタイムアウトしました。",
       "sessionInvalidOrNotReady": "セッションが無効か、まだ準備ができていません。",
-      "uploadFailed": "アップロードに失敗しました"
+      "uploadFailed": "アップロードに失敗しました",
+      "chownFailed": "所有者の変更に失敗しました"
     },
     "notifications": {
       "copySuccess": "コピーしました",
@@ -584,7 +588,9 @@
       "cdCommandSent": "cd コマンドをターミナルに送信しました",
       "compressSuccess": "{name} を圧縮しました",
       "decompressSuccess": "{name} を展開しました",
-      "pathCopied": "パスをクリップボードにコピーしました"
+      "pathCopied": "パスをクリップボードにコピーしました",
+      "ownerChanged": "所有者を変更しました",
+      "ownerChangedMultiple": "{count} 件の所有者を変更しました"
     },
     "warnings": {
       "moveSameDirectory": "同じディレクトリ内で切り取りと貼り付けはできません。"
@@ -619,7 +625,8 @@
         "rename": "「{name}」の名前を変更",
         "chmod": "「{name}」の権限を変更",
         "newFile": "新しいファイルを作成",
-        "newFolder": "新しいフォルダーを作成"
+        "newFolder": "新しいフォルダーを作成",
+        "chmodMultiple": "{count} 件の権限を変更"
       },
       "buttons": {
         "delete": "削除",
@@ -649,6 +656,23 @@
         "newFolder": "フォルダー名を入力"
       },
       "chmodHelp": "権限を 8 進数で入力してください（例: 755 または 0755）。"
+    },
+    "permissions": {
+      "ownerColumn": "所有者",
+      "groupColumn": "グループ",
+      "otherColumn": "その他",
+      "read": "読み取り",
+      "write": "書き込み",
+      "execute": "実行",
+      "owner": "所有者",
+      "group": "グループ",
+      "ownerPlaceholder": "空欄なら変更しない",
+      "groupPlaceholder": "空欄なら変更しない",
+      "ownerPlaceholderWithValue": "空欄なら変更しない（現在の UID: {uid}）",
+      "groupPlaceholderWithValue": "空欄なら変更しない（現在の GID: {gid}）",
+      "chownHint": "所有者 / グループにはユーザー名または数値 ID を指定できます。他のユーザーの所有にするには通常 root 権限が必要です。",
+      "invalidName": "英数字・ドット・アンダースコア・ハイフン、または数値 ID のみ使用できます",
+      "batchHint": "選択した {count} 件に適用されます（右クリックした項目の現在の権限が初期値です）。"
     }
   },
   "statusMonitor": {

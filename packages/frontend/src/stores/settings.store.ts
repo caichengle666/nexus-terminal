@@ -68,6 +68,7 @@ interface SettingsState {
   layoutLocked?: string; // 'true' or 'false' - NEW: 布局锁定状态
   terminalScrollbackLimit?: string; //  终端回滚行数上限 (e.g., '5000', '0' for unlimited)
   fileManagerShowDeleteConfirmation?: string; //  'true' or 'false' - 文件管理器删除确认提示
+  fileManagerShowHidden?: string; // 'true' or 'false' - 文件管理器显示以 . 开头的文件 (默认 true)
   terminalEnableRightClickPaste?: string; //  'true' or 'false' - 终端右键粘贴
   showStatusMonitorIpAddress?: string; // 'true' or 'false' - 状态监视器显示IP地址
   quickCommandRowSizeMultiplier?: string; // +++ 快捷命令列表行大小乘数 (e.g., '1.0') +++
@@ -444,6 +445,7 @@ export const useSettingsStore = defineStore('settings', () => {
         'layoutLocked',
         'terminalScrollbackLimit',
         'fileManagerShowDeleteConfirmation',
+        'fileManagerShowHidden',
         'terminalEnableRightClickPaste',
         'showStatusMonitorIpAddress',
         'quickCommandRowSizeMultiplier',
@@ -555,6 +557,7 @@ export const useSettingsStore = defineStore('settings', () => {
         'layoutLocked',
         'terminalScrollbackLimit',
         'fileManagerShowDeleteConfirmation',
+        'fileManagerShowHidden',
         'terminalEnableRightClickPaste',
         'showStatusMonitorIpAddress',
         'quickCommandRowSizeMultiplier',
@@ -881,6 +884,9 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   //  Getter for File Manager delete confirmation, returning boolean
+  // 文件管理器是否显示以 . 开头的文件（默认显示，与升级前行为一致）
+  const fileManagerShowHiddenBoolean = computed(() => settings.value.fileManagerShowHidden !== 'false');
+
   const fileManagerShowDeleteConfirmationBoolean = computed(() => {
       return settings.value.fileManagerShowDeleteConfirmation !== 'false'; // Default to true
   });
@@ -961,6 +967,7 @@ export const useSettingsStore = defineStore('settings', () => {
     layoutLockedBoolean,
     terminalScrollbackLimitNumber, //  Expose terminal scrollback limit getter
     fileManagerShowDeleteConfirmationBoolean, //  Expose file manager delete confirmation getter
+    fileManagerShowHiddenBoolean, // 文件管理器显示隐藏文件开关
     terminalEnableRightClickPasteBoolean, //  Expose terminal right click paste getter
     statusMonitorShowIpBoolean, // 暴露状态监视器显示IP getter
   };

@@ -2,6 +2,14 @@
 import { ref, computed, watch, type PropType, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { FileListItem } from '../types/sftp.types';
+import FilePermissionEditor from './FilePermissionEditor.vue';
+
+/** 确认时回传：value 为新名称 / 八进制权限；chmod 额外带 owner / group（空 = 不修改） */
+export interface FileManagerActionConfirmPayload {
+  value: string;
+  owner?: string;
+  group?: string;
+}
 
 const props = defineProps({
   isVisible: {
@@ -28,16 +36,30 @@ const props = defineProps({
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'confirm', value?: string): void; // value can be new name, new permissions, etc. For delete, value is not needed.
+  (e: 'confirm', payload?: FileManagerActionConfirmPayload): void; // For delete, value is empty.
 }>();
 
 const { t } = useI18n();
 const inputValue = ref('');
 const inputRef = ref<HTMLInputElement | null>(null);
+/** 所有者 / 所属组：每次打开都从空开始，留空 = 不修改 */
+const ownerValue = ref('');
+const groupValue = ref('');
+const isChmodAction = computed(() => props.actionType === 'chmod');
+/** 批量修改权限时的目标数量（>1 时标题与提示显示数量） */
+const chmodTargetCount = computed(() => (props.actionType === 'chmod' ? Math.max(props.items.length, props.item ? 1 : 0) : 0));
+const currentUid = computed(() => (chmodTargetCount.value === 1 ? (props.item?.attrs?.uid ?? null) : null) as number | null);
+const currentGid = computed(() => (chmodTargetCount.value === 1 ? (props.item?.attrs?.gid ?? null) : null) as number | null);
+const CHOWN_NAME_RE = /^([0-9]{1,10}|[A-Za-z0-9_][A-Za-z0-9_.-]{0,63})$/;
+const chownInputsInvalid = computed(() =>
+  (!!ownerValue.value.trim() && !CHOWN_NAME_RE.test(ownerValue.value.trim()))
+  || (!!groupValue.value.trim() && !CHOWN_NAME_RE.test(groupValue.value.trim())));
 
 watch(() => props.isVisible, (newValue) => {
   if (newValue) {
     inputValue.value = props.initialValue || '';
+    ownerValue.value = '';
+    groupValue.value = '';
     nextTick(() => {
       inputRef.value?.focus();
       inputRef.value?.select();
@@ -63,6 +85,7 @@ const modalTitle = computed(() => {
     case 'rename':
       return t('fileManager.modals.titles.rename', { name: props.item?.filename || '' });
     case 'chmod':
+      if (chmodTargetCount.value > 1) return t('fileManager.modals.titles.chmodMultiple', { count: chmodTargetCount.value });
       return t('fileManager.modals.titles.chmod', { name: props.item?.filename || '' });
     case 'newFile':
       return t('fileManager.modals.titles.newFile', 'Create New File');
@@ -145,6 +168,7 @@ const isConfirmDisabled = computed(() => {
   if (!inputValue.value.trim()) return true; // Disable if input is empty
   if (props.actionType === 'rename' && inputValue.value.trim() === props.item?.filename) return true; // Disable if name is unchanged
   if (props.actionType === 'chmod' && !/^[0-7]{3,4}$/.test(inputValue.value.trim())) return true; // Disable for invalid chmod format
+  if (props.actionType === 'chmod' && chownInputsInvalid.value) return true;
   return false;
 });
 
@@ -162,7 +186,11 @@ const confirmAction = () => {
     console.warn('Invalid chmod format submitted');
     return;
   }
-  emit('confirm', inputValue.value.trim());
+  if (props.actionType === 'chmod') {
+    emit('confirm', { value: inputValue.value.trim(), owner: ownerValue.value.trim(), group: groupValue.value.trim() });
+    return;
+  }
+  emit('confirm', { value: inputValue.value.trim() });
   // closeModal(); // Parent component will close it after action
 };
 
@@ -189,7 +217,8 @@ onUnmounted(() => {
 
 <template>
   <div v-if="isVisible" class="fixed inset-0 bg-overlay flex justify-center items-center z-[100] p-4" @click.self="closeModal">
-    <div class="bg-background text-foreground p-5 rounded-lg shadow-xl border border-border w-full max-w-md flex flex-col relative">
+    <div class="bg-background text-foreground p-5 rounded-lg shadow-xl border border-border w-full flex flex-col relative max-h-full"
+         :class="isChmodAction ? 'max-w-lg' : 'max-w-md'">
       <!-- Close Button -->
       <button class="absolute top-3 right-3 p-1 text-text-secondary hover:text-foreground z-10" @click="closeModal" :title="t('fileManager.modals.buttons.close', 'Close')">
          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -201,12 +230,26 @@ onUnmounted(() => {
       <h3 class="text-xl font-semibold text-center mb-4 flex-shrink-0">{{ modalTitle }}</h3>
 
       <!-- Content -->
-      <div class="flex-grow mb-6 text-sm">
+      <!-- 内容区自己滚动：弹窗外框保持不滚，毛玻璃底层 (::before) 才能完整覆盖 -->
+      <div class="flex-grow min-h-0 overflow-y-auto mb-6 text-sm">
         <p v-if="actionType === 'delete'" class="text-center whitespace-pre-wrap">
           {{ messageText }}
         </p>
 
-        <div v-if="showInput">
+        <template v-if="isChmodAction">
+          <p v-if="chmodTargetCount > 1" class="mb-3 text-xs text-text-secondary">
+            {{ t('fileManager.permissions.batchHint', { count: chmodTargetCount }) }}
+          </p>
+          <FilePermissionEditor
+            v-model:mode="inputValue"
+            v-model:owner="ownerValue"
+            v-model:group="groupValue"
+            :current-uid="currentUid"
+            :current-gid="currentGid"
+          />
+        </template>
+
+        <div v-else-if="showInput">
           <label :for="`fileManagerActionInput-${actionType}`" class="block text-sm font-medium text-text-secondary mb-1">
             {{ inputLabel }}
           </label>

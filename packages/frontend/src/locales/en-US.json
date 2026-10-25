@@ -537,7 +537,10 @@
       "copyPath": "Copy Path",
       "exitMultiSelect": "Exit Multi-Select Mode",
       "multiSelect": "Enter Multi-Select Mode",
-      "search": "Search"
+      "search": "Search",
+      "showHiddenFiles": "Show hidden (dot) files",
+      "hideHiddenFiles": "Hide hidden (dot) files",
+      "changePermissionsMultiple": "Change permissions / owner ({count} items)"
     },
     "contextMenu": {
       "compress": "Compress",
@@ -593,7 +596,8 @@
       "copyPathFailed": "Failed to copy path",
       "readFileTimeout": "Timed out while reading the file.",
       "sessionInvalidOrNotReady": "Session is invalid or not ready.",
-      "uploadFailed": "Upload failed"
+      "uploadFailed": "Upload failed",
+      "chownFailed": "Failed to change owner"
     },
     "notifications": {
       "copySuccess": "Copy successful",
@@ -601,7 +605,9 @@
       "cdCommandSent": "CD command sent to terminal",
       "compressSuccess": "Compressed {name} successfully",
       "decompressSuccess": "Decompressed {name} successfully",
-      "pathCopied": "Path copied to clipboard"
+      "pathCopied": "Path copied to clipboard",
+      "ownerChanged": "Owner changed",
+      "ownerChangedMultiple": "Owner changed for {count} items"
     },
     "warnings": {
       "moveSameDirectory": "Cannot cut and paste in the same directory."
@@ -636,7 +642,8 @@
         "rename": "Rename \"{name}\"",
         "chmod": "Change Permissions for \"{name}\"",
         "newFile": "Create New File",
-        "newFolder": "Create New Folder"
+        "newFolder": "Create New Folder",
+        "chmodMultiple": "Change permissions of {count} items"
       },
       "buttons": {
         "delete": "Delete",
@@ -666,6 +673,23 @@
         "newFolder": "Enter folder name"
       },
       "chmodHelp": "Enter permissions in octal format (e.g., 755 or 0755)."
+    },
+    "permissions": {
+      "ownerColumn": "Owner",
+      "groupColumn": "Group",
+      "otherColumn": "Others",
+      "read": "Read",
+      "write": "Write",
+      "execute": "Execute",
+      "owner": "Owner",
+      "group": "Group",
+      "ownerPlaceholder": "Leave empty to keep",
+      "groupPlaceholder": "Leave empty to keep",
+      "ownerPlaceholderWithValue": "Leave empty to keep (current UID: {uid})",
+      "groupPlaceholderWithValue": "Leave empty to keep (current GID: {gid})",
+      "chownHint": "Owner / group accept a name or a numeric ID. Giving files to another user usually requires root.",
+      "invalidName": "Letters, digits, dot, underscore and hyphen only, or a numeric ID",
+      "batchHint": "Applies to the {count} selected items (starting from the permissions of the item you right-clicked)."
     }
   },
   "statusMonitor": {

@@ -93,6 +93,7 @@ export const settingsController = {
           'layoutLocked', // +++ 布局锁定键 +++
           'terminalScrollbackLimit', // 终端回滚行数键
           'fileManagerShowDeleteConfirmation', // 文件管理器删除确认键
+          'fileManagerShowHidden', // 文件管理器显示以 . 开头的文件
           'terminalEnableRightClickPaste', // 终端右键粘贴键
           'showStatusMonitorIpAddress', // 添加状态监视器IP显示键 (与服务层和前端统一)
           'mobileToolbarItems'
@@ -119,6 +120,8 @@ export const settingsController = {
                       res.status(400).json({ message: '无效的移动端工具栏配置' });
                       return;
                   }
+              } else if (key === 'fileManagerShowHidden') {
+                  filteredSettings[key] = String(settingsToUpdate[key]) === 'false' ? 'false' : 'true';
               } else if (key === 'connectionTestTimeoutSeconds') {
                   filteredSettings[key] = String(normalizeConnectionTestTimeoutSeconds(settingsToUpdate[key]));
               } else {

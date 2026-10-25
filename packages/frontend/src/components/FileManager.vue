@@ -15,7 +15,7 @@ import { useFileManagerDragAndDrop } from '../composables/file-manager/useFileMa
 import { useFileManagerKeyboardNavigation } from '../composables/file-manager/useFileManagerKeyboardNavigation';
 import FileUploadPopup from './FileUploadPopup.vue';
 import FileManagerContextMenu from './FileManagerContextMenu.vue';
-import FileManagerActionModal from './FileManagerActionModal.vue';
+import FileManagerActionModal, { type FileManagerActionConfirmPayload } from './FileManagerActionModal.vue';
 import type { FileListItem } from '../types/sftp.types';
 import type { WebSocketMessage } from '../types/websocket.types';
 import PathHistoryDropdown from './PathHistoryDropdown.vue';
@@ -116,6 +116,7 @@ const {
   fileManagerRowSizeMultiplierNumber, // +++ 获取行大小 getter +++
   fileManagerColWidthsObject, // +++ 获取列宽 getter +++
   showPopupFileEditorBoolean, // +++ 获取弹窗设置状态 +++
+  fileManagerShowHiddenBoolean, // 显示以 . 开头的文件
   fileManagerShowDeleteConfirmationBoolean, // +++ 获取删除确认设置状态 +++
 } = storeToRefs(settingsStore); // 使用 storeToRefs 保持响应性
  
@@ -328,7 +329,11 @@ const getFileIconClassBase = (filename: string): string => {
 // 修改：依赖 currentSftpManager.value.fileList
 const sortedFileList = computed(() => {
     if (!currentSftpManager.value?.fileList.value) return []; // 检查 manager 和 fileList 是否存在
-    const list = [...currentSftpManager.value.fileList.value]; // 从 manager 获取列表
+    const raw = currentSftpManager.value.fileList.value; // 从 manager 获取列表
+    // 隐藏以 . 开头的文件只在展示层过滤；`..` 是返回上级的虚拟项，始终保留
+    const list = fileManagerShowHiddenBoolean.value
+        ? [...raw]
+        : raw.filter(item => item.filename === '..' || !item.filename.startsWith('.'));
     const key = sortKey.value;
     const direction = sortDirection.value === 'asc' ? 1 : -1;
 
@@ -356,6 +361,21 @@ const sortedFileList = computed(() => {
     });
     return list;
 });
+
+/**
+ * 显示 / 隐藏以 . 开头的文件。存成设置项（fileManagerShowHidden），
+ * 布局里同时挂着的多个文件管理器一起生效。隐藏时顺带取消对隐藏项的选择，
+ * 避免看不见的文件被一起删除 / 移动。
+ */
+const toggleHiddenFiles = () => {
+  const next = !fileManagerShowHiddenBoolean.value;
+  if (!next) {
+    for (const name of Array.from(selectedItems.value)) {
+      if (name.startsWith('.') && name !== '..') selectedItems.value.delete(name);
+    }
+  }
+  void settingsStore.updateSetting('fileManagerShowHidden', String(next));
+};
 
 const filteredFileList = computed(() => {
     if (!searchQuery.value) {
@@ -616,12 +636,13 @@ const handleModalClose = () => {
  actionInitialValue.value = '';
 };
 
-const handleModalConfirm = (value?: string) => {
+const handleModalConfirm = (payload?: FileManagerActionConfirmPayload) => {
  if (!currentSftpManager.value || !currentActionType.value) {
    handleModalClose();
    return;
  }
  const manager = currentSftpManager.value;
+ const value = payload?.value;
 
  switch (currentActionType.value) {
    case 'delete':
@@ -638,7 +659,11 @@ const handleModalConfirm = (value?: string) => {
    case 'chmod':
      if (actionItem.value && value && /^[0-7]{3,4}$/.test(value)) {
        const newMode = parseInt(value, 8);
-       manager.changePermissions(actionItem.value, newMode);
+       // 批量：右键时选中了多项则对所有选中项生效；所有者/所属组留空表示不修改
+       const targets = actionItems.value.length > 0 ? actionItems.value : [actionItem.value];
+       for (const target of targets) {
+         manager.changePermissions(target, newMode, { owner: payload?.owner, group: payload?.group });
+       }
      } else if (value) { // value exists but is invalid
        // Optionally, re-open modal with error or use a notification
        // For now, just log and close
@@ -699,11 +724,14 @@ const handleRenameContextMenuClick = (item: FileListItem) => { // item 已有类
     openActionModal('rename', item, undefined, item.filename);
 };
 
-const handleChangePermissionsContextMenuClick = (item: FileListItem) => { // item 已有类型
+const handleChangePermissionsContextMenuClick = (item: FileListItem, items?: FileListItem[]) => { // item 已有类型
     if (!props.wsDeps.isConnected.value || !item) return; // 恢复使用 props.wsDeps
     if (!currentSftpManager.value) return;
-    const currentModeOctal = (item.attrs.mode & 0o777).toString(8).padStart(3, '0');
-    openActionModal('chmod', item, undefined, currentModeOctal);
+    // 保留 setuid/setgid/sticky 位，避免改权限时悄悄丢掉特殊位
+    const special = item.attrs.mode & 0o7000;
+    const currentModeOctal = (item.attrs.mode & 0o7777).toString(8).padStart(special ? 4 : 3, '0');
+    const targets = (items ?? []).filter(i => i.filename !== '..');
+    openActionModal('chmod', item, targets.length > 1 ? targets : [item], currentModeOctal);
 };
 
 const handleNewFolderContextMenuClick = () => {
@@ -1873,6 +1901,18 @@ const handleOpenEditorClick = () => {
                 :title="t('fileManager.actions.parentDirectory')"
               >
                 <i class="fas fa-arrow-up text-base"></i>
+              </button>
+              <!-- 显示 / 隐藏以 . 开头的文件 -->
+              <button
+                class="file-manager-touch-target flex items-center justify-center w-7 h-7 rounded transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                :class="fileManagerShowHiddenBoolean ? 'text-text-secondary hover:enabled:bg-black/10 hover:enabled:text-foreground' : 'bg-primary/15 text-primary'"
+                @click.stop="toggleHiddenFiles"
+                :disabled="!currentSftpManager"
+                :aria-pressed="!fileManagerShowHiddenBoolean"
+                :title="fileManagerShowHiddenBoolean ? t('fileManager.actions.hideHiddenFiles') : t('fileManager.actions.showHiddenFiles')"
+                data-testid="toggle-hidden-files"
+              >
+                <i :class="fileManagerShowHiddenBoolean ? 'fas fa-eye text-base' : 'fas fa-eye-slash text-base'"></i>
               </button>
              <!-- Search Area -->
              <div class="flex items-center flex-shrink-0">

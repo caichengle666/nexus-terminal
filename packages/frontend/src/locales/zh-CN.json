@@ -537,7 +537,10 @@
       "copyPath": "复制路径",
       "exitMultiSelect": "退出多选模式",
       "multiSelect": "进入多选模式",
-      "search": "搜索"
+      "search": "搜索",
+      "showHiddenFiles": "显示以 . 开头的隐藏文件",
+      "hideHiddenFiles": "隐藏以 . 开头的文件",
+      "changePermissionsMultiple": "修改权限 / 所有者 ({count} 项)"
     },
     "contextMenu": {
       "compress": "压缩",
@@ -593,7 +596,8 @@
       "copyPathFailed": "复制路径失败",
       "readFileTimeout": "读取文件超时。",
       "sessionInvalidOrNotReady": "会话无效或尚未就绪。",
-      "uploadFailed": "上传失败"
+      "uploadFailed": "上传失败",
+      "chownFailed": "修改所有者失败"
     },
     "notifications": {
       "copySuccess": "复制成功",
@@ -601,7 +605,9 @@
       "cdCommandSent": "CD 命令已发送到终端",
       "compressSuccess": "压缩 {name} 成功",
       "decompressSuccess": "解压 {name} 成功",
-      "pathCopied": "路径已复制到剪贴板"
+      "pathCopied": "路径已复制到剪贴板",
+      "ownerChanged": "所有者已修改",
+      "ownerChangedMultiple": "已修改 {count} 项的所有者"
     },
     "warnings": {
       "moveSameDirectory": "不能在同一目录下剪切和粘贴。"
@@ -636,7 +642,8 @@
         "rename": "重命名 \"{name}\"",
         "chmod": "修改 \"{name}\" 的权限",
         "newFile": "创建新文件",
-        "newFolder": "创建新文件夹"
+        "newFolder": "创建新文件夹",
+        "chmodMultiple": "修改 {count} 项的权限"
       },
       "buttons": {
         "delete": "删除",
@@ -666,6 +673,23 @@
         "newFolder": "输入文件夹名称"
       },
       "chmodHelp": "请输入八进制格式的权限 (例如 755 或 0755)。"
+    },
+    "permissions": {
+      "ownerColumn": "所有者",
+      "groupColumn": "所属组",
+      "otherColumn": "其他",
+      "read": "读取",
+      "write": "写入",
+      "execute": "执行",
+      "owner": "所有者",
+      "group": "所属组",
+      "ownerPlaceholder": "留空不修改",
+      "groupPlaceholder": "留空不修改",
+      "ownerPlaceholderWithValue": "留空不修改（当前 UID: {uid}）",
+      "groupPlaceholderWithValue": "留空不修改（当前 GID: {gid}）",
+      "chownHint": "所有者 / 所属组可填用户名或数字 ID；改成其他用户所有通常需要 root 权限。",
+      "invalidName": "只能包含字母、数字、点、下划线、连字符，或为数字 ID",
+      "batchHint": "将应用到选中的 {count} 项（以右键的那一项的当前权限为初始值）。"
     }
   },
   "statusMonitor": {

@@ -39,7 +39,7 @@ export interface UseFileManagerContextMenuOptions {
   onDownloadDirectory: (item: FileListItem) => void; // +++ 文件夹下载回调 +++
   onDelete: () => void; // 删除操作现在由外部处理
   onRename: (item: FileListItem) => void;
-  onChangePermissions: (item: FileListItem) => void;
+  onChangePermissions: (item: FileListItem, items?: FileListItem[]) => void;
   onNewFolder: () => void;
   onNewFile: () => void;
   onCopy: () => void; // +++ 复制回调 +++
@@ -162,6 +162,8 @@ export function useFileManagerContextMenu(options: UseFileManagerContextMenuOpti
        menu.push(
              // --- 分隔符 (视觉) ---
             { label: t('fileManager.actions.deleteMultiple', { count: selectionSize }), action: onDelete, disabled: !(isConnected.value && isSftpReady.value) },
+            // 批量修改权限 / 所有者
+            { label: t('fileManager.actions.changePermissionsMultiple', { count: selectedFileItems.length }), action: () => onChangePermissions(targetItem!, selectedFileItems), disabled: !(isConnected.value && isSftpReady.value) || selectedFileItems.length === 0 },
             // --- 分隔符 (视觉) ---
             { label: t('fileManager.actions.refresh'), action: onRefresh, disabled: !(isConnected.value && isSftpReady.value) }
         );
