@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS passkeys (
 export const createNotificationSettingsTableSQL = `
 CREATE TABLE IF NOT EXISTS notification_settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    channel_type TEXT NOT NULL CHECK(channel_type IN ('webhook', 'email', 'telegram')),
+    channel_type TEXT NOT NULL CHECK(channel_type IN ('webhook', 'email', 'telegram', 'gotify')),
     name TEXT NOT NULL DEFAULT '',
     enabled BOOLEAN NOT NULL DEFAULT false,
     config TEXT NOT NULL DEFAULT '{}', -- JSON string for channel-specific config

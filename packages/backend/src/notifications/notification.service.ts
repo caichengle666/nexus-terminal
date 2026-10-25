@@ -8,6 +8,7 @@ import {
   WebhookConfig,
   EmailConfig,
   TelegramConfig,
+  GotifyConfig,
   NotificationChannelConfig,
   NotificationChannelType,
 } from "../types/notification.types";
@@ -16,6 +17,7 @@ import Mail from "nodemailer/lib/mailer";
 import i18next, { defaultLng, supportedLngs } from "../i18n";
 import { settingsService } from "../settings/settings.service";
 import { formatInTimeZone } from "date-fns-tz";
+import { sendGotifyMessage } from "./gotify";
 
 const testSubjectKey = "testNotification.subject";
 const testEmailBodyKey = "testNotification.email.body";
@@ -69,12 +71,29 @@ export class NotificationService {
         return this._testWebhookSetting(config as WebhookConfig);
       case "telegram":
         return this._testTelegramSetting(config as TelegramConfig);
+      case "gotify":
+        return this._testGotifySetting(config as GotifyConfig);
       default:
         console.warn(`[通知测试] 不支持的测试渠道类型: ${channelType}`);
         return {
           success: false,
           message: `不支持测试此渠道类型 (${channelType})`,
         };
+    }
+  }
+
+  private async _testGotifySetting(
+    config: GotifyConfig
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      await sendGotifyMessage(config, {
+        title: "Nexus Terminal",
+        message: "This is a test notification from Nexus Terminal.",
+      });
+      return { success: true, message: "测试 Gotify 消息已发送。" };
+    } catch (error: any) {
+      console.error("[通知测试 - Gotify] 发送失败:", error?.message || error);
+      return { success: false, message: `测试 Gotify 消息失败: ${error?.message || error}` };
     }
   }
 
@@ -465,6 +484,8 @@ export class NotificationService {
             return this._sendEmail(setting, payload, userLang, userTimezone);
           case "telegram":
             return this._sendTelegram(setting, payload, userLang, userTimezone);
+          case "gotify":
+            return this._sendGotify(setting, payload, userLang, userTimezone);
           default:
             console.warn(
               `[通知] 未知渠道类型: ${setting.channel_type} (设置 ID: ${setting.id})`
@@ -497,6 +518,50 @@ export class NotificationService {
       rendered = rendered.replace(new RegExp(`\\{${key}\\}`, "g"), data[key]);
     }
     return rendered;
+  }
+
+  private async _sendGotify(
+    setting: NotificationSetting,
+    payload: NotificationPayload,
+    userLang: string,
+    userTimezone: string
+  ): Promise<void> {
+    const config = setting.config as GotifyConfig;
+    let detailsText = "";
+    if (payload.details) {
+      if (
+        payload.event === "SETTINGS_UPDATED" &&
+        typeof payload.details === "object" &&
+        Array.isArray(payload.details.updatedKeys)
+      ) {
+        detailsText = payload.details.updatedKeys.join(", ");
+      } else if (typeof payload.details === "string") {
+        detailsText = payload.details;
+      } else {
+        detailsText = JSON.stringify(payload.details);
+      }
+    }
+    const translatedEventName = i18next.t(`event.${payload.event}`, {
+      lng: userLang,
+      defaultValue: payload.event,
+    });
+    const templateData: Record<string, string> = {
+      event: translatedEventName,
+      timestamp: formatInTimeZone(new Date(payload.timestamp), userTimezone, "yyyy-MM-dd HH:mm:ss zzz"),
+      details: detailsText,
+    };
+    // Gotify 手机通知栏只显示纯文本：默认正文不用 Markdown
+    const defaultText = [templateData.timestamp, templateData.details].filter(Boolean).join("\n");
+    const messageText = this._renderTemplate(config.messageTemplate, templateData, defaultText);
+    try {
+      await sendGotifyMessage(config, {
+        title: (config.title || "").trim() || translatedEventName,
+        message: messageText,
+      });
+      console.log(`[通知] Gotify 通知已发送 (设置 ID: ${setting.id}, 事件: ${payload.event})`);
+    } catch (error: any) {
+      console.error(`[通知] Gotify 设置 ID ${setting.id} 发送失败:`, error?.message || error);
+    }
   }
 
   private async _sendWebhook(

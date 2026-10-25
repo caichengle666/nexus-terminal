@@ -917,7 +917,8 @@
       "types": {
         "webhook": "Webhook",
         "email": "邮件",
-        "telegram": "Telegram"
+        "telegram": "Telegram",
+        "gotify": "Gotify"
       },
       "form": {
         "addTitle": "添加通知渠道",
@@ -952,7 +953,18 @@
         "telegramCustomDomain": "自定义 Telegram API 域名",
         "enabledEvents": "启用的事件:",
         "templateHelp": "可用占位符:",
-        "invalidJson": "无效的 JSON 格式"
+        "invalidJson": "无效的 JSON 格式",
+        "gotifyServerUrl": "服务器地址",
+        "gotifyServerUrlHelp": "例如 https://gotify.example.com（支持反代子路径），不需要 /message 后缀。",
+        "gotifyToken": "应用 Token",
+        "gotifyTokenHelp": "在 Gotify 后台 Apps 中创建应用后获取；加密保存，通过请求头发送。",
+        "gotifyPriority": "消息优先级",
+        "gotifyPriorityHelp": "0–10，默认 5；8 及以上在客户端触发高优先级提醒。",
+        "gotifyTitle": "固定标题（可选）",
+        "gotifyTitlePlaceholder": "留空则使用事件名称",
+        "gotifySkipTlsVerify": "跳过 TLS 证书校验（仅自签名证书时使用）",
+        "gotifyMessageTemplate": "消息模板（可选）",
+        "gotifyMessagePlaceholder": "默认：纯文本。可使用"
       },
       "events": {
         "LOGIN_SUCCESS": "登录成功",

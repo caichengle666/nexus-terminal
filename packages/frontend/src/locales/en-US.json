@@ -928,7 +928,8 @@
       "types": {
         "webhook": "Webhook",
         "email": "Email",
-        "telegram": "Telegram"
+        "telegram": "Telegram",
+        "gotify": "Gotify"
       },
       "form": {
         "addTitle": "Add Notification Channel",
@@ -963,7 +964,18 @@
         "telegramCustomDomain": "Custom Telegram API Domain",
         "enabledEvents": "Enabled Events:",
         "templateHelp": "Placeholders:",
-        "invalidJson": "Invalid JSON"
+        "invalidJson": "Invalid JSON",
+        "gotifyServerUrl": "Server URL",
+        "gotifyServerUrlHelp": "e.g. https://gotify.example.com (reverse-proxy sub-paths are fine); no /message suffix needed.",
+        "gotifyToken": "App token",
+        "gotifyTokenHelp": "Create an application under Apps in Gotify to get it. Stored encrypted and sent in a request header.",
+        "gotifyPriority": "Priority",
+        "gotifyPriorityHelp": "0–10, default 5; 8 or higher triggers a high-priority alert on clients.",
+        "gotifyTitle": "Fixed title (optional)",
+        "gotifyTitlePlaceholder": "Leave empty to use the event name",
+        "gotifySkipTlsVerify": "Skip TLS certificate verification (self-signed certificates only)",
+        "gotifyMessageTemplate": "Message template (optional)",
+        "gotifyMessagePlaceholder": "Default: plain text. Available:"
       },
       "events": {
         "LOGIN_SUCCESS": "Login Success",

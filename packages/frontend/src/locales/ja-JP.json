@@ -911,7 +911,8 @@
       "types": {
         "webhook": "Webhook",
         "email": "メール",
-        "telegram": "Telegram"
+        "telegram": "Telegram",
+        "gotify": "Gotify"
       },
       "form": {
         "addTitle": "通知チャネルを追加",
@@ -946,7 +947,18 @@
         "telegramCustomDomain": "カスタム Telegram API ドメイン",
         "enabledEvents": "有効なイベント:",
         "templateHelp": "プレースホルダー:",
-        "invalidJson": "無効な JSON です"
+        "invalidJson": "無効な JSON です",
+        "gotifyServerUrl": "サーバー URL",
+        "gotifyServerUrlHelp": "例: https://gotify.example.com（リバースプロキシのサブパス可）。/message は不要です。",
+        "gotifyToken": "アプリトークン",
+        "gotifyTokenHelp": "Gotify の Apps でアプリを作成して取得します。暗号化して保存され、リクエストヘッダーで送信されます。",
+        "gotifyPriority": "優先度",
+        "gotifyPriorityHelp": "0〜10、既定 5。8 以上はクライアントで高優先度の通知になります。",
+        "gotifyTitle": "固定タイトル（任意）",
+        "gotifyTitlePlaceholder": "空欄の場合はイベント名を使用",
+        "gotifySkipTlsVerify": "TLS 証明書の検証をスキップ（自己署名証明書の場合のみ）",
+        "gotifyMessageTemplate": "メッセージテンプレート（任意）",
+        "gotifyMessagePlaceholder": "既定: プレーンテキスト。使用可能:"
       },
       "events": {
         "LOGIN_SUCCESS": "ログイン成功",

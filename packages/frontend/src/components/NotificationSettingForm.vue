@@ -26,6 +26,7 @@
           <option value="webhook">{{ $t('settings.notifications.types.webhook') }}</option>
           <option value="email">{{ $t('settings.notifications.types.email') }}</option>
           <option value="telegram">{{ $t('settings.notifications.types.telegram') }}</option>
+          <option value="gotify">{{ $t('settings.notifications.types.gotify') }}</option>
         </select>
         <small v-if="isEditing" class="block mt-1 text-xs text-text-secondary">{{ $t('settings.notifications.form.channelTypeEditNote') }}</small>
       </div>
@@ -145,6 +146,45 @@
         </div>
       </div>
 
+      <!-- Gotify Config -->
+      <div v-if="formData.channel_type === 'gotify'" class="space-y-4">
+        <div>
+          <label for="gotify-server" class="block text-sm font-medium text-text-secondary mb-1">{{ $t('settings.notifications.form.gotifyServerUrl') }}</label>
+          <input type="url" id="gotify-server" v-model="gotifyConfig.serverUrl" required placeholder="https://gotify.example.com"
+                 class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+          <small class="block mt-1 text-xs text-text-secondary">{{ $t('settings.notifications.form.gotifyServerUrlHelp') }}</small>
+        </div>
+        <div>
+          <label for="gotify-token" class="block text-sm font-medium text-text-secondary mb-1">{{ $t('settings.notifications.form.gotifyToken') }}</label>
+          <input type="password" id="gotify-token" v-model="gotifyConfig.token" required autocomplete="new-password"
+                 class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+          <small class="block mt-1 text-xs text-text-secondary">{{ $t('settings.notifications.form.gotifyTokenHelp') }}</small>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label for="gotify-priority" class="block text-sm font-medium text-text-secondary mb-1">{{ $t('settings.notifications.form.gotifyPriority') }}</label>
+            <input type="number" id="gotify-priority" v-model.number="gotifyConfig.priority" min="0" max="10" step="1"
+                   class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+            <small class="block mt-1 text-xs text-text-secondary">{{ $t('settings.notifications.form.gotifyPriorityHelp') }}</small>
+          </div>
+          <div>
+            <label for="gotify-title" class="block text-sm font-medium text-text-secondary mb-1">{{ $t('settings.notifications.form.gotifyTitle') }}</label>
+            <input type="text" id="gotify-title" v-model="gotifyConfig.title" :placeholder="$t('settings.notifications.form.gotifyTitlePlaceholder')"
+                   class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+          </div>
+        </div>
+        <div class="flex items-center">
+          <input type="checkbox" id="gotify-skip-tls" v-model="gotifyConfig.skipTlsVerify"
+                 class="h-4 w-4 rounded border-border text-primary focus:ring-primary mr-2 cursor-pointer">
+          <label for="gotify-skip-tls" class="text-sm text-foreground cursor-pointer">{{ $t('settings.notifications.form.gotifySkipTlsVerify') }}</label>
+        </div>
+        <div>
+          <label for="gotify-message" class="block text-sm font-medium text-text-secondary mb-1">{{ $t('settings.notifications.form.gotifyMessageTemplate') }}</label>
+          <textarea id="gotify-message" v-model="gotifyConfig.messageTemplate" rows="3" :placeholder="`${$t('settings.notifications.form.gotifyMessagePlaceholder')} {event}, {timestamp}, {details}.`"
+                    class="w-full px-3 py-2 border border-border rounded-md shadow-sm bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary font-mono text-sm"></textarea>
+        </div>
+      </div>
+
       <!-- Unified Test Button Area -->
       <div class="text-center pt-4 mt-4 border-t border-border/50"> <!-- Test button container -->
           <button
@@ -217,6 +257,7 @@ import {
     WebhookConfig,
     EmailConfig,
     TelegramConfig,
+    GotifyConfig,
     NotificationChannelType
 } from '../types/server.types';
 import { useI18n } from 'vue-i18n';
@@ -265,6 +306,8 @@ const canTestUnsaved = computed(() => {
             return !!emailConfig.value.to && !!emailConfig.value.smtpHost && !!emailConfig.value.smtpPort && !!emailConfig.value.from;
         case 'telegram':
             return !!telegramConfig.value.botToken && !!telegramConfig.value.chatId;
+        case 'gotify':
+            return !!gotifyConfig.value.serverUrl && !!gotifyConfig.value.token;
         default:
             return false;
     }
@@ -312,6 +355,7 @@ const emailConfig = ref<SmtpEmailConfig>({ // Use extended type
     from: ''
 });
 const telegramConfig = ref<TelegramConfig>({ botToken: '', chatId: '', messageTemplate: '', customDomain: '' });
+const gotifyConfig = ref<GotifyConfig>({ serverUrl: '', token: '', priority: 5, title: '', messageTemplate: '', skipTlsVerify: false });
 const webhookHeadersString = ref('{}'); // For textarea binding
 
 // Watch for initialData changes (when editing)
@@ -344,6 +388,16 @@ watch(() => props.initialData, (newData) => {
             messageTemplate: savedConfig.messageTemplate || '',
             customDomain: savedConfig.customDomain || '' // Add customDomain
         };
+    } else if (newData.channel_type === 'gotify') {
+        const savedConfig = newData.config as GotifyConfig;
+        gotifyConfig.value = {
+            serverUrl: savedConfig.serverUrl || '',
+            token: savedConfig.token || '',
+            priority: typeof savedConfig.priority === 'number' ? savedConfig.priority : 5,
+            title: savedConfig.title || '',
+            messageTemplate: savedConfig.messageTemplate || '',
+            skipTlsVerify: savedConfig.skipTlsVerify === true
+        };
     }
   } else {
     // Reset form if initialData becomes null (e.g., switching from edit to add)
@@ -354,6 +408,7 @@ watch(() => props.initialData, (newData) => {
         to: '', bodyTemplate: '', smtpHost: '', smtpPort: 587, smtpSecure: true, smtpUser: '', smtpPass: '', from: '' // Changed from subjectTemplate
     };
     telegramConfig.value = { botToken: '', chatId: '', messageTemplate: '', customDomain: '' }; // Add customDomain
+    gotifyConfig.value = { serverUrl: '', token: '', priority: 5, title: '', messageTemplate: '', skipTlsVerify: false };
     webhookHeadersString.value = '{}';
   }
    headerError.value = null; // Reset header error on data change
@@ -372,6 +427,7 @@ watch(() => formData.channel_type, (newType, oldType) => {
              to: '', bodyTemplate: '', smtpHost: '', smtpPort: 587, smtpSecure: true, smtpUser: '', smtpPass: '', from: '' // Changed from subjectTemplate
         };
        telegramConfig.value = { botToken: '', chatId: '', messageTemplate: '', customDomain: '' }; // Add customDomain
+       gotifyConfig.value = { serverUrl: '', token: '', priority: 5, title: '', messageTemplate: '', skipTlsVerify: false };
        webhookHeadersString.value = '{}';
        headerError.value = null;
         testError.value = null;
@@ -431,6 +487,8 @@ const handleSubmit = async () => {
     formData.config = emailConfig.value;
   } else if (formData.channel_type === 'telegram') {
     formData.config = telegramConfig.value;
+  } else if (formData.channel_type === 'gotify') {
+    formData.config = gotifyConfig.value;
   }
 
   let result: NotificationSetting | null = null;
@@ -481,6 +539,9 @@ const handleTestNotification = async () => {
             break;
         case 'telegram':
             testConfig = { ...telegramConfig.value };
+            break;
+        case 'gotify':
+            testConfig = { ...gotifyConfig.value };
             break;
         default:
             console.error("Unknown channel type for testing:", formData.channel_type);

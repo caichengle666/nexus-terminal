@@ -1,6 +1,6 @@
 import eventService, { AppEventType, AppEventPayload } from '../services/event.service';
 import { NotificationSettingsRepository } from '../notifications/notification.repository';
-import { NotificationSetting, NotificationEvent, NotificationChannelType, WebhookConfig, EmailConfig, TelegramConfig, NotificationChannelConfig } from '../types/notification.types';
+import { NotificationSetting, NotificationEvent, NotificationChannelType, WebhookConfig, EmailConfig, TelegramConfig, GotifyConfig, NotificationChannelConfig } from '../types/notification.types';
 import i18next, { i18nInitializationPromise } from '../i18n';
 import { EventEmitter } from 'events';
 
@@ -203,6 +203,15 @@ class NotificationProcessorService extends EventEmitter {
                 const telegramConfig = setting.config as TelegramConfig;
                 const telegramTemplate = telegramConfig.messageTemplate || genericTelegramBody;
                 body = this.interpolate(telegramTemplate, baseInterpolationData);
+                break;
+
+            case 'gotify':
+                const gotifyConfig = setting.config as GotifyConfig;
+                // Gotify 有独立的 title 字段：默认用事件名，用户可在渠道配置里固定
+                subject = (gotifyConfig.title || '').trim() || translatedEvent;
+                // Gotify 手机通知栏只显示纯文本，默认模板不用代码块
+                const genericGotifyBody = `{event}\n时间: {timestamp}\n用户ID: {userId}\n详情:\n{details}`;
+                body = this.interpolate(gotifyConfig.messageTemplate || genericGotifyBody, baseInterpolationData);
                 break;
 
             default:

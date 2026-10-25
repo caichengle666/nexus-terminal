@@ -1,4 +1,4 @@
-export type NotificationChannelType = 'webhook' | 'email' | 'telegram';
+export type NotificationChannelType = 'webhook' | 'email' | 'telegram' | 'gotify';
 
 // Align NotificationEvent with AuditLogActionType as requested
 export type NotificationEvent =
@@ -43,7 +43,19 @@ export interface TelegramConfig {
   customDomain?: string; // 允许用户自定义 Telegram API 域名
 }
 
-export type NotificationChannelConfig = WebhookConfig | EmailConfig | TelegramConfig;
+/**
+ * Gotify（自建推送服务）：POST {serverUrl}/message，Token 放 X-Gotify-Key 请求头。
+ */
+export interface GotifyConfig {
+  serverUrl: string; // 例如 https://gotify.example.com（可带反代子路径，不需要 /message）
+  token: string; // 应用 Token（Gotify → Apps），加密存储，返回前端时掩码
+  priority?: number; // 0~10，默认 5
+  title?: string; // 可选固定标题，留空则用事件名
+  messageTemplate?: string; // 可选消息模板，占位符同其它渠道
+  skipTlsVerify?: boolean; // 自签证书：跳过 TLS 校验（谨慎使用）
+}
+
+export type NotificationChannelConfig = WebhookConfig | EmailConfig | TelegramConfig | GotifyConfig;
 
 export interface NotificationSetting {
   id?: number;

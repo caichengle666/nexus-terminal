@@ -198,7 +198,7 @@ export class NotificationController {
          return;
      }
 
-      if (!['webhook', 'email', 'telegram'].includes(channel_type)) {
+      if (!['webhook', 'email', 'telegram', 'gotify'].includes(channel_type)) {
           // Use i18next.t for i18n
           res.status(400).json({ message: i18next.t('notificationController.errorInvalidChannelType') });
           return;

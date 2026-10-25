@@ -379,6 +379,33 @@ const definedMigrations: Migration[] = [
             ...TERMINAL_THEME_EXTENDED_COLUMNS,
             { table: 'users', column: 'session_version', definition: 'INTEGER NOT NULL DEFAULT 0' },
         ]
+    },
+    {
+        id: 14,
+        name: 'Allow gotify channel type in notification_settings',
+        check: async (db: Database): Promise<boolean> => {
+            // SQLite 改不了 CHECK 约束，只能重建表；建表 SQL 里已有 gotify（新库）则跳过
+            const createSql = await getTableCreateSQL(db, 'notification_settings');
+            if (!createSql) return false;
+            return !/gotify/i.test(createSql);
+        },
+        sql: `
+            ALTER TABLE notification_settings RENAME TO notification_settings_legacy_gotify;
+            CREATE TABLE notification_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_type TEXT NOT NULL CHECK(channel_type IN ('webhook', 'email', 'telegram', 'gotify')),
+                name TEXT NOT NULL DEFAULT '',
+                enabled BOOLEAN NOT NULL DEFAULT false,
+                config TEXT NOT NULL DEFAULT '{}',
+                enabled_events TEXT NOT NULL DEFAULT '[]',
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
+            INSERT INTO notification_settings (id, channel_type, name, enabled, config, enabled_events, created_at, updated_at)
+                SELECT id, channel_type, name, enabled, config, enabled_events, created_at, updated_at
+                FROM notification_settings_legacy_gotify;
+            DROP TABLE notification_settings_legacy_gotify;
+        `
     }
 ];
 

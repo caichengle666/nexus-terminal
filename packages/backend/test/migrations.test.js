@@ -46,7 +46,7 @@ test('migration #13 repairs columns skipped by the old multi-statement migration
     const users = await all(db, 'SELECT session_version FROM users');
     assert.deepEqual(users, [{ session_version: 0 }]);
     const recorded = await all(db, 'SELECT MAX(id) AS v FROM migrations');
-    assert.equal(recorded[0].v, 13);
+    assert.equal(recorded[0].v, 14);
 
     // Running again is a no-op.
     await runMigrations(db);

@@ -10,6 +10,7 @@ export interface INotificationSender {
 import telegramSenderService from './senders/telegram.sender.service';
 import emailSenderService from './senders/email.sender.service';
 import webhookSenderService from './senders/webhook.sender.service';
+import gotifySenderService from './senders/gotify.sender.service';
 
 
 class NotificationDispatcherService {
@@ -22,6 +23,7 @@ class NotificationDispatcherService {
         this.registerSender('telegram', telegramSenderService);
         this.registerSender('email', emailSenderService);
         this.registerSender('webhook', webhookSenderService);
+        this.registerSender('gotify', gotifySenderService);
 
         this.listenForNotifications();
     }

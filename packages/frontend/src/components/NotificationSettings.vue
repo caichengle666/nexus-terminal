@@ -95,6 +95,7 @@ const getChannelTypeName = (type: NotificationChannelType): string => {
     case 'webhook': return t('settings.notifications.types.webhook');
     case 'email': return t('settings.notifications.types.email');
     case 'telegram': return t('settings.notifications.types.telegram');
+    case 'gotify': return t('settings.notifications.types.gotify');
     default: return type;
   }
 };

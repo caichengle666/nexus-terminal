@@ -10,9 +10,10 @@ import {
  * 通知渠道配置中的敏感字段：
  * - email.smtpPass
  * - telegram.botToken
+ * - gotify.token
  * - webhook.headers 的所有值 (常见 Authorization / token)
  */
-const SECRET_STRING_FIELDS = ['smtpPass', 'botToken'] as const;
+const SECRET_STRING_FIELDS = ['smtpPass', 'botToken', 'token'] as const;
 
 type AnyConfig = Record<string, any>;
 
