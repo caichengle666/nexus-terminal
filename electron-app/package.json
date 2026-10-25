@@ -40,6 +40,12 @@
     "appId": "com.caichengle666.nexus-terminal",
     "productName": "Nexus Terminal",
     "buildVersion": "0.9.23.0",
+    "electronLanguages": [
+      "en-US",
+      "zh-CN",
+      "zh-TW",
+      "ja"
+    ],
     "directories": {
       "output": "dist",
       "buildResources": "build"
