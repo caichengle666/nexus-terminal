@@ -10,7 +10,7 @@
           <button
             type="button"
             class="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
-            :disabled="isCheckingVersion || updateDownloadStatus === 'downloading' || updateDownloadStatus === 'verifying' || isInstallingUpdate"
+            :disabled="isCheckingVersion || ['downloading', 'verifying', 'extracting', 'restarting'].includes(updateDownloadStatus) || isInstallingUpdate"
             :title="$t('settings.about.checkNow')"
             @click="checkLatestVersion"
           >
@@ -30,7 +30,7 @@
           <span v-else-if="isUpdateAvailable && latestVersion && runtimeKind !== 'electron'" class="inline-block text-xs ml-2 px-2 py-0.5 rounded-full bg-warning text-white">
             {{ $t('settings.about.updateAvailable', { version: latestVersion }) }}
           </span>
-          <button v-else-if="isUpdateAvailable && latestVersion && runtimeKind === 'electron' && updateDownloadUrl && updateDownloadStatus !== 'ready' && updateDownloadStatus !== 'failed' && !isInstallingUpdate"
+          <button v-else-if="isUpdateAvailable && latestVersion && runtimeKind === 'electron' && updateDownloadUrl && !['ready', 'failed', 'extracting', 'restarting'].includes(updateDownloadStatus) && !isInstallingUpdate"
              type="button"
              :disabled="updateDownloadStatus === 'downloading' || updateDownloadStatus === 'verifying' || isInstallingUpdate"
              :title="$t('settings.about.downloadUpdate')"
@@ -53,6 +53,16 @@
           <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'ready'" class="text-xs text-success">
             {{ $t('settings.about.updateReady') }}
              <button type="button" class="ml-1 text-primary hover:underline disabled:opacity-50" :disabled="isInstallingUpdate" @click="installUpdate">{{ $t('settings.about.installUpdate') }}</button>
+             <button type="button" class="ml-1 text-primary hover:underline" @click="showUpdateFile">{{ $t('settings.about.showUpdateFile') }}</button>
+          </span>
+          <span v-else-if="runtimeKind === 'electron' && (updateDownloadStatus === 'extracting' || updateDownloadStatus === 'restarting')" class="inline-flex items-center gap-1.5 text-xs text-text-secondary" role="status">
+            <svg class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity="0.25" /><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round" /></svg>
+            {{ updateDownloadStageMessage || $t(updateDownloadStatus === 'extracting' ? 'settings.about.extractingUpdate' : 'settings.about.restartingForUpdate') }}
+          </span>
+          <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'install-failed'" class="inline-flex flex-wrap items-center gap-2 text-xs text-error">
+            <span>{{ $t('settings.about.installFailed') }}{{ updateDownloadError ? `：${updateDownloadError}` : '' }}</span>
+            <button type="button" class="text-primary hover:underline disabled:opacity-50" :disabled="isInstallingUpdate" @click="installUpdate">{{ $t('settings.about.retryInstall') }}</button>
+            <button type="button" class="text-primary hover:underline" @click="showUpdateFile">{{ $t('settings.about.showUpdateFile') }}</button>
           </span>
           <span v-else-if="runtimeKind === 'electron' && updateDownloadStatus === 'failed'" class="inline-flex flex-wrap items-center gap-2 text-xs text-error">
             <span>{{ $t('settings.about.downloadFailed') }}{{ updateDownloadError ? `：${updateDownloadError}` : '' }}</span>
@@ -146,6 +156,7 @@ const {
   downloadUpdate,
   cancelUpdate,
   installUpdate,
+  showUpdateFile,
   saveUpdateMirrorUrls,
 } = useVersionCheck();
 

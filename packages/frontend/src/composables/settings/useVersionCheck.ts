@@ -11,7 +11,7 @@ import {
 } from './updateAssets';
 
 export type RuntimeKind = 'electron' | 'docker' | 'pwa' | 'web';
-export type UpdateDownloadStatus = 'idle' | 'fetching-checksum' | 'probing' | 'downloading' | 'parallel-failed' | 'trying-fallback' | 'source-failed' | 'verifying' | 'ready' | 'failed' | 'cancelled';
+export type UpdateDownloadStatus = 'idle' | 'fetching-checksum' | 'probing' | 'downloading' | 'parallel-failed' | 'trying-fallback' | 'source-failed' | 'verifying' | 'ready' | 'extracting' | 'restarting' | 'install-failed' | 'failed' | 'cancelled';
 
 const UPDATE_MIRRORS_STORAGE_KEY = 'nexus.update-mirror-urls';
 const loadUpdateMirrorUrls = (): string[] => {
@@ -88,6 +88,8 @@ export function useVersionCheck() {
     if (updateDownloadStatus.value === 'downloading'
       || updateDownloadStatus.value === 'verifying'
       || updateDownloadStatus.value === 'ready'
+      || updateDownloadStatus.value === 'extracting'
+      || updateDownloadStatus.value === 'restarting'
       || isInstallingUpdate.value) return;
 
     isCheckingVersion.value = true;
@@ -148,6 +150,8 @@ export function useVersionCheck() {
     if (updateDownloadStatus.value === 'downloading'
       || updateDownloadStatus.value === 'verifying'
       || updateDownloadStatus.value === 'ready'
+      || updateDownloadStatus.value === 'extracting'
+      || updateDownloadStatus.value === 'restarting'
       || isInstallingUpdate.value) return;
     if (runtimeKind.value !== 'electron' || !electronApi?.downloadUpdate) {
       updateDownloadStatus.value = 'failed';
@@ -225,24 +229,41 @@ export function useVersionCheck() {
   };
 
   const installUpdate = async () => {
-    if (updateDownloadStatus.value !== 'ready' || isInstallingUpdate.value) return;
+    if ((updateDownloadStatus.value !== 'ready' && updateDownloadStatus.value !== 'install-failed') || isInstallingUpdate.value) return;
     if (!electronApi?.installUpdate) {
       updateDownloadStatus.value = 'failed';
-      updateDownloadError.value = '当前运行环境不支持安装更新。';
+      updateDownloadError.value = t('settings.about.installUnsupported');
       return;
     }
     isInstallingUpdate.value = true;
+    updateDownloadError.value = null;
     try {
       const result = await electronApi?.installUpdate?.();
-      if (result && !result.ok && !result.cancelled) {
-        updateDownloadStatus.value = 'failed';
-        updateDownloadError.value = result.message || '打开安装程序失败。';
+      if (result?.cancelled) {
+        // Dialog cancelled (or "show download location"): the file is still ready.
+        updateDownloadStatus.value = 'ready';
+        updateDownloadStageMessage.value = null;
+      } else if (result && !result.ok) {
+        // A failed install keeps the verified file, so retrying needs no new download.
+        updateDownloadStatus.value = result.retryable ? 'install-failed' : 'failed';
+        updateDownloadError.value = result.message || t('settings.about.installFailed');
+        updateDownloadStageMessage.value = null;
       }
     } catch (error) {
-      updateDownloadStatus.value = 'failed';
-      updateDownloadError.value = error instanceof Error ? error.message : '打开安装程序失败。';
+      updateDownloadStatus.value = 'install-failed';
+      updateDownloadError.value = error instanceof Error ? error.message : t('settings.about.installFailed');
+      updateDownloadStageMessage.value = null;
     } finally {
       isInstallingUpdate.value = false;
+    }
+  };
+
+  const showUpdateFile = async () => {
+    try {
+      const result = await electronApi?.showUpdateFile?.();
+      if (result && !result.ok && result.message) updateDownloadError.value = result.message;
+    } catch (error) {
+      updateDownloadError.value = error instanceof Error ? error.message : String(error);
     }
   };
 
@@ -264,7 +285,7 @@ export function useVersionCheck() {
     updateDownloadProgress.value = payload.progress ?? updateDownloadProgress.value;
     updateChecksumVerified.value = payload.checksumVerified ?? updateChecksumVerified.value;
     updateSignatureStatus.value = payload.signature ?? updateSignatureStatus.value;
-    if (payload.message) updateDownloadError.value = payload.message;
+    if (payload.message && payload.status !== 'extracting' && payload.status !== 'restarting') updateDownloadError.value = payload.message;
     if (payload.status === 'fetching-checksum') updateDownloadStageMessage.value = '正在获取校验文件…';
     else if (payload.status === 'probing') updateDownloadStageMessage.value = '正在检查下载源…';
     else if (payload.status === 'downloading') updateDownloadStageMessage.value = payload.rangeSupported === false ? '正在下载更新文件…' : '正在下载更新文件（支持并行分片）…';
@@ -273,6 +294,8 @@ export function useVersionCheck() {
     else if (payload.status === 'source-failed') updateDownloadStageMessage.value = '当前下载源失败，正在尝试下一个来源…';
     else if (payload.status === 'verifying') updateDownloadStageMessage.value = payload.message || '正在校验安装包…';
     else if (payload.status === 'ready') updateDownloadStageMessage.value = '更新文件已准备好。';
+    else if (payload.status === 'extracting') updateDownloadStageMessage.value = t('settings.about.extractingUpdate');
+    else if (payload.status === 'restarting') updateDownloadStageMessage.value = t('settings.about.restartingForUpdate');
     else if (payload.status === 'failed' || payload.status === 'cancelled') updateDownloadStageMessage.value = null;
   });
 
@@ -302,6 +325,7 @@ export function useVersionCheck() {
     downloadUpdate,
     cancelUpdate,
     installUpdate,
+    showUpdateFile,
     saveUpdateMirrorUrls,
   };
 }

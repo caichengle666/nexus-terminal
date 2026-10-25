@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadUpdate: (payload) => ipcRenderer.invoke('download-update', payload),
   cancelUpdate: () => ipcRenderer.invoke('cancel-update'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
+  showUpdateFile: () => ipcRenderer.invoke('show-update-file'),
   getFloatingNotificationBellSettings: () => ipcRenderer.invoke('get-floating-notification-bell-settings'),
   setFloatingNotificationBellEnabled: (enabled) => ipcRenderer.invoke('set-floating-notification-bell-enabled', enabled),
   updateFloatingNotificationBell: (payload) => ipcRenderer.send('update-floating-notification-bell', payload),

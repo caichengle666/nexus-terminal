@@ -30,16 +30,104 @@ const cleanupStalePortableUpdates = updaterDir => {
   });
 };
 
-const extractPortableUpdate = (archivePath, destinationPath) => new Promise(resolve => {
-  const escapedArchive = archivePath.replace(/'/g, "''");
-  const escapedDestination = destinationPath.replace(/'/g, "''");
-  const command = `Expand-Archive -LiteralPath '${escapedArchive}' -DestinationPath '${escapedDestination}' -Force`;
-  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true });
+// -ExecutionPolicy Bypass: the Archive module behind Expand-Archive is a script
+// module (.psm1), which a Restricted / AllSigned policy refuses to load.
+const POWERSHELL_ARGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'];
+// Error text from PowerShell would otherwise come back in the OEM code page.
+const POWERSHELL_UTF8 = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8';
+const EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000;
+
+// Absolute path on purpose: a tar.exe from Git / MSYS earlier on PATH is GNU tar,
+// which cannot read ZIP files.
+const getWindowsTarPath = (env = process.env) => path.win32.join(env.SystemRoot || env.windir || 'C:\\Windows', 'System32', 'tar.exe');
+
+// Ordered fastest first. Expand-Archive used to be the only method: on Windows
+// PowerShell 5.1 it needs minutes for the ~470 MB / thousands-of-files portable
+// build, and the UI looked dead the whole time.
+const buildExtractionCommands = ({ archivePath, destinationPath, env = process.env }) => {
+  const archive = escapePowerShellLiteral(archivePath);
+  const destination = escapePowerShellLiteral(destinationPath);
+  return [
+    // bsdtar, built into Windows 10 1803+ / Windows 11, reads ZIP natively.
+    { method: 'tar', file: getWindowsTarPath(env), args: ['-xf', archivePath, '-C', destinationPath], requiresFile: true },
+    {
+      method: 'dotnet-zipfile',
+      file: 'powershell.exe',
+      args: [...POWERSHELL_ARGS, '-Command', [
+        POWERSHELL_UTF8,
+        '$ErrorActionPreference = "Stop"',
+        'Add-Type -AssemblyName System.IO.Compression.FileSystem',
+        `[System.IO.Compression.ZipFile]::ExtractToDirectory(${archive}, ${destination})`,
+      ].join('; ')],
+    },
+    {
+      method: 'expand-archive',
+      file: 'powershell.exe',
+      args: [...POWERSHELL_ARGS, '-Command', [
+        POWERSHELL_UTF8,
+        '$ErrorActionPreference = "Stop"',
+        // The progress bar alone makes Expand-Archive several times slower.
+        '$ProgressPreference = "SilentlyContinue"',
+        `Expand-Archive -LiteralPath ${archive} -DestinationPath ${destination} -Force`,
+      ].join('; ')],
+    },
+  ];
+};
+
+const runExtractionCommand = (command, { spawnImpl = spawn, timeoutMs = EXTRACTION_TIMEOUT_MS } = {}) => new Promise(resolve => {
+  let child;
+  try {
+    child = spawnImpl(command.file, command.args, { windowsHide: true });
+  } catch (error) {
+    resolve(error.message);
+    return;
+  }
   let output = '';
-  child.stderr.on('data', data => { output += data.toString(); });
-  child.on('close', code => resolve(code === 0 ? null : (output.trim() || '解压便携版失败。')));
-  child.on('error', error => resolve(error.message));
+  let settled = false;
+  const finish = value => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    resolve(value);
+  };
+  const timer = setTimeout(() => {
+    try { child.kill(); } catch { /* already gone */ }
+    finish(`解压超时（${Math.round(timeoutMs / 60000)} 分钟）。`);
+  }, timeoutMs);
+  child.stderr?.on('data', data => { output += data.toString(); });
+  child.on('close', code => finish(code === 0 ? null : (output.trim() || `退出码 ${code}`)));
+  child.on('error', error => finish(error.message));
 });
+
+/**
+ * Extracts the portable ZIP, trying tar.exe, then .NET ZipFile, then Expand-Archive.
+ * Each attempt starts from an empty destination. Resolves { ok, method } or
+ * { ok: false, message } with every attempt's error.
+ */
+const extractPortableUpdate = async (archivePath, destinationPath, {
+  spawnImpl = spawn,
+  existsImpl = fs.existsSync,
+  env = process.env,
+  timeoutMs = EXTRACTION_TIMEOUT_MS,
+  onAttempt = null,
+} = {}) => {
+  const errors = [];
+  for (const command of buildExtractionCommands({ archivePath, destinationPath, env })) {
+    if (command.requiresFile && !existsImpl(command.file)) continue;
+    try {
+      fs.rmSync(destinationPath, { recursive: true, force: true });
+      fs.mkdirSync(destinationPath, { recursive: true });
+    } catch (error) {
+      return { ok: false, message: `无法准备解压目录：${error.message}` };
+    }
+    onAttempt?.(command.method);
+    const error = await runExtractionCommand(command, { spawnImpl, timeoutMs });
+    if (!error) return { ok: true, method: command.method };
+    console.warn(`[Updater] Portable extraction via ${command.method} failed: ${error}`);
+    errors.push(`${command.method}: ${error}`);
+  }
+  return { ok: false, message: `解压便携版失败。${errors.join('；')}` };
+};
 
 const buildPortableLaunchScript = ({ currentProcessId, executable, extractPath, targetDirectory, backupPath, resultPath }) => {
   const sourceDirectory = path.dirname(executable);
@@ -131,15 +219,16 @@ const consumePortableUpdateResult = updaterDir => {
   return result;
 };
 
-const installPortableUpdate = async ({ archivePath, updaterDir, targetDirectory = null, currentProcessId = process.pid }) => {
+const installPortableUpdate = async ({ archivePath, updaterDir, targetDirectory = null, currentProcessId = process.pid, onStage = null, spawnImpl = spawn }) => {
   cleanupStalePortableUpdates(updaterDir);
   const extractPath = path.join(updaterDir, `portable-${Date.now()}`);
   const backupPath = path.join(updaterDir, `backup-${Date.now()}`);
   const resultPath = path.join(updaterDir, 'portable-update-result.json');
-  const extraction = await extractPortableUpdate(archivePath, extractPath);
-  if (extraction) {
+  onStage?.('extracting');
+  const extraction = await extractPortableUpdate(archivePath, extractPath, { spawnImpl });
+  if (!extraction.ok) {
     fs.rmSync(extractPath, { recursive: true, force: true });
-    return { ok: false, message: extraction };
+    return { ok: false, message: extraction.message };
   }
   const executable = findPortableExecutable(extractPath);
   if (!executable) {
@@ -155,9 +244,8 @@ const installPortableUpdate = async ({ archivePath, updaterDir, targetDirectory 
       backupPath,
       resultPath,
     });
-    const child = spawn('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
+    const child = spawnImpl('powershell.exe', [
+      ...POWERSHELL_ARGS,
       '-WindowStyle',
       'Hidden',
       '-Command',
@@ -173,9 +261,17 @@ const installPortableUpdate = async ({ archivePath, updaterDir, targetDirectory 
     });
     child.once('spawn', () => {
       child.unref();
-      resolve({ ok: true, fallback: !targetDirectory });
+      resolve({ ok: true, fallback: !targetDirectory, method: extraction.method });
     });
   });
 };
 
-module.exports = { buildPortableLaunchScript, consumePortableUpdateResult, installPortableUpdate, shouldUsePortableFallback };
+module.exports = {
+  buildExtractionCommands,
+  buildPortableLaunchScript,
+  consumePortableUpdateResult,
+  extractPortableUpdate,
+  getWindowsTarPath,
+  installPortableUpdate,
+  shouldUsePortableFallback,
+};

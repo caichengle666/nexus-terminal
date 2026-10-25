@@ -124,6 +124,18 @@ const readGpuCompositing = () => {
     return false;
   }
 };
+// Quit for real so the update can replace the files: the window 'close' handler
+// otherwise hides to the tray unless isQuitting is set, and app.exit is the
+// fallback if anything still holds the quit back.
+const quitForUpdate = () => {
+  isQuitting = true;
+  app.quit();
+  setTimeout(() => {
+    console.warn('[Updater] App did not quit in time, forcing exit.');
+    try { backendProcess?.kill(); } catch { /* already gone */ }
+    app.exit(0);
+  }, 5000).unref?.();
+};
 const relaunchApp = () => {
   isQuitting = true;
   app.relaunch();
@@ -150,6 +162,9 @@ let completedUpdateKind = null;
 let completedUpdateSha256 = null;
 let completedUpdateManifestSignatureVerified = false;
 let updateInstallInProgress = false;
+// Last verified update file; kept after a failed install so "open download
+// location" still works.
+let lastUpdateFilePath = null;
 let updateProxyAgent = null;
 const isDev = process.argv.includes('--dev'); // 确保 isDev 在此作用域可用
 // DevTools only for unpackaged builds. A packaged build started with an explicit
@@ -1620,6 +1635,7 @@ handleTrusted('download-update', async (event, payload = {}) => {
       throw new Error(`安装包签名无效：${signature.detail}`);
     }
     completedUpdatePath = updatePath;
+    lastUpdateFilePath = updatePath;
     completedUpdateSha256 = result.sha256.toLowerCase();
     completedUpdateManifestSignatureVerified = manifestSignatureVerified;
     if (fallbackUsed && process.platform === 'win32') {
@@ -1660,7 +1676,43 @@ handleTrusted('cancel-update', async () => {
   return { ok: true };
 });
 
-handleTrusted('install-update', async () => {
+handleTrusted('show-update-file', async () => {
+  const filePath = [completedUpdatePath, lastUpdateFilePath].find(candidate => candidate && fs.existsSync(candidate));
+  if (filePath) {
+    shell.showItemInFolder(filePath);
+    return { ok: true, path: filePath };
+  }
+  const updaterDir = path.join(app.getPath('temp'), 'nexus-terminal-updater');
+  if (!fs.existsSync(updaterDir)) return { ok: false, message: tMain('updateFileMissing') };
+  const error = await shell.openPath(updaterDir);
+  return error ? { ok: false, message: error } : { ok: true, path: updaterDir };
+});
+
+const showUpdateInstallError = async (message, updatePath) => {
+  const canShowFile = Boolean(updatePath && fs.existsSync(updatePath));
+  const options = {
+    type: 'error',
+    title: tMain('updateInstallFailedTitle'),
+    message: tMain('updateInstallFailedMessage'),
+    detail: [message, canShowFile ? tMain('updateFileLocation', { path: updatePath }) : ''].filter(Boolean).join('\n\n'),
+    buttons: canShowFile ? [tMain('ok'), tMain('updateShowFile')] : [tMain('ok')],
+    defaultId: 0,
+    cancelId: 0,
+  };
+  try {
+    const { response } = mainWindow && !mainWindow.isDestroyed()
+      ? await dialog.showMessageBox(mainWindow, options)
+      : await dialog.showMessageBox(options);
+    if (canShowFile && response === 1) shell.showItemInFolder(updatePath);
+  } catch (error) {
+    console.error('[Updater] Failed to show install error:', error);
+  }
+};
+
+handleTrusted('install-update', async (event) => {
+  const sendInstallStage = (status, message) => {
+    if (!event.sender.isDestroyed()) event.sender.send('update-progress', { status, message });
+  };
   if (updateInstallInProgress) {
     return { ok: false, message: '更新正在准备安装。' };
   }
@@ -1695,15 +1747,25 @@ handleTrusted('install-update', async () => {
       return { ok: false, message: '便携版更新包只能用于便携版，请下载安装包进行更新。' };
     }
     const isDiskImage = /\.dmg$/i.test(updatePath);
+    const detail = isPortable ? tMain('updateDetailPortable') : tMain(isDiskImage ? 'updateDetailDmg' : 'updateDetailInstaller');
     const confirmation = await dialog.showMessageBox(mainWindow, {
       type: 'question',
       title: tMain('updateTitle'),
       message: tMain('updateMessage', { file: path.basename(updatePath) }),
-      detail: isPortable ? tMain('updateDetailPortable') : tMain(isDiskImage ? 'updateDetailDmg' : 'updateDetailInstaller'),
-      buttons: [isPortable ? tMain('updateButtonPortable') : tMain(isDiskImage ? 'updateButtonDmg' : 'updateButtonInstaller'), tMain('cancel')],
+      detail: `${detail}\n\n${tMain('updateFileLocation', { path: updatePath })}`,
+      buttons: [
+        isPortable ? tMain('updateButtonPortable') : tMain(isDiskImage ? 'updateButtonDmg' : 'updateButtonInstaller'),
+        tMain('updateShowFile'),
+        tMain('cancel'),
+      ],
       defaultId: 0,
-      cancelId: 1,
+      cancelId: 2,
+      noLink: true,
     });
+    if (confirmation.response === 1) {
+      shell.showItemInFolder(updatePath);
+      return { ok: false, cancelled: true, message: tMain('updateCancelled') };
+    }
     if (confirmation.response !== 0) return { ok: false, cancelled: true, message: tMain('updateCancelled') };
     if (isPortable && process.platform === 'win32') {
       // getInstallationKind() === 'portable' was checked above, so the marker exists here.
@@ -1713,26 +1775,38 @@ handleTrusted('install-update', async () => {
         updaterDir: path.dirname(updatePath),
         targetDirectory,
         currentProcessId: process.pid,
+        onStage: stage => { if (stage === 'extracting') sendInstallStage('extracting', tMain('updateExtracting')); },
       });
-      if (!result.ok) return result;
+      if (!result.ok) {
+        console.error(`[Updater] Portable update failed: ${result.message}`);
+        await showUpdateInstallError(result.message, updatePath);
+        return { ...result, retryable: fs.existsSync(updatePath) };
+      }
+      console.log(`[Updater] Portable update extracted via ${result.method}; quitting so the swap script can replace the files.`);
+      sendInstallStage('restarting', tMain('updateRestarting'));
       completedUpdatePath = null;
       completedUpdateKind = null;
       completedUpdateSha256 = null;
-      setTimeout(() => app.quit(), 150);
+      setTimeout(quitForUpdate, 300);
       return result;
     }
     if (process.platform === 'linux') {
       try { fs.chmodSync(updatePath, 0o755); } catch { /* shell.openPath will report failures */ }
     }
     const error = await shell.openPath(updatePath);
-    if (error) return { ok: false, message: error };
+    if (error) {
+      await showUpdateInstallError(error, updatePath);
+      return { ok: false, message: error, retryable: fs.existsSync(updatePath) };
+    }
     completedUpdatePath = null;
     completedUpdateKind = null;
     completedUpdateSha256 = null;
-    setTimeout(() => app.quit(), 150);
+    setTimeout(quitForUpdate, 300);
     return { ok: true };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : '打开更新程序失败。' };
+    const message = error instanceof Error ? error.message : '打开更新程序失败。';
+    await showUpdateInstallError(message, completedUpdatePath);
+    return { ok: false, message, retryable: Boolean(completedUpdatePath && fs.existsSync(completedUpdatePath)) };
   } finally {
     updateInstallInProgress = false;
   }
