@@ -438,7 +438,7 @@ const handleItemAction = (item: FileListItem) => {
   const itemPath = currentSftpManager.value.joinPath(currentSftpManager.value.currentPath.value, item.filename);
 
   if (item.attrs.isSymbolicLink) {
-    if (currentSftpManager.value.isLoading.value) {
+    if (currentSftpManager.value.isLoadingVisible.value) {
       return;
     }
     console.log(`[FileManager ${props.sessionId}-${props.instanceId}] Symbolic link clicked: ${itemPath}. Attempting to resolve with sftp:realpath...`);
@@ -542,7 +542,8 @@ const handleItemAction = (item: FileListItem) => {
   }
 
   if (item.attrs.isDirectory) {
-    if (currentSftpManager.value.isLoading.value) {
+    // isLoadingVisible, not isLoading: a click during a silent background refresh is queued by the manager.
+    if (currentSftpManager.value.isLoadingVisible.value) {
       return;
     }
     const newPath = item.filename === '..'
@@ -1277,7 +1278,8 @@ const refreshCurrentDirectoryIfActive = () => {
   if (!props.wsDeps.isConnected.value || manager.isLoading.value) return;
   // 超大目录不做后台自动刷新，避免每 30 秒重新拉取并重排上万条记录；用户可手动刷新
   if ((manager.fileList.value?.length ?? 0) > FILE_MANAGER_AUTO_REFRESH_MAX_ENTRIES) return;
-  manager.loadDirectory(manager.currentPath.value, true);
+  // Silent: keep the current list on screen (no "加载中…" swap), no toast on failure.
+  void manager.loadDirectory(manager.currentPath.value, true, { background: true });
 };
 
 const handleVisibilityChange = () => {
@@ -1608,7 +1610,7 @@ const closePathHistory = () => {
 
 const handlePathInputFocus = () => {
   isEditingPath.value = true; // Keep existing behavior
-  if (!currentSftpManager.value || currentSftpManager.value.isLoading.value || !props.wsDeps.isConnected.value) return;
+  if (!currentSftpManager.value || currentSftpManager.value.isLoadingVisible.value || !props.wsDeps.isConnected.value) return;
   editablePath.value = currentSftpManager.value.currentPath.value; // Set editable path on focus
   openPathHistory();
   nextTick(() => {
@@ -1693,7 +1695,7 @@ const handlePathSelectedFromDropdown = (path: string) => {
 };
 
 const startPathEdit = () => {
-    if (!currentSftpManager.value || currentSftpManager.value.isLoading.value || !props.wsDeps.isConnected.value) return;
+    if (!currentSftpManager.value || currentSftpManager.value.isLoadingVisible.value || !props.wsDeps.isConnected.value) return;
     editablePath.value = currentSftpManager.value.currentPath.value;
     isEditingPath.value = true;
     openPathHistory(); // 打开历史记录
@@ -2236,7 +2238,7 @@ const handleOpenEditorClick = () => {
           </thead>
 
           <!-- Loading State -->
-          <tbody v-if="!currentSftpManager || currentSftpManager.isLoading.value">
+          <tbody v-if="!currentSftpManager || currentSftpManager.isLoadingVisible.value">
               <tr>
                   <td :colspan="props.isMobile ? 2 : 5" class="px-4 py-6 text-center text-text-secondary italic">
                     {{ t('fileManager.loading') }}

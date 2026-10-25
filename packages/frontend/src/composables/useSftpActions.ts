@@ -23,14 +23,21 @@ export interface WebSocketDependencies {
 export interface SftpManagerInstance {
    // State
    fileList: Readonly<ComputedRef<FileListItem[]>>;
+   /** A directory request is in flight (also during a silent background refresh); use it as the "busy" guard. */
    isLoading: Readonly<Ref<boolean>>;
+   /** Show the loading placeholder: true only for visible loads, never for a silent background refresh. */
+   isLoadingVisible: Readonly<ComputedRef<boolean>>;
    fileTree: Readonly<FileTreeNode>;
    initialLoadDone: Readonly<Ref<boolean>>;
    currentPath: Readonly<Ref<string>>;
 
    // Methods
    /** 返回的 Promise 在目录成功加载时 resolve(true)，失败（含重试耗尽）时 resolve(false)；从不 reject。 */
-   loadDirectory: (path: string, forceRefresh?: boolean) => Promise<boolean>;
+   /**
+    * `options.background`: silent refresh (periodic / on tab focus). The current list stays
+    * visible (no loading placeholder), and a failure neither retries nor shows a toast.
+    */
+   loadDirectory: (path: string, forceRefresh?: boolean, options?: { background?: boolean }) => Promise<boolean>;
    createDirectory: (newDirName: string) => void;
    /** 按完整路径创建目录；已存在等错误静默忽略（用于上传文件夹时补建空目录）。 */
    ensureDirectory: (fullPath: string) => void;
@@ -107,11 +114,14 @@ export function createSftpActionsManager(
     const { sendMessage, onMessage, isConnected, isSftpReady } = wsDeps; // 使用注入的依赖
 
     const isLoading = ref<boolean>(false);
+    // The in-flight request is a silent background refresh (see loadDirectory options).
+    const activeLoadSilent = ref<boolean>(false);
+    const isLoadingVisible = computed(() => isLoading.value && !activeLoadSilent.value);
     const loadingRequestId = ref<string | null>(null); // 跟踪当前加载请求 ID
     const lastDirectoryRequestAt = { current: 0 };
     const lastDirectoryRequestPath = { current: '' };
     const pendingDirectoryPath = { current: '/' };
-    const pendingDirectoryRequest = { current: null as { path: string; forceRefresh: boolean } | null };
+    const pendingDirectoryRequest = { current: null as { path: string; forceRefresh: boolean; background: boolean } | null };
     const directoryRetryCount = { current: 0 };
     // 等待某个目录加载结果的调用方（loadDirectory 返回的 Promise）
     const directoryWaiters: Array<{ path: string; resolve: (ok: boolean) => void }> = [];
@@ -160,6 +170,7 @@ export function createSftpActionsManager(
     const resetDirectoryLoading = () => {
         clearDirectoryLoadTimeout();
         isLoading.value = false;
+        activeLoadSilent.value = false;
         loadingRequestId.value = null;
     };
 
@@ -286,8 +297,18 @@ export function createSftpActionsManager(
     };
 
     const scheduleDirectoryRetry = (path: string, reason: string) => {
-        pendingDirectoryPath.current = path;
+        const silent = activeLoadSilent.value;
         resetDirectoryLoading();
+        if (silent) {
+            // A failed background refresh keeps the list as it is: no retry storm, no toast.
+            pendingDirectoryPath.current = currentPathRef.value;
+            directoryRetryCount.current = 0;
+            settleDirectoryWaiters(path, false);
+            console.warn(`[SFTP ${instanceSessionId}] 后台刷新目录 ${path} 失败（已忽略）：${reason}`);
+            runQueuedDirectoryRequest(null);
+            return;
+        }
+        pendingDirectoryPath.current = path;
         if (!isConnected.value) {
             resetDirectoryLoading();
             settleDirectoryWaiters(path, false);
@@ -317,8 +338,19 @@ export function createSftpActionsManager(
         }, delayMs);
     };
 
-    const loadDirectoryInternal = (path: string, forceRefresh: boolean) => {
-        pendingDirectoryPath.current = path;
+    // Runs a request that was queued while another one was in flight.
+    const runQueuedDirectoryRequest = (completedPath: string | null) => {
+        const queuedRequest = pendingDirectoryRequest.current;
+        pendingDirectoryRequest.current = null;
+        if (queuedRequest && isConnected.value
+            && (queuedRequest.path !== completedPath || queuedRequest.forceRefresh)) {
+            loadDirectoryInternal(queuedRequest.path, queuedRequest.forceRefresh, queuedRequest.background);
+        }
+    };
+
+    const loadDirectoryInternal = (path: string, forceRefresh: boolean, background = false) => {
+        if (background && isLoading.value) return; // something is already loading; a silent refresh is redundant
+        if (!background) pendingDirectoryPath.current = path;
         const targetNode = findNodeByPath(fileTree, path);
 
         if (targetNode && targetNode.childrenLoaded && !forceRefresh) {
@@ -336,7 +368,7 @@ export function createSftpActionsManager(
                 console.warn(`[SFTP ${instanceSessionId}] SFTP 未就绪，正在请求重新初始化。`);
                 sendMessage({ type: 'sftp:initialize', payload: {} });
             } else {
-                uiNotificationsStore.showError(t('fileManager.errors.sftpNotReady'));
+                if (!background) uiNotificationsStore.showError(t('fileManager.errors.sftpNotReady'));
                 settleDirectoryWaiters(path, false);
             }
             return;
@@ -347,13 +379,16 @@ export function createSftpActionsManager(
                 // 被新的排队请求替换掉的路径不会再加载
                 settleDirectoryWaiters(replacedRequest.path, false);
             }
-            pendingDirectoryRequest.current = { path, forceRefresh };
+            pendingDirectoryRequest.current = { path, forceRefresh, background: false };
+            // A user action waits behind a silent refresh: show the loading state from now on.
+            activeLoadSilent.value = false;
             console.warn(`[SFTP ${instanceSessionId}] 当前目录请求仍在进行，${forceRefresh ? '刷新' : '目录切换'}将排队等待。`);
             return;
         }
 
         console.log(`[SFTP ${instanceSessionId}] ${forceRefresh ? '强制' : ''}加载目录: ${path}`);
         isLoading.value = true;
+        activeLoadSilent.value = background;
         const requestId = generateRequestId();
         loadingRequestId.value = requestId;
         lastDirectoryRequestAt.current = Date.now();
@@ -362,12 +397,13 @@ export function createSftpActionsManager(
         directoryLoadTimeoutId = setTimeout(() => {
             if (loadingRequestId.value !== requestId) return;
             console.error(`[SFTP ${instanceSessionId}] 加载目录 ${path} 超时。`);
-            resetDirectoryLoading();
-            scheduleDirectoryRetry(path, '请求超时');
+            scheduleDirectoryRetry(path, '请求超时'); // resets the loading state itself (and reads activeLoadSilent first)
         }, DIRECTORY_LOAD_TIMEOUT_MS);
     };
 
-    const loadDirectory = (path: string, forceRefresh: boolean = false): Promise<boolean> => {
+    const loadDirectory = (path: string, forceRefresh: boolean = false, options: { background?: boolean } = {}): Promise<boolean> => {
+        const background = options.background === true;
+        if (background && loadingRequestId.value) return Promise.resolve(false);
         const now = Date.now();
         if (!forceRefresh && !loadingRequestId.value
             && lastDirectoryRequestPath.current === path
@@ -379,7 +415,7 @@ export function createSftpActionsManager(
             directoryWaiters.push({ path, resolve });
         });
         if (!loadingRequestId.value) directoryRetryCount.current = 0;
-        loadDirectoryInternal(path, forceRefresh);
+        loadDirectoryInternal(path, forceRefresh, background);
         return result;
     };
 
@@ -874,12 +910,7 @@ export function createSftpActionsManager(
         resetDirectoryLoading();
         settleDirectoryWaiters(path, true);
         console.log(`[SFTP ${instanceSessionId}] isLoading reset after successful readdir for ${path}.`);
-        const queuedRequest = pendingDirectoryRequest.current;
-        pendingDirectoryRequest.current = null;
-        if (queuedRequest && isConnected.value
-            && (queuedRequest.path !== path || queuedRequest.forceRefresh)) {
-            loadDirectoryInternal(queuedRequest.path, queuedRequest.forceRefresh);
-        }
+        runQueuedDirectoryRequest(path);
     };
 
     const onSftpReaddirError = (payload: MessagePayload, message: WebSocketMessage) => {
@@ -896,10 +927,11 @@ export function createSftpActionsManager(
         console.error(`[SFTP ${instanceSessionId}] 加载目录 ${errorPath} 出错:`, errorPayload);
         const transientKeywords = ['超时', 'timeout', 'ECONNRESET', 'reset', 'timed out', 'unavailable', '未就绪'];
         const isTransient = transientKeywords.some(k => errorPayload.toLowerCase().includes(k.toLowerCase()));
-        if (isConnected.value && isTransient) {
+        if (isConnected.value && (isTransient || activeLoadSilent.value)) {
             console.warn(`[SFTP ${instanceSessionId}] readdir 返回瞬时错误，将触发重试。`);
             scheduleDirectoryRetry(errorPath || pendingDirectoryPath.current || currentPathRef.value || '/', errorPayload);
         } else {
+            const silent = activeLoadSilent.value;
             resetDirectoryLoading();
             const droppedRequest = pendingDirectoryRequest.current;
             pendingDirectoryRequest.current = null;
@@ -907,7 +939,7 @@ export function createSftpActionsManager(
             pendingDirectoryPath.current = currentPathRef.value;
             settleDirectoryWaiters(errorPath || lastDirectoryRequestPath.current, false);
             if (droppedRequest) settleDirectoryWaiters(droppedRequest.path, false);
-            uiNotificationsStore.showError(`${t('fileManager.errors.loadDirectoryFailed')}: ${errorPayload}`);
+            if (!silent) uiNotificationsStore.showError(`${t('fileManager.errors.loadDirectoryFailed')}: ${errorPayload}`);
             console.log(`[SFTP ${instanceSessionId}] isLoading reset after failed readdir for ${errorPath}.`);
         }
     };
@@ -1413,6 +1445,7 @@ export function createSftpActionsManager(
         // State
        fileList: fileList, // 暴露计算属性 (类型已在接口中定义为 Readonly<ComputedRef>)
        isLoading: isLoading, // (类型已在接口中定义为 Readonly<Ref>)
+       isLoadingVisible,
         fileTree: fileTree, // (类型已在接口中定义为 Readonly<FileTreeNode>)
        initialLoadDone: initialLoadDone, // (类型已在接口中定义为 Readonly<Ref>)
 
