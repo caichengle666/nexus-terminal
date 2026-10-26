@@ -1295,8 +1295,6 @@
       "configDeleted": "設定を削除しました",
       "connectionOk": "接続は正常です",
       "backupCreated": "バックアップを作成しました",
-      "confirmRestore": "復元してもよろしいですか？既存のデータは上書きされます。",
-      "restoreSuccess": "復元しました",
       "confirmDelete": "このバックアップを削除してもよろしいですか？",
       "deleteSuccess": "バックアップを削除しました",
       "backupPassphrase": "バックアップパスワード",
@@ -1309,7 +1307,27 @@
       "passphraseRequired": "完全バックアップを復元する前にバックアップパスワードを入力してください。",
       "passphraseTooShort": "バックアップパスワードは 8 文字以上にしてください。",
       "selectProxy": "プロジェクトのプロキシを選択",
-      "useProjectProxy": "WebDAV のデータ転送にプロジェクトのプロキシを使用"
+      "useProjectProxy": "WebDAV のデータ転送にプロジェクトのプロキシを使用",
+      "confirmRestoreTitle": "バックアップの復元",
+      "confirmRestoreFull": "{name} から復元しますか？\n\n復元の前に、現在のデータを安全スナップショットとして WebDAV にアップロードします（一覧にバックアップが 1 つ増えます）。その後サービスが再起動し、data ディレクトリ全体をバックアップで置き換えます。完了後ページは自動的に再読み込みされ、再ログインが必要になる場合があります。",
+      "confirmRestoreLegacy": "旧形式のバックアップ {name} から復元しますか？\n\n接続や設定などのデータベース内容が上書きされます（バックアップパスワードを入力している場合は先に安全スナップショットをアップロードします）。完了後にサービスが再起動し、ページは自動的に再読み込みされます。",
+      "restoreInProgress": "{name} を復元中：{stage}",
+      "restoreKeepOpen": "ウィンドウを閉じないでください。完了するとページが自動的に再読み込みされます。",
+      "restoreFailedAt": "復元に失敗しました（{stage}）：{error}",
+      "restoreInterrupted": "復元中にサービスが予期せず停止したため、復元が完了していない可能性があります。ページを再読み込みしてデータを確認してください。",
+      "restoreManualRestart": "サービスが 60 秒以内に自動再起動しませんでした。Nexus Terminal サービスを手動で再起動してください。復元は次回起動時に適用され、サービスが戻るとこのページは自動的に再読み込みされます。",
+      "restoreApplied": "{name} からデータを復元しました。復元前の安全スナップショット：{safety}",
+      "restoreApplyFailed": "復元は適用されませんでした：{message}",
+      "restoreStage": {
+        "starting": "開始しています...",
+        "downloading": "ダウンロード中...",
+        "verifying": "復号・検証中...",
+        "snapshot": "安全スナップショットを作成中...",
+        "preparing": "置き換えを準備中...",
+        "restarting": "再起動中...",
+        "reloading": "再読み込み中...",
+        "failed": "失敗"
+      }
     },
     "importConnections": {
       "title": "接続データのインポート",

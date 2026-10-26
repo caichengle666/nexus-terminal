@@ -1312,8 +1312,6 @@
       "configDeleted": "配置已删除",
       "connectionOk": "连接正常",
       "backupCreated": "备份成功",
-      "confirmRestore": "确定要恢复数据吗？此操作将覆盖现有数据。",
-      "restoreSuccess": "恢复成功",
       "confirmDelete": "确定要删除此备份吗？",
       "deleteSuccess": "备份已删除",
       "backupPassphrase": "备份密码",
@@ -1326,7 +1324,27 @@
       "passphraseRequired": "恢复完整备份前请输入备份密码。",
       "passphraseTooShort": "备份密码至少需要 8 个字符。",
       "selectProxy": "选择项目代理",
-      "useProjectProxy": "使用项目代理传输 WebDAV 数据"
+      "useProjectProxy": "使用项目代理传输 WebDAV 数据",
+      "confirmRestoreTitle": "恢复备份",
+      "confirmRestoreFull": "确定要从 {name} 恢复吗？\n\n恢复前会先把当前数据作为安全快照上传到 WebDAV（列表中会多出一个备份），然后服务重启并用备份替换整个 data 目录。完成后页面会自动重新加载，可能需要重新登录。",
+      "confirmRestoreLegacy": "确定要从旧版备份 {name} 恢复吗？\n\n将覆盖连接、设置等数据库内容（已填写备份密码时会先上传安全快照），完成后服务会重启，页面会自动重新加载。",
+      "restoreInProgress": "正在恢复 {name}：{stage}",
+      "restoreKeepOpen": "请勿关闭窗口，完成后页面会自动重新加载。",
+      "restoreFailedAt": "恢复失败（{stage}）：{error}",
+      "restoreInterrupted": "恢复过程中服务意外中断，恢复可能未完成。请刷新页面后检查数据。",
+      "restoreManualRestart": "服务没有在 60 秒内自动重启。请手动重启 Nexus Terminal 服务，恢复会在下次启动时生效；服务恢复后本页会自动重新加载。",
+      "restoreApplied": "已从 {name} 恢复数据。恢复前的安全快照：{safety}",
+      "restoreApplyFailed": "恢复未生效：{message}",
+      "restoreStage": {
+        "starting": "正在开始...",
+        "downloading": "下载中...",
+        "verifying": "解密校验中...",
+        "snapshot": "创建安全快照...",
+        "preparing": "准备替换...",
+        "restarting": "重启中...",
+        "reloading": "正在重新加载...",
+        "failed": "失败"
+      }
     },
     "importConnections": {
       "title": "导入连接数据",

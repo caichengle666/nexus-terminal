@@ -5,6 +5,7 @@ import path from 'path';
 import AdmZip from 'adm-zip';
 
 import { ZipArchive } from 'archiver';
+import { RESTORE_RESERVED_DIR } from './pending-restore';
 
 export const FULL_BACKUP_MAGIC = Buffer.from('NEXUS-FULL-BACKUP-V2\n', 'utf8');
 export const MIN_BACKUP_PASSPHRASE_LENGTH = 8;
@@ -117,7 +118,13 @@ function collectFiles(rootPath: string): string[] {
   };
 
   if (!fs.existsSync(rootPath)) throw new Error('应用数据目录不存在。');
-  visit(rootPath);
+  // 顶层的恢复暂存 / 恢复前副本目录不属于用户数据，不进入备份
+  for (const entry of fs.readdirSync(rootPath, { withFileTypes: true })) {
+    if (entry.name === RESTORE_RESERVED_DIR) continue;
+    const entryPath = path.join(rootPath, entry.name);
+    if (entry.isDirectory()) visit(entryPath);
+    else if (entry.isFile()) files.push(entryPath);
+  }
   return files;
 }
 

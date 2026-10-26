@@ -1,12 +1,11 @@
 import { createClient, WebDAVClient, WebDAVClientOptions } from 'webdav';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import AdmZip from 'adm-zip';
 import { HttpProxyAgent } from 'http-proxy-agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
-import { allDb, closeDbInstance, getDbInstance, runDb } from '../database/connection';
+import { allDb, getDbInstance, runDb } from '../database/connection';
 import { settingsRepository } from '../settings/settings.repository';
 import * as ProxyRepository from '../proxies/proxy.repository';
 import { decrypt } from '../utils/crypto';
@@ -19,6 +18,7 @@ import {
   isFullBackupBuffer,
   MIN_BACKUP_PASSPHRASE_LENGTH,
 } from './backup-archive';
+import { getRestoreStagingRoot, readPendingRestoreMarker } from './pending-restore';
 
 const WEBDAV_CONFIG_KEY = 'webdavBackupConfig';
 const BACKUP_DIR = '/nexus-terminal-backups';
@@ -224,7 +224,13 @@ export async function deleteBackup(fileName: string, proxyId?: number | null): P
   await client.deleteFile(remotePath);
 }
 
-async function restoreLegacyBackup(buffer: Buffer, fileName: string): Promise<{ tables: string[]; message: string; requiresRestart: boolean; format: 'legacy' }> {
+export interface ParsedLegacyBackup {
+  data: Record<string, any>;
+  restoreTables: string[];
+}
+
+/** 解析并校验旧版 (nexus-backup.json) 备份，不修改任何数据。 */
+export function parseLegacyBackup(buffer: Buffer): ParsedLegacyBackup {
   let data: Record<string, any>;
 
   try {
@@ -251,7 +257,11 @@ async function restoreLegacyBackup(buffer: Buffer, fileName: string): Promise<{ 
       throw new Error(`备份中的 ${table} 数据格式无效。`);
     }
   }
+  return { data, restoreTables };
+}
 
+/** 在单个事务中把旧版备份写入当前数据库 (不替换文件，因此无需重启时替换)。 */
+export async function applyLegacyBackup({ data, restoreTables }: ParsedLegacyBackup): Promise<void> {
   const db = await getDbInstance();
   await runDb(db, 'BEGIN IMMEDIATE TRANSACTION');
   try {
@@ -290,72 +300,28 @@ async function restoreLegacyBackup(buffer: Buffer, fileName: string): Promise<{ 
     }
     throw error;
   }
-
-  return {
-    tables: restoreTables,
-    message: `已从 ${fileName} 恢复 ${restoreTables.length} 个表的数据。旧版备份未包含完整 data 目录。`,
-    requiresRestart: true,
-    format: 'legacy',
-  };
 }
 
-async function replaceDataDirectory(stagedDataPath: string): Promise<void> {
-  const targetDataPath = getBackendDataPath();
-  const safetyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-restore-safety-'));
-  const previousDataPath = path.join(safetyRoot, 'data');
-  let movedCurrentData = false;
-  let installedNewData = false;
-
-  try {
-    await closeDbInstance();
-    if (fs.existsSync(targetDataPath)) {
-      fs.renameSync(targetDataPath, previousDataPath);
-      movedCurrentData = true;
-    }
-    fs.renameSync(stagedDataPath, targetDataPath);
-    installedNewData = true;
-  } catch (error) {
-    if (installedNewData && fs.existsSync(targetDataPath)) {
-      fs.rmSync(targetDataPath, { recursive: true, force: true });
-    }
-    if (movedCurrentData && fs.existsSync(previousDataPath)) {
-      fs.renameSync(previousDataPath, targetDataPath);
-    }
-    throw error;
-  } finally {
-    fs.rmSync(safetyRoot, { recursive: true, force: true });
-  }
-}
-
-export async function restoreFromBackup(
-  fileName: string,
-  passphrase?: string,
-  proxyId?: number | null,
-): Promise<{ tables: string[]; message: string; requiresRestart: boolean; format: 'full' | 'legacy'; fileCount?: number }> {
-  const buffer = await downloadBackup(fileName, proxyId);
-
-  if (!isFullBackupBuffer(buffer)) {
-    return restoreLegacyBackup(buffer, fileName);
-  }
-
+/**
+ * 把完整备份解密、校验并解压到 data 目录内的暂存区 (与 data 同卷)。
+ * 密码错误或文件损坏会在这里直接失败，此时尚未创建安全快照、也未改动任何数据。
+ */
+export function stageFullBackup(buffer: Buffer, passphrase: string | undefined): { fileCount: number } {
   if (!passphrase || passphrase.length < MIN_BACKUP_PASSPHRASE_LENGTH) {
     throw new Error(`完整备份需要至少 ${MIN_BACKUP_PASSPHRASE_LENGTH} 个字符的备份密码。`);
   }
-
-  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-full-restore-'));
+  const dataPath = getBackendDataPath();
+  if (readPendingRestoreMarker(dataPath)) {
+    throw new Error('已有一个待生效的恢复，请先重启服务使其生效。');
+  }
+  const stagingRoot = getRestoreStagingRoot(dataPath);
+  fs.rmSync(stagingRoot, { recursive: true, force: true });
   try {
-    const extracted = extractFullBackup(buffer, passphrase, temporaryDirectory);
-    const safetyBackup = await createBackup(passphrase, proxyId);
-    await replaceDataDirectory(extracted.dataPath);
-    return {
-      tables: [],
-      message: `已恢复完整 data 目录（${extracted.manifest.fileCount} 个文件）。恢复前的安全快照为 ${safetyBackup.fileName}。服务即将重启以加载恢复的数据。`,
-      requiresRestart: true,
-      format: 'full',
-      fileCount: extracted.manifest.fileCount,
-    };
-  } finally {
-    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    const extracted = extractFullBackup(buffer, passphrase, stagingRoot);
+    return { fileCount: extracted.manifest.fileCount };
+  } catch (error) {
+    fs.rmSync(stagingRoot, { recursive: true, force: true });
+    throw error;
   }
 }
 

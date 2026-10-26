@@ -27,7 +27,13 @@ router.get('/list', webdavBackupController.listAllBackups);
 // DELETE /api/v1/webdav-backup/:fileName - 删除指定备份
 router.delete('/:fileName', webdavBackupController.removeBackup);
 
-// POST /api/v1/webdav-backup/restore - 从远程备份恢复
+// POST /api/v1/webdav-backup/restore - 启动恢复任务 (202 + jobId)
 router.post('/restore', webdavBackupController.restoreBackup);
+
+// GET /api/v1/webdav-backup/restore/status?jobId= - 恢复任务阶段
+router.get('/restore/status', webdavBackupController.restoreStatus);
+
+// GET /api/v1/webdav-backup/restore/last-result - 上次重启时应用恢复的结果
+router.get('/restore/last-result', webdavBackupController.lastRestoreResult);
 
 export default router;

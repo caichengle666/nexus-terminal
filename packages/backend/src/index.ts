@@ -1,5 +1,9 @@
 import { installConsoleLogger } from './utils/logger';
 installConsoleLogger();
+// 待生效的 WebDAV 完整恢复必须在加载 data/.env、打开数据库和会话存储之前应用 (此时 data 目录无任何打开的句柄)
+import { applyPendingRestore } from './webdav-backup/pending-restore';
+import { getBackendDataPath } from './utils/paths';
+applyPendingRestore(getBackendDataPath());
 import './utils/ssh2-host-cert'; // 必须在任何模块加载 ssh2 之前
 import dotenv from 'dotenv';
 import path from 'path';
@@ -329,8 +333,11 @@ const startServer = () => {
     app.use('/api/v1/ai', aiRoutes);
     
     // 状态检查接口
+    // bootId 每次进程启动都不同：前端据此判断恢复后的重启是否已完成
+    const bootId = crypto.randomUUID();
     app.get('/api/v1/status', (req: Request, res: Response) => {
-      res.json({ status: '后端服务运行中！' });
+      res.set('Cache-Control', 'no-store');
+      res.json({ status: '后端服务运行中！', bootId });
     });
     // --- 结束 API 路由 ---
 

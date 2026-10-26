@@ -6,12 +6,14 @@ import {
   createBackup,
   listBackups,
   deleteBackup,
-  restoreFromBackup,
   testConnection,
   createWebDavClient,
   WebDavBackupConfig,
 } from './webdav-backup.service';
 import { MIN_BACKUP_PASSPHRASE_LENGTH } from './backup-archive';
+import { getRestoreJob, startRestoreJob } from './restore-job';
+import { readLastRestoreResult } from './pending-restore';
+import { getBackendDataPath } from '../utils/paths';
 
 export const webdavBackupController = {
   async getConfig(req: Request, res: Response): Promise<void> {
@@ -141,28 +143,37 @@ export const webdavBackupController = {
 
   async restoreBackup(req: Request, res: Response): Promise<void> {
     try {
-      const { fileName, passphrase } = req.body;
-      if (!fileName) {
+      const { fileName, passphrase } = req.body ?? {};
+      if (!fileName || typeof fileName !== 'string') {
         res.status(400).json({ message: '缺少文件名' });
         return;
       }
       const proxyId = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'proxyId')
         ? normalizeProxyId(req.body.proxyId)
         : undefined;
-      const result = await restoreFromBackup(fileName, passphrase, proxyId);
-      res.json({
-        message: result.message,
-        tables: result.tables,
-        format: result.format,
-        fileCount: result.fileCount,
-        requiresRestart: result.requiresRestart,
-      });
-      if (result.requiresRestart) {
-        setTimeout(() => process.exit(0), 500);
-      }
+      const { job } = startRestoreJob(fileName, typeof passphrase === 'string' ? passphrase : undefined, proxyId);
+      res.status(202).json({ jobId: job.id, stage: job.stage });
     } catch (error: any) {
-      console.error('[WebDAV] 恢复备份失败:', error);
-      res.status(500).json({ message: error.message || '恢复备份失败' });
+      console.error('[WebDAV] 启动恢复任务失败:', error);
+      res.status(error?.status === 409 ? 409 : 400).json({ message: error.message || '恢复备份失败' });
+    }
+  },
+
+  async restoreStatus(req: Request, res: Response): Promise<void> {
+    const jobId = typeof req.query.jobId === 'string' ? req.query.jobId : undefined;
+    const job = getRestoreJob(jobId);
+    if (!job) {
+      res.status(404).json({ message: '恢复任务不存在（服务可能已重启）。' });
+      return;
+    }
+    res.json(job);
+  },
+
+  async lastRestoreResult(req: Request, res: Response): Promise<void> {
+    try {
+      res.json({ result: readLastRestoreResult(getBackendDataPath()) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || '读取恢复结果失败' });
     }
   },
 };
