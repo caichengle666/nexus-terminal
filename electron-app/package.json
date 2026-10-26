@@ -59,6 +59,7 @@
       "update-verification.js",
       "update-public-key.js",
       "update-startup-check.js",
+      "update-release-check.js",
       "security-utils.js",
       "window-state.js",
       "gpu-mode.js",
