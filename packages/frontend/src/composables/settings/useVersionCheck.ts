@@ -9,6 +9,12 @@ import {
   isArm64Architecture,
   isVersionNewer,
 } from './updateAssets';
+import {
+  classifyRendererCheckError,
+  formatCheckFailureDetail,
+  isNoReleasesFailure,
+  type ReleaseCheckAttempt,
+} from './versionCheckErrors';
 
 export type RuntimeKind = 'electron' | 'docker' | 'pwa' | 'web';
 export type UpdateDownloadStatus = 'idle' | 'fetching-checksum' | 'probing' | 'downloading' | 'parallel-failed' | 'trying-fallback' | 'source-failed' | 'verifying' | 'ready' | 'extracting' | 'restarting' | 'install-failed' | 'failed' | 'cancelled';
@@ -31,6 +37,8 @@ const updatePortableUrl = ref<string | null>(null);
 const updateChecksumUrl = ref<string | null>(null);
 const isCheckingVersion = ref(false);
 const versionCheckError = ref<string | null>(null);
+// Why the check failed, per source tried (e.g. "api.github.com: 超时 · github.com: DNS 解析失败").
+const versionCheckErrorDetail = ref<string | null>(null);
 const updateDownloadStatus = ref<UpdateDownloadStatus>('idle');
 const updateDownloadProgress = ref<number | null>(null);
 const updateDownloadError = ref<string | null>(null);
@@ -83,7 +91,41 @@ export function useVersionCheck() {
     }
   };
 
-  const checkLatestVersion = async () => {
+  type UpdateProxy = { type?: string; host?: string; port?: number; username?: string };
+  type ReleaseData = { tag_name?: string; html_url?: string; assets?: Array<{ name: string; browser_download_url: string }> };
+
+  const applyRelease = (data: ReleaseData) => {
+    if (!data || !data.tag_name) throw new Error('Invalid API response format');
+    latestVersion.value = data.tag_name;
+    latestReleaseUrl.value = data.html_url || null;
+    const assets = data.assets || [];
+    const isArm64 = isArm64Architecture(nativeArchitecture);
+    const downloadAsset = installationKind === 'portable' && nativePlatform === 'win32'
+      ? getWindowsPortableAsset(assets, isArm64)
+      : getPlatformDownloadAsset(assets, nativePlatform || undefined, nativeArchitecture || undefined);
+    const portableAsset = nativePlatform === 'win32' ? getWindowsPortableAsset(assets, isArm64) : null;
+    const checksumAsset = getChecksumAsset(assets);
+    updateDownloadUrl.value = downloadAsset?.browser_download_url || null;
+    updatePortableUrl.value = portableAsset?.browser_download_url || null;
+    updateChecksumUrl.value = checksumAsset?.browser_download_url || null;
+  };
+
+  const applyCheckFailure = (attempts: ReleaseCheckAttempt[]) => {
+    const failed = attempts.filter(attempt => attempt && !attempt.ok);
+    if (isNoReleasesFailure(failed)) {
+      versionCheckError.value = t('settings.about.error.noReleases');
+    } else if (failed.length === 1 && failed[0].code === 'rate-limit') {
+      versionCheckError.value = t('settings.about.error.rateLimit');
+    } else {
+      versionCheckError.value = t('settings.about.error.checkFailed');
+    }
+    versionCheckErrorDetail.value = formatCheckFailureDetail(failed, t) || null;
+  };
+
+  // Desktop: the main process checks (system proxy or the selected update proxy,
+  // api.github.com -> github.com releases/latest -> configured mirrors), see
+  // electron-app/update-release-check.js. Web/Docker/PWA: ask the GitHub API here.
+  const checkLatestVersion = async (proxy?: UpdateProxy | null) => {
     if (versionCheckPromise) return versionCheckPromise;
     if (updateDownloadStatus.value === 'downloading'
       || updateDownloadStatus.value === 'verifying'
@@ -94,6 +136,7 @@ export function useVersionCheck() {
 
     isCheckingVersion.value = true;
     versionCheckError.value = null;
+    versionCheckErrorDetail.value = null;
     latestVersion.value = null;
     latestReleaseUrl.value = null;
     updateDownloadUrl.value = null;
@@ -105,38 +148,35 @@ export function useVersionCheck() {
     updateDownloadStageMessage.value = null;
     updateChecksumVerified.value = false;
     updateSignatureStatus.value = null;
+    // Only a plain proxy object is forwarded (callers may pass a click event by mistake).
+    const safeProxy = proxy && typeof proxy === 'object' && typeof proxy.host === 'string' && proxy.port
+      ? { type: proxy.type, host: proxy.host, port: Number(proxy.port), username: proxy.username }
+      : undefined;
     versionCheckPromise = (async () => {
       try {
         await loadActualAppVersion();
+        if (runtimeKind.value === 'electron' && electronApi?.checkLatestRelease) {
+          const result = await electronApi.checkLatestRelease({
+            mirrorUrls: [...updateMirrorUrls.value],
+            proxy: safeProxy,
+          });
+          if (result?.ok && result.release) {
+            applyRelease(result.release);
+          } else {
+            const attempts: ReleaseCheckAttempt[] = Array.isArray(result?.attempts) ? result.attempts : [];
+            console.error('检查最新版本失败:', attempts);
+            applyCheckFailure(attempts.length ? attempts : [{ source: 'app', ok: false, code: 'network' }]);
+          }
+          return;
+        }
         const response = await axios.get('https://api.github.com/repos/caichengle666/nexus-terminal/releases/latest', {
           timeout: 15000,
           headers: { Accept: 'application/vnd.github+json' },
         });
-        if (response.data && response.data.tag_name) {
-          latestVersion.value = response.data.tag_name;
-          latestReleaseUrl.value = response.data.html_url || null;
-          const assets = response.data.assets || [];
-          const isArm64 = isArm64Architecture(nativeArchitecture);
-          const downloadAsset = installationKind === 'portable' && nativePlatform === 'win32'
-            ? getWindowsPortableAsset(assets, isArm64)
-            : getPlatformDownloadAsset(assets, nativePlatform || undefined, nativeArchitecture || undefined);
-          const portableAsset = nativePlatform === 'win32' ? getWindowsPortableAsset(assets, isArm64) : null;
-          const checksumAsset = getChecksumAsset(response.data.assets || []);
-          updateDownloadUrl.value = downloadAsset?.browser_download_url || null;
-          updatePortableUrl.value = portableAsset?.browser_download_url || null;
-          updateChecksumUrl.value = checksumAsset?.browser_download_url || null;
-        } else {
-          throw new Error('Invalid API response format');
-        }
+        applyRelease(response.data);
       } catch (error: any) {
         console.error('检查最新版本失败:', error);
-        if (axios.isAxiosError(error) && error.response?.status === 404) {
-          versionCheckError.value = t('settings.about.error.noReleases');
-        } else if (axios.isAxiosError(error) && error.response?.status === 403) {
-          versionCheckError.value = t('settings.about.error.rateLimit');
-        } else {
-          versionCheckError.value = t('settings.about.error.checkFailed');
-        }
+        applyCheckFailure([classifyRendererCheckError(error, runtimeKind.value === 'electron' && electronApi?.checkLatestRelease ? 'app' : 'api.github.com')]);
       } finally {
         isCheckingVersion.value = false;
         versionCheckPromise = null;
@@ -318,6 +358,7 @@ export function useVersionCheck() {
     updateSignatureStatus,
     isCheckingVersion,
     versionCheckError,
+    versionCheckErrorDetail,
     isUpdateAvailable,
     runtimeKind,
     dockerUpgradeCommand,

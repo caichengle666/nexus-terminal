@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getArchitecture: () => ipcRenderer.invoke('get-architecture'),
   getInstallationKind: () => ipcRenderer.invoke('get-installation-kind'),
+  checkLatestRelease: (payload) => ipcRenderer.invoke('check-latest-release', payload),
   downloadUpdate: (payload) => ipcRenderer.invoke('download-update', payload),
   cancelUpdate: () => ipcRenderer.invoke('cancel-update'),
   installUpdate: () => ipcRenderer.invoke('install-update'),

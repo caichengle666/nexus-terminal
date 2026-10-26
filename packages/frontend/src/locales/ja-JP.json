@@ -1247,6 +1247,23 @@
       "refreshHint": {
         "web": "Web 版はページを再読み込みすると最新のフロントエンドが読み込まれます。",
         "pwa": "PWA 版はページを再読み込みすると最新のフロントエンドが読み込まれます。"
+      },
+      "checkErrorDetail": "原因：{detail}",
+      "checkErrorReason": {
+        "timeout": "タイムアウト",
+        "dns": "DNS の名前解決に失敗",
+        "reset": "接続がリセットされました",
+        "refused": "接続が拒否されました",
+        "proxy": "プロキシ接続に失敗",
+        "tls": "TLS/証明書エラー",
+        "offline": "ネットワークに接続されていません",
+        "network": "ネットワークエラー",
+        "http": "HTTP {status}",
+        "rateLimit": "HTTP {status}（GitHub のレート制限）",
+        "notFound": "HTTP 404（見つかりません）",
+        "invalidResponse": "無効な応答",
+        "tooLarge": "応答が大きすぎます",
+        "blocked": "信頼済みリストにないアドレス"
       }
     },
     "tabs": {

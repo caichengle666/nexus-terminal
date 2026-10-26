@@ -1264,6 +1264,23 @@
         "checkFailedShort": "Check failed",
         "noReleases": "No releases found",
         "rateLimit": "GitHub API rate limit exceeded, please try again later"
+      },
+      "checkErrorDetail": "Reason: {detail}",
+      "checkErrorReason": {
+        "timeout": "timed out",
+        "dns": "DNS lookup failed",
+        "reset": "connection reset",
+        "refused": "connection refused",
+        "proxy": "proxy connection failed",
+        "tls": "TLS/certificate error",
+        "offline": "network unavailable",
+        "network": "network error",
+        "http": "HTTP {status}",
+        "rateLimit": "HTTP {status} (GitHub rate limit)",
+        "notFound": "HTTP 404 (not found)",
+        "invalidResponse": "invalid response",
+        "tooLarge": "response too large",
+        "blocked": "address not on the trusted list"
       }
     },
     "tabs": {

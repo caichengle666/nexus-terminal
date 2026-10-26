@@ -1253,6 +1253,23 @@
         "checkFailedShort": "检查失败",
         "noReleases": "未找到发布版本",
         "rateLimit": "GitHub API 速率限制，请稍后再试"
+      },
+      "checkErrorDetail": "原因：{detail}",
+      "checkErrorReason": {
+        "timeout": "连接超时",
+        "dns": "DNS 解析失败",
+        "reset": "连接被重置",
+        "refused": "连接被拒绝",
+        "proxy": "代理连接失败",
+        "tls": "TLS/证书错误",
+        "offline": "网络不可用",
+        "network": "网络错误",
+        "http": "HTTP {status}",
+        "rateLimit": "HTTP {status}（GitHub 限流）",
+        "notFound": "HTTP 404（未找到）",
+        "invalidResponse": "响应无效",
+        "tooLarge": "响应过大",
+        "blocked": "地址不在受信任列表中"
       }
     },
     "exportConnections": {

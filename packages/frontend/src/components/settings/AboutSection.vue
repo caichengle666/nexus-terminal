@@ -12,7 +12,7 @@
             class="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
             :disabled="isCheckingVersion || ['downloading', 'verifying', 'extracting', 'restarting'].includes(updateDownloadStatus) || isInstallingUpdate"
             :title="$t('settings.about.checkNow')"
-            @click="checkLatestVersion"
+            @click="checkLatestVersion(selectedProxy)"
           >
             <i :class="['fas', isCheckingVersion ? 'fa-spinner fa-spin' : 'fa-rotate', 'w-3']" aria-hidden="true"></i>
             {{ $t('settings.about.checkNow') }}
@@ -21,9 +21,14 @@
           <span v-if="isCheckingVersion" class="inline-block text-xs ml-2 px-2 py-0.5 rounded-full bg-blue-500 text-white italic">
             {{ $t('settings.about.checkingUpdate') }}
           </span>
-          <span v-else-if="versionCheckError" class="inline-block text-xs ml-2 px-2 py-0.5 rounded-full bg-error text-white" :title="versionCheckError">
-            {{ $t('settings.about.error.checkFailedShort') }}
-          </span>
+          <template v-else-if="versionCheckError">
+            <span class="inline-block text-xs ml-2 px-2 py-0.5 rounded-full bg-error text-white" :title="versionCheckErrorDetail ? `${versionCheckError}\n${versionCheckErrorDetail}` : versionCheckError" data-testid="version-check-error">
+              {{ $t('settings.about.error.checkFailedShort') }}
+            </span>
+            <span v-if="versionCheckErrorDetail" class="text-xs text-error break-all" :title="versionCheckErrorDetail" data-testid="version-check-error-detail">
+              {{ $t('settings.about.checkErrorDetail', { detail: versionCheckErrorDetail }) }}
+            </span>
+          </template>
           <span v-else-if="!isUpdateAvailable && latestVersion" class="inline-block text-xs ml-2 px-2 py-0.5 rounded-full bg-success text-white">
             {{ $t('settings.about.latestVersion') }}
           </span>
@@ -149,6 +154,7 @@ const {
   isInstallingUpdate,
   isCheckingVersion,
   versionCheckError,
+  versionCheckErrorDetail,
   isUpdateAvailable,
   runtimeKind,
   dockerUpgradeCommand,
@@ -201,9 +207,13 @@ const copyDockerUpgradeCommand = async () => {
 const reloadPage = () => window.location.reload();
 
 onMounted(async () => {
-  if (proxiesStore.proxies.length === 0 && !proxiesStore.isLoading) void proxiesStore.fetchProxies();
+  const proxiesLoaded = proxiesStore.proxies.length === 0 && !proxiesStore.isLoading
+    ? proxiesStore.fetchProxies().catch(() => undefined)
+    : Promise.resolve();
   if (!latestVersion.value && !isCheckingVersion.value) {
-    await checkLatestVersion();
+    // The desktop check goes through the selected update proxy, so wait for the list first.
+    if (runtimeKind.value === 'electron' && selectedProxyId.value) await proxiesLoaded;
+    await checkLatestVersion(selectedProxy.value);
   }
 });
 </script>

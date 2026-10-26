@@ -68,6 +68,7 @@ const {
 const updateNetwork = require('./update-network');
 const updateDownloadService = require('./update-download-service');
 const { STARTUP_UPDATE_CHECK_DELAY_MS, checkForStartupUpdate } = require('./update-startup-check');
+const updateReleaseCheck = require('./update-release-check');
 
 let mainWindow;
 let expressApp;
@@ -432,7 +433,7 @@ const scheduleStartupUpdateCheck = () => {
     if (isQuitting) return;
     const currentVersion = require('./package.json').releaseVersion || app.getVersion();
     const update = await checkForStartupUpdate({
-      fetchImpl: (target, options) => net.fetch(target, options),
+      checkImpl: () => runReleaseCheck(),
       currentVersion,
     });
     if (!update || isQuitting) return;
@@ -1448,6 +1449,52 @@ const resolveSystemUpdateProxy = async targetUrl => {
     return null;
   }
 };
+
+// "Is there a newer release?" for Settings > About and the startup check. Runs
+// here instead of the renderer so it uses the system proxy (Electron net) or the
+// update proxy the user selected, and can fall back to github.com and the user's
+// mirrors when api.github.com is slow, rate limited or blocked.
+const runReleaseCheck = async ({ proxy = null, mirrorUrls = [] } = {}) => {
+  let transport = null;
+  if (proxy) {
+    try {
+      const agent = await buildUpdateProxyAgent(proxy);
+      if (agent) {
+        transport = updateReleaseCheck.createNodeTransport({ agent });
+        console.log(`[Updater] Release check through selected ${proxy.type} proxy ${proxy.host}:${proxy.port}`);
+      }
+    } catch (error) {
+      console.warn(`[Updater] Selected proxy unavailable for the release check: ${error.message}`);
+    }
+  }
+  if (!transport) {
+    transport = updateReleaseCheck.createNetTransport(options => net.request({ ...options, session: session.defaultSession }));
+  }
+  return updateReleaseCheck.checkLatestRelease({ transport, mirrorUrls });
+};
+
+const sanitizeReleaseCheckPayload = (payload = {}) => {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const mirrorUrls = (Array.isArray(source.mirrorUrls) ? source.mirrorUrls : [])
+    .filter(value => typeof value === 'string' && value.length <= 2048)
+    .slice(0, updateReleaseCheck.MAX_MIRRORS);
+  const rawProxy = source.proxy && typeof source.proxy === 'object' ? source.proxy : null;
+  const port = Number(rawProxy?.port);
+  const proxy = rawProxy && ['HTTP', 'SOCKS5'].includes(rawProxy.type) && typeof rawProxy.host === 'string'
+    && rawProxy.host && rawProxy.host.length <= 255 && Number.isInteger(port) && port > 0 && port < 65536
+    ? { type: rawProxy.type, host: rawProxy.host, port, ...(typeof rawProxy.username === 'string' && rawProxy.username ? { username: rawProxy.username } : {}) }
+    : null;
+  return { proxy, mirrorUrls };
+};
+
+handleTrusted('check-latest-release', async (_event, payload = {}) => {
+  try {
+    return await runReleaseCheck(sanitizeReleaseCheckPayload(payload));
+  } catch (error) {
+    console.error(`[Updater] Release check crashed: ${error.message}`);
+    return { ok: false, attempts: [{ source: 'app', step: 'internal', ok: false, ...updateReleaseCheck.classifyReleaseCheckError(error) }] };
+  }
+});
 
 handleTrusted('download-update', async (event, payload = {}) => {
   if (updateDownloadState) return { ok: false, message: '已有更新正在下载。' };

@@ -42,13 +42,25 @@ const getAvailableUpdate = (release, currentVersion) => {
 };
 
 /**
- * Fetches the latest release with the provided fetch implementation (Electron's
+ * With checkImpl, uses its result; otherwise fetches the latest release with the provided fetch implementation (Electron's
  * net.fetch in main.js, which honours the system proxy) and returns
  * getAvailableUpdate(). Network/HTTP errors resolve to null: the startup check
  * is silent unless an update is available.
  */
-const checkForStartupUpdate = async ({ fetchImpl, currentVersion, timeoutMs = STARTUP_UPDATE_CHECK_TIMEOUT_MS, log = console }) => {
-  if (typeof fetchImpl !== 'function' || !currentVersion) return null;
+const checkForStartupUpdate = async ({ fetchImpl, checkImpl, currentVersion, timeoutMs = STARTUP_UPDATE_CHECK_TIMEOUT_MS, log = console }) => {
+  if (!currentVersion) return null;
+  // checkImpl: update-release-check.checkLatestRelease (api.github.com, then the
+  // github.com releases/latest redirect), resolving { ok, release }.
+  if (typeof checkImpl === 'function') {
+    try {
+      const result = await checkImpl();
+      return result?.ok ? getAvailableUpdate(result.release, currentVersion) : null;
+    } catch (error) {
+      log?.warn?.(`[Updater] Startup update check skipped: ${error?.message || error}`);
+      return null;
+    }
+  }
+  if (typeof fetchImpl !== 'function') return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
