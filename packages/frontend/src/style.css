@@ -224,3 +224,13 @@ button:focus-visible {
 button:hover {
   cursor: pointer;
 }
+/*
+ * Electron 无边框窗口：-webkit-app-region 拖动区域不看层级。
+ * 侧栏抽屉、弹窗、菜单等 fixed 浮层盖在标题栏/标签栏上时，若不显式声明 no-drag，
+ * 点击会被当成拖动窗口（例如侧栏右上角的关闭按钮点不动）。
+ * 不可交互的透明遮罩（pointer-events-none）除外，避免打开侧栏时整窗无法拖动。
+ */
+.fixed:not(.pointer-events-none),
+.workspace-sidebar-drawer {
+  -webkit-app-region: no-drag;
+}
