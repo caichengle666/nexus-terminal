@@ -155,7 +155,9 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-windows, build-macos]
+    # Publish only after the packaged apps actually launched on Windows and macOS.
+    # A skipped or failed smoke job skips the release.
+    needs: [build-windows, build-macos, smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -172,6 +174,8 @@ jobs:
 
       - name: Download all artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: Nexus-Terminal-*
 
       - name: Normalize release filenames
         shell: bash
