@@ -28,8 +28,7 @@
     "start": "electron .",
     "build:backend": "cd ../packages/backend && npm run build:prod",
     "build:frontend": "cd ../packages/frontend && npm run build",
-    "prepare:node-runtime": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"New-Item -ItemType Directory -Force -Path 'nodejs-runtime/win-x64' | Out-Null; Copy-Item -Path (Get-Command node).Source -Destination 'nodejs-runtime/win-x64/node.exe' -Force\"",
-    "build:electron": "npm run prepare:node-runtime && electron-builder --win",
+    "build:electron": "electron-builder --win",
     "build": "npm run build:frontend && npm run build:backend && npm run build:electron"
   },
   "devDependencies": {
@@ -60,6 +59,7 @@
       "update-public-key.js",
       "update-startup-check.js",
       "update-release-check.js",
+      "backend-runtime.js",
       "security-utils.js",
       "window-state.js",
       "gpu-mode.js",
@@ -110,16 +110,15 @@
           "!dist/node_modules/cpu-features/{deps,src}/**",
           "!dist/node_modules/bcrypt/prebuilds/**",
           "dist/node_modules/bcrypt/prebuilds/${platform}-${arch}/**",
-          "!dist/node_modules/**/bare-*/prebuilds/**"
+          "!dist/node_modules/**/bare-*/prebuilds/**",
+          "!dist/node_modules/ssh2/lib/protocol/crypto/{build,src}/**",
+          "!dist/node_modules/cpu-features/**",
+          "!dist/node_modules/jschardet/dist/**"
         ]
       },
       {
         "from": "../packages/frontend/dist",
         "to": "packages/frontend/dist"
-      },
-      {
-        "from": "nodejs-runtime",
-        "to": "nodejs-runtime"
       }
     ],
     "win": {

@@ -44,11 +44,9 @@ jobs:
         working-directory: electron-app
         run: npm ci
 
-      - name: Prepare bundled Node.js runtime
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path "electron-app/nodejs-runtime/win-x64" | Out-Null
-          Copy-Item -Path (Get-Command node).Source -Destination "electron-app/nodejs-runtime/win-x64/node.exe" -Force
+      - name: Check backend native modules load in Electron's Node.js
+        working-directory: electron-app
+        run: node scripts/check-backend-natives.js
 
       - name: Build Electron app
         working-directory: electron-app
@@ -125,12 +123,9 @@ jobs:
         working-directory: electron-app
         run: npm ci
 
-      - name: Prepare bundled Node.js runtime
-        shell: bash
-        run: |
-          mkdir -p electron-app/nodejs-runtime/darwin-${{ matrix.arch }}
-          cp $(which node) electron-app/nodejs-runtime/darwin-${{ matrix.arch }}/node
-          chmod +x electron-app/nodejs-runtime/darwin-${{ matrix.arch }}/node
+      - name: Check backend native modules load in Electron's Node.js
+        working-directory: electron-app
+        run: node scripts/check-backend-natives.js
 
       - name: Build Electron app (macOS ${{ matrix.arch }})
         working-directory: electron-app

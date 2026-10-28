@@ -69,6 +69,7 @@ const updateNetwork = require('./update-network');
 const updateDownloadService = require('./update-download-service');
 const { STARTUP_UPDATE_CHECK_DELAY_MS, checkForStartupUpdate } = require('./update-startup-check');
 const updateReleaseCheck = require('./update-release-check');
+const { getBackendSpawnSpec } = require('./backend-runtime');
 
 let mainWindow;
 let expressApp;
@@ -885,64 +886,8 @@ async function createWindow() {
     // 读取并使用 APP_BACKEND_DATA_PATH 环境变量。
     // 此外，考虑实现一次性的数据迁移逻辑，将旧安装目录下的数据（如果存在）迁移到新的 backendDataPath。
     
-    const getNodeJsExecutablePath = () => {
-      const basePath = path.join(process.resourcesPath, 'nodejs-runtime');
-      let nodeExecutable = 'node'; // Default or fallback
-
-      if (process.platform === 'win32') {
-        // Windows: 仅支持 x64
-        if (process.arch === 'x64') {
-          nodeExecutable = path.join(basePath, 'win-x64', 'node.exe');
-        } else {
-          // 对于其他 Windows 架构 (arm64, ia32)，不再提供特定路径，将导致错误或回退
-          console.warn(`[Main Process] Unsupported Windows architecture: ${process.arch}. Backend might not start.`);
-           // 可以选择抛出错误，或者让后续的 existsSync 检查来处理
-        }
-      } else if (process.platform === 'linux') {
-        // Linux: 仅支持 x64
-        if (process.arch === 'x64') {
-          nodeExecutable = path.join(basePath, 'linux-x64', 'bin', 'node');
-        } else {
-          console.warn(`[Main Process] Unsupported Linux architecture: ${process.arch}. Backend might not start.`);
-        }
-      } else if (process.platform === 'darwin') {
-        if (process.arch === 'arm64') {
-          nodeExecutable = path.join(basePath, 'darwin-arm64', 'node');
-        } else if (process.arch === 'x64') {
-          nodeExecutable = path.join(basePath, 'darwin-x64', 'node');
-        } else {
-          console.warn(`[Main Process] Unsupported macOS architecture: ${process.arch}. Backend might not start.`);
-        }
-      } else {
-         console.warn(`[Main Process] Unsupported platform: ${process.platform}. Backend might not start.`);
-      }
-      
-      // 检查可执行文件是否存在，如果不存在则记录错误并可能回退或抛出
-      if (!fs.existsSync(nodeExecutable)) {
-        throw new Error(`Bundled Node.js executable not found: ${nodeExecutable}`);
-      }
-      if (process.platform === 'darwin') {
-        try {
-          fs.chmodSync(nodeExecutable, 0o755);
-        } catch (error) {
-          console.warn(`[Main Process] Failed to ensure bundled Node.js executable bit: ${error.message}`);
-        }
-      }
-      console.log(`[Main Process] Using bundled Node.js executable: ${nodeExecutable}`);
-      return nodeExecutable;
-    };
-
     const backendResourcesPath = path.join(process.resourcesPath, 'packages/backend');
-    let nodeExecutablePath;
-    try {
-      nodeExecutablePath = getNodeJsExecutablePath();
-    } catch (error) {
-      console.error('[Main Process] Critical error determining Node.js executable path:', error);
-      dialog.showErrorBox("Node.js 运行时缺失", `无法找到应用内置 Node.js 运行时，后端服务不能启动。\n\n${error.message}`);
-      app.quit();
-      return; // 停止执行 createWindow
-    }
-    
+
     const backendEntryCandidates = [
       path.join(backendResourcesPath, 'dist', 'index.js'),
       path.join(backendResourcesPath, 'index.js'),
@@ -961,10 +906,9 @@ async function createWindow() {
     const maxBackendRestartAttempts = 3;
 
     const startBackendProcess = (isRestart = false) => new Promise((resolveBackend, rejectBackend) => {
-      console.log(`[Prod Mode] ${isRestart ? 'Restarting' : 'Starting'} backend service from ${backendEntryPath} using Node.js at ${nodeExecutablePath}...`);
-      const child = spawn(nodeExecutablePath, [backendEntryPath], {
-        cwd: path.dirname(backendEntryPath),
-        stdio: ['pipe', 'pipe', 'pipe'],
+      const backendSpawn = getBackendSpawnSpec({
+        execPath: process.execPath,
+        entryPath: backendEntryPath,
         env: {
           ...process.env,
           APP_BACKEND_DATA_PATH: backendDataPath,
@@ -976,6 +920,13 @@ async function createWindow() {
           NEXUS_DESKTOP_PROXY_TOKEN: DESKTOP_PROXY_TOKEN,
           SETUP_ALLOW_LOOPBACK_WITHOUT_TOKEN: '',
         },
+      });
+      console.log(`[Prod Mode] ${isRestart ? 'Restarting' : 'Starting'} backend service from ${backendEntryPath} using Electron's Node.js (${process.versions.node})...`);
+      const child = spawn(backendSpawn.command, backendSpawn.args, {
+        cwd: path.dirname(backendEntryPath),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+        env: backendSpawn.env,
       });
       backendProcess = child;
 
