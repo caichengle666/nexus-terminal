@@ -1,7 +1,7 @@
 {
   "name": "nexus-electron-app",
-  "version": "0.9.23.3",
-  "releaseVersion": "0.9.23.3",
+  "version": "0.9.24",
+  "releaseVersion": "0.9.24",
   "description": "Electron application for Nexus Terminal",
   "main": "main.js",
   "author": {
@@ -38,7 +38,7 @@
   "build": {
     "appId": "com.caichengle666.nexus-terminal",
     "productName": "Nexus Terminal",
-    "buildVersion": "0.9.23.3",
+    "buildVersion": "0.9.24.0",
     "electronLanguages": [
       "en-US",
       "zh-CN",
@@ -126,7 +126,7 @@
         "nsis"
       ],
       "icon": "build/icon.ico",
-      "artifactName": "${productName}-0.9.23.3-${name}.${ext}"
+      "artifactName": "${productName}-0.9.24-${name}.${ext}"
     },
     "mac": {
       "target": [
@@ -134,12 +134,12 @@
       ],
       "icon": "build/icon.png",
       "category": "public.app-category.developer-tools",
-      "bundleShortVersion": "0.9.23",
-      "bundleVersion": "0.9.23.3",
-      "artifactName": "${productName}-0.9.23.3-macOS-${arch}.${ext}"
+      "bundleShortVersion": "0.9.24",
+      "bundleVersion": "0.9.24.0",
+      "artifactName": "${productName}-0.9.24-macOS-${arch}.${ext}"
     },
     "nsis": {
-      "artifactName": "${productName} Setup 0.9.23.3.${ext}",
+      "artifactName": "${productName} Setup 0.9.24.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
