@@ -145,12 +145,12 @@ const terminalText = page => page.evaluate(() => Array.from(document.querySelect
 
   // ---- Windows: WebGPU-only shader compiler DLLs are not shipped, ANGLE/D3D DLLs are ----
   if (platform === 'windows') {
-    await check('WebGPU-only DLLs absent, ANGLE/D3D GPU DLLs present', async () => {
+    await check('WebGPU-only DLLs absent, D3D/SwiftShader GPU files present', async () => {
       assert(process.env.APP_PATH, 'APP_PATH not set');
       const dir = path.dirname(process.env.APP_PATH);
       const present = name => fs.existsSync(path.join(dir, name));
       const shipped = ['dxcompiler.dll', 'dxil.dll'].filter(present);
-      const missing = ['d3dcompiler_47.dll', 'libEGL.dll', 'libGLESv2.dll', 'vk_swiftshader.dll'].filter(name => !present(name));
+      const missing = ['d3dcompiler_47.dll', 'vk_swiftshader.dll', 'vk_swiftshader_icd.json'].filter(name => !present(name));
       assert(shipped.length === 0, `still shipped: ${shipped.join(', ')}`);
       assert(missing.length === 0, `missing: ${missing.join(', ')}`);
       return `checked ${dir}`;

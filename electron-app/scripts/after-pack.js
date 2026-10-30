@@ -5,15 +5,16 @@
 // Windows only: drop the DirectX Shader Compiler DLLs that Electron ships for
 // WebGPU's D3D12 backend (dxcompiler.dll ~25.7 MB, dxil.dll ~1.5 MB). The app
 // does not use WebGPU (no navigator.gpu, no xterm WebGL addon); compositing and
-// WebGL go through ANGLE, which needs d3dcompiler_47.dll / libEGL.dll /
-// libGLESv2.dll (and vk_swiftshader as software fallback) — those are kept.
+// WebGL go through ANGLE (D3D11), which needs d3dcompiler_47.dll, with
+// vk_swiftshader as the software fallback — those are kept.
 // macOS/Linux builds are left untouched.
 
 const fs = require('fs');
 const path = require('path');
 
 const WINDOWS_WEBGPU_ONLY_FILES = ['dxcompiler.dll', 'dxil.dll'];
-const WINDOWS_REQUIRED_GPU_FILES = ['d3dcompiler_47.dll', 'libEGL.dll', 'libGLESv2.dll'];
+// ANGLE (libEGL/libGLESv2) is linked into the Electron 44 executable; these are the separate files it loads.
+const WINDOWS_REQUIRED_GPU_FILES = ['d3dcompiler_47.dll', 'vk_swiftshader.dll', 'vk_swiftshader_icd.json'];
 
 const removeWindowsWebGpuFiles = (appOutDir, log = console.log) => {
   const removed = [];

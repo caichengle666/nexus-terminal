@@ -13,7 +13,7 @@ const makeAppDir = (names) => {
   for (const name of names) fs.writeFileSync(path.join(dir, name), 'x');
   return dir;
 };
-const ALL = ['Nexus Terminal.exe', 'dxcompiler.dll', 'dxil.dll', 'd3dcompiler_47.dll', 'libEGL.dll', 'libGLESv2.dll', 'vk_swiftshader.dll', 'vulkan-1.dll'];
+const ALL = ['Nexus Terminal.exe', 'dxcompiler.dll', 'dxil.dll', 'd3dcompiler_47.dll', 'vk_swiftshader.dll', 'vk_swiftshader_icd.json', 'vulkan-1.dll', 'ffmpeg.dll'];
 
 test('afterPack hook is wired into the electron-builder config and not packaged', () => {
   assert.equal(pkg.build.afterPack, 'scripts/after-pack.js');
@@ -35,7 +35,7 @@ test('macOS and Linux builds are left untouched', async () => {
   }
 });
 
-test('Windows: fails the build when an ANGLE/D3D DLL needed for GPU acceleration is missing', async () => {
-  const dir = makeAppDir(ALL.filter(name => name !== 'libGLESv2.dll'));
-  await assert.rejects(afterPack({ electronPlatformName: 'win32', appOutDir: dir }), /libGLESv2\.dll/);
+test('Windows: fails the build when a D3D/SwiftShader file needed for GPU acceleration is missing', async () => {
+  const dir = makeAppDir(ALL.filter(name => name !== 'd3dcompiler_47.dll'));
+  await assert.rejects(afterPack({ electronPlatformName: 'win32', appOutDir: dir }), /d3dcompiler_47\.dll/);
 });
