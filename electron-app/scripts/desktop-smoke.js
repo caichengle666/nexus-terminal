@@ -143,6 +143,44 @@ const terminalText = page => page.evaluate(() => Array.from(document.querySelect
     return `version ${info.version}, installation ${JSON.stringify(info.kind)}`;
   });
 
+  // ---- Windows: WebGPU-only shader compiler DLLs are not shipped, ANGLE/D3D DLLs are ----
+  if (platform === 'windows') {
+    await check('WebGPU-only DLLs absent, ANGLE/D3D GPU DLLs present', async () => {
+      assert(process.env.APP_PATH, 'APP_PATH not set');
+      const dir = path.dirname(process.env.APP_PATH);
+      const present = name => fs.existsSync(path.join(dir, name));
+      const shipped = ['dxcompiler.dll', 'dxil.dll'].filter(present);
+      const missing = ['d3dcompiler_47.dll', 'libEGL.dll', 'libGLESv2.dll', 'vk_swiftshader.dll'].filter(name => !present(name));
+      assert(shipped.length === 0, `still shipped: ${shipped.join(', ')}`);
+      assert(missing.length === 0, `missing: ${missing.join(', ')}`);
+      return `checked ${dir}`;
+    });
+  }
+
+  // ---- GPU process / hardware acceleration ----
+  // Hosted CI runners usually expose only a software adapter (WARP / SwiftShader /
+  // a paravirtual device), so a software result is reported, not failed. A real GPU
+  // on Windows must still get GPU compositing (guards the DLL trimming above).
+  await check('GPU process reports feature status', async () => {
+    const session = await browser.newBrowserCDPSession();
+    const info = await Promise.race([
+      session.send('SystemInfo.getInfo'),
+      sleep(30000).then(() => { throw new Error('SystemInfo.getInfo timed out'); }),
+    ]);
+    const gpu = info.gpu || {};
+    const device = (gpu.devices || []).find(item => item.active) || (gpu.devices || [])[0] || {};
+    const status = gpu.featureStatus || {};
+    const compositing = String(status.gpu_compositing || 'unknown');
+    const label = `${device.vendorString || ''} ${device.deviceString || ''}`.trim() || `vendor 0x${Number(device.vendorId || 0).toString(16)}`;
+    const software = !device.vendorId || device.vendorId === 0x1414 || /swiftshader|basic render|llvmpipe|warp/i.test(label);
+    const summary = `${label}; gpu_compositing=${compositing}; webgl=${status.webgl || 'unknown'}; rasterization=${status.rasterization || 'unknown'}`;
+    if (platform === 'windows' && !software && compositing.startsWith('disabled')) {
+      throw new Error(`hardware GPU present but GPU compositing is off: ${summary}`);
+    }
+    if (compositing.startsWith('disabled')) console.log(`::warning::${platform} GPU compositing disabled on this runner (${software ? 'software adapter' : 'non-Windows'}): ${clean(summary)}`);
+    return `${software ? 'software adapter' : 'hardware adapter'}: ${summary}`;
+  });
+
   // ---- local terminal (node-pty) open, echo, close timing ----
   await check('local terminal (node-pty) runs a command and closes quickly', async () => {
     const result = await page.evaluate(async isWindows => {

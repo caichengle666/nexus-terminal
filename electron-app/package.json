@@ -113,7 +113,11 @@
           "!dist/node_modules/**/bare-*/prebuilds/**",
           "!dist/node_modules/ssh2/lib/protocol/crypto/{build,src}/**",
           "!dist/node_modules/cpu-features/**",
-          "!dist/node_modules/jschardet/dist/**"
+          "!dist/node_modules/jschardet/dist/**",
+          "!dist/node_modules/{prebuild-install,node-abi,napi-build-utils,detect-libc,expand-template,github-from-package,simple-get,simple-concat,decompress-response,mimic-response,tunnel-agent,rc,ini,deep-extend,minimist,strip-json-comments,tar-fs,tar-stream,bl,buffer,readable-stream,pump,end-of-stream,mkdirp-classic,fs-constants}/**",
+          "!dist/node_modules/{tar,minizlib,chownr,yallist,undici,tinyglobby,semver,nopt,abbrev,proc-log,env-paths,exponential-backoff,node-addon-api}/**",
+          "!dist/node_modules/@isaacs/fs-minipass/**",
+          "!dist/node_modules/web-streams-polyfill/dist/*.{mjs,min.js}"
         ]
       },
       {
@@ -146,6 +150,7 @@
       "installerIcon": "build/icon.ico"
     },
     "includePdb": false,
+    "afterPack": "scripts/after-pack.js",
     "electronFuses": {
       "runAsNode": true,
       "enableCookieEncryption": true,
