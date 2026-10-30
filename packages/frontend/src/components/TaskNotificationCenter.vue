@@ -140,11 +140,13 @@ function showCenter() {
 </script>
 
 <template>
+  <!-- 层级：收起时铃铛 z-45，高于页面内容 / 标签栏 / 面板内下拉 (≤ z-40)，低于所有弹窗遮罩 (≥ z-50)，弹窗打开时铃铛被遮罩盖住；
+       展开面板时整体提到 z-1089/1090，面板和点击外部关闭的透明层盖住其它界面 (含侧边抽屉) -->
   <div v-if="isOpen" class="fixed inset-0 z-[1089]" aria-hidden="true" @click="isOpen = false" />
   <div
     v-if="!isMobile || isOpen"
-    class="task-notification-center fixed z-[1090]"
-    :class="isMobile ? 'right-2 top-[calc(3.25rem+env(safe-area-inset-top))]' : ''"
+    class="task-notification-center fixed"
+    :class="[isOpen ? 'z-[1090]' : 'z-[45]', isMobile ? 'right-2 top-[calc(3.25rem+env(safe-area-inset-top))]' : '']"
     :style="isMobile ? undefined : { left: buttonPosition.x + 'px', top: buttonPosition.y + 'px' }"
   >
     <button

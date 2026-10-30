@@ -476,3 +476,18 @@ html[data-ui-effect="glass"] body .workspace-view.is-mobile .mobile-content-area
     background-color: var(--glass-base-color);
   }
 }
+
+/* ---------- 禁用状态的主按钮（AI 发送等）----------
+ * 实色主题里 bg-primary/bg-button + disabled:opacity-50/60 看得清；毛玻璃下按钮本身变半透明，
+ * 淡蓝底 + 白字再叠在半透明面板 / 背景图上，文字几乎看不见。这里改为不透明的低饱和底色 (主题强调色少量混入玻璃底色)
+ * + 中等灰度的前景色，对比度足够读出文字，同时没有实心强调色，一眼仍是禁用态。lite 模式同样适用。 */
+html[data-ui-effect="glass"] body button:is(.bg-primary, .bg-button):disabled {
+  opacity: 1;
+  background-color: color-mix(in srgb, var(--color-primary) 18%, var(--glass-base-color, #0b1220));
+  color: color-mix(in srgb, var(--text-color) 62%, var(--glass-base-color, #0b1220));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 32%, transparent);
+  cursor: not-allowed;
+}
+html[data-ui-effect="glass"] body button:is(.bg-primary, .bg-button):disabled :is(i, .fas, .far, .fab) {
+  color: inherit;
+}

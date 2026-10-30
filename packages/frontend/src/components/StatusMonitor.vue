@@ -57,14 +57,11 @@
         <div class="status-item grid grid-cols-[40px_1fr] items-center gap-3">
           <label class="font-semibold text-text-secondary text-left whitespace-nowrap">{{ t('statusMonitor.cpuLabel') }}</label>
           <div class="value-wrapper flex items-center gap-2">
-            <el-progress
+            <PercentProgressBar
               :percentage="displayCpuPercent"
-              :stroke-width="16"
               color="#3b82f6"
-              :show-text="true"
-              :text-inside="true"
-              :format="formatPercentageText"
-              class="themed-progress flex-grow" :class="{ 'no-transition': isSwitchingSession }"
+              :no-transition="isSwitchingSession"
+              class="flex-grow"
             />
             <!-- 移除 w-12 和 text-right 以实现左对齐 -->
           </div>
@@ -75,14 +72,11 @@
         <div class="status-item grid grid-cols-[40px_1fr] items-center gap-3">
           <label class="font-semibold text-text-secondary text-left whitespace-nowrap">{{ t('statusMonitor.memoryLabel') }}</label>
           <div class="value-wrapper flex items-center gap-2">
-            <el-progress
+            <PercentProgressBar
               :percentage="displayMemPercent"
-              :stroke-width="16"
               color="#22c55e"
-              :show-text="true"
-              :text-inside="true"
-              :format="formatPercentageText"
-              class="themed-progress flex-grow" :class="{ 'no-transition': isSwitchingSession }"
+              :no-transition="isSwitchingSession"
+              class="flex-grow"
             />
             <span class="mem-disk-details font-mono text-xs whitespace-nowrap text-left">{{ memDisplay }}</span>
           </div>
@@ -93,14 +87,11 @@
          <div class="status-item grid grid-cols-[40px_1fr] items-center gap-3">
           <label class="font-semibold text-text-secondary text-left whitespace-nowrap">{{ t('statusMonitor.swapLabel') }}</label>
           <div class="value-wrapper flex items-center gap-2">
-            <el-progress
+            <PercentProgressBar
               :percentage="displaySwapPercent"
-              :stroke-width="16"
               :color="(currentServerStatus?.swapPercent ?? 0) > 0 ? '#eab308' : '#6b7280'"
-              :show-text="true"
-              :text-inside="true"
-              :format="formatPercentageText"
-              class="themed-progress flex-grow" :class="{ 'no-transition': isSwitchingSession }"
+              :no-transition="isSwitchingSession"
+              class="flex-grow"
             />
             <span class="mem-disk-details font-mono text-xs whitespace-nowrap text-left">{{ swapDisplay }}</span>
           </div>
@@ -111,14 +102,11 @@
         <div class="status-item grid grid-cols-[40px_1fr] items-center gap-3">
           <label class="font-semibold text-text-secondary text-left whitespace-nowrap">{{ t('statusMonitor.diskLabel') }}</label>
           <div class="value-wrapper flex items-center gap-2">
-            <el-progress
+            <PercentProgressBar
               :percentage="displayDiskPercent"
-              :stroke-width="16"
               color="#a855f7"
-              :show-text="true"
-              :text-inside="true"
-              :format="formatPercentageText"
-              class="themed-progress flex-grow" :class="{ 'no-transition': isSwitchingSession }"
+              :no-transition="isSwitchingSession"
+              class="flex-grow"
             />
             <span class="mem-disk-details font-mono text-xs whitespace-nowrap text-left">{{ diskDisplay }}</span>
           </div>
@@ -153,7 +141,7 @@
 <script setup lang="ts">
 
 import { ref, computed, watch, type PropType, nextTick, onMounted } from 'vue';
-import { ElProgress } from 'element-plus';
+import PercentProgressBar from './common/PercentProgressBar.vue';
 import { useI18n } from 'vue-i18n';
 import StatusCharts from './StatusCharts.vue';
 import { useSessionStore } from '../stores/session.store'; // 注入 sessionStore
@@ -171,7 +159,6 @@ const { sessions } = storeToRefs(sessionStore); // 获取响应式的 sessions
 const { statusMonitorShowIpBoolean } = storeToRefs(settingsStore); //  获取 IP 显示设置
 const isSwitchingSession = ref(false);
 
-const formatPercentageText = (percentage: number): string => `${Math.round(percentage)}%`;
 
 interface ServerStatus {
   cpuPercent?: number;
@@ -357,19 +344,3 @@ const copyIpToClipboard = async (ipAddress: string | null) => {
 
 </script>
 
-<style scoped>
-::v-deep(.el-progress-bar__outer) {
-  background-color: var(--header-bg-color) !important; 
-}
-::v-deep(.themed-progress .el-progress-bar__inner) {
-  transition: width 0.3s ease-in-out;
-}
-::v-deep(.themed-progress.no-transition .el-progress-bar__inner) {
-  transition: none !important;
-}
-::v-deep(.el-progress-bar__innerText) {
-  font-size: 10px;
-  position: relative;
-  top: -0.5px;       
-}
-</style>
