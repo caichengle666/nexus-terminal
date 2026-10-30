@@ -504,7 +504,25 @@ const closeDrawer = () => {
 
 const openSettingsDrawer = () => {
   drawerPanel.value = null;
+  configError.value = '';
   showConfig.value = true;
+};
+
+// Errors from settings-drawer actions stay in the drawer instead of the chat area.
+const configError = ref('');
+const configBusy = ref(false);
+const runConfigAction = async (action: () => Promise<unknown>, fallback: string) => {
+  if (configBusy.value) return;
+  configBusy.value = true;
+  configError.value = '';
+  try {
+    await action();
+  } catch (error: any) {
+    configMessage.value = '';
+    configError.value = describeAiError(error, fallback);
+  } finally {
+    configBusy.value = false;
+  }
 };
 
 const closeSettingsDrawer = () => {
@@ -628,26 +646,14 @@ const switchReadOnly = () => {
 
 const continueLastResponse = () => aiStore.continueLastResponse({ confirmCommand: confirmAiCommand });
 
-const saveConfig = async () => {
-  try {
-    await aiStore.saveConfig();
-  } catch (error: any) {
-    errorMessage.value = describeAiError(error, t('aiAssistant.errors.saveConfig'));
-  }
-};
+const saveConfig = () => runConfigAction(() => aiStore.saveConfig(), t('aiAssistant.errors.saveConfig'));
 
 const selectHistoryDirectory = async () => {
   const result = await (window as any).electronAPI?.selectDirectory?.();
   if (!result?.canceled && result?.path) historyConfig.value.storagePath = result.path;
 };
 
-const saveHistoryConfig = async () => {
-  try {
-    await aiStore.saveHistoryConfig();
-  } catch (error: any) {
-    errorMessage.value = describeAiError(error, t('aiAssistant.errors.saveHistoryConfig'));
-  }
-};
+const saveHistoryConfig = () => runConfigAction(() => aiStore.saveHistoryConfig(), t('aiAssistant.errors.saveHistoryConfig'));
 
 const openCurrentHistoryDirectory = async () => {
   try {
@@ -658,17 +664,11 @@ const openCurrentHistoryDirectory = async () => {
       await showConfirmDialog({ title: t('aiAssistant.historyDirTitle'), message: directory, confirmText: t('aiAssistant.common.gotIt'), cancelText: t('aiAssistant.common.close') });
     }
   } catch (error: any) {
-    errorMessage.value = error.message || t('aiAssistant.errors.openHistoryDir');
+    configError.value = error.message || t('aiAssistant.errors.openHistoryDir');
   }
 };
 
-const testConfig = async () => {
-  try {
-    await aiStore.testConfig();
-  } catch (error: any) {
-    errorMessage.value = describeAiError(error, t('aiAssistant.errors.testConfig'));
-  }
-};
+const testConfig = () => runConfigAction(() => aiStore.testConfig(), t('aiAssistant.errors.testConfig'));
 
 const fetchModels = async () => {
   await aiStore.fetchModels();
@@ -772,13 +772,7 @@ const importSessionFile = async (event: Event) => {
   }
 };
 
-const testStreaming = async () => {
-  try {
-    await aiStore.testStreaming();
-  } catch (error: any) {
-    errorMessage.value = describeAiError(error, t('aiAssistant.errors.testStreaming'));
-  }
-};
+const testStreaming = () => runConfigAction(() => aiStore.testStreaming(), t('aiAssistant.errors.testStreaming'));
 
 const acceptPromptProposal = async () => {
   try {
@@ -794,13 +788,7 @@ const rejectPromptProposal = () => {
   aiStore.rejectPromptProposal();
 };
 
-const testToolCalling = async () => {
-  try {
-    await aiStore.testToolCalling();
-  } catch (error: any) {
-    errorMessage.value = describeAiError(error, t('aiAssistant.errors.testTools'));
-  }
-};
+const testToolCalling = () => runConfigAction(() => aiStore.testToolCalling(), t('aiAssistant.errors.testTools'));
 
 const deleteHistory = async () => {
   if (isRunning.value) {
@@ -998,11 +986,12 @@ const deleteHistory = async () => {
         <div v-if="historyConfigMessage" class="mt-1 text-success">{{ historyConfigMessage }}</div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="testConfig">{{ t('aiAssistant.ui.testConnection') }}</button>
-        <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testStreaming">{{ t('aiAssistant.ui.testStreaming') }}</button>
-        <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10" @click="testToolCalling">{{ t('aiAssistant.ui.testTools') }}</button>
+        <button class="rounded border border-border px-3 py-1.5 hover:bg-hover disabled:opacity-50" :disabled="configBusy" @click="testConfig">{{ t('aiAssistant.ui.testConnection') }}</button>
+        <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10 disabled:opacity-50" :disabled="configBusy" @click="testStreaming">{{ t('aiAssistant.ui.testStreaming') }}</button>
+        <button class="rounded border border-primary/50 px-3 py-1.5 text-primary hover:bg-primary/10 disabled:opacity-50" :disabled="configBusy" @click="testToolCalling">{{ t('aiAssistant.ui.testTools') }}</button>
       </div>
       <div v-if="configMessage" class="text-success">{{ configMessage }}</div>
+      <div v-if="configError" class="ai-config-error whitespace-pre-wrap break-words rounded border border-error/35 bg-error/8 p-2 text-error" role="alert">{{ configError }}</div>
       </div>
       <div class="ai-drawer-foot">
         <button type="button" class="ai-btn ai-btn-ghost" @click="closeSettingsDrawer">{{ t('aiAssistant.common.cancel') }}</button>
