@@ -166,6 +166,7 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
                         case 'sftp:chown':
                         case 'sftp:realpath':
                         case 'sftp:copy':
+                        case 'sftp:backupfile':
                         case 'sftp:move':
                         case 'sftp:compress':
                         case 'sftp:decompress':

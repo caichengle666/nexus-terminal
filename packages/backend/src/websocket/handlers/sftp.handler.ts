@@ -99,6 +99,11 @@ export async function handleSftpOperation(
                 if (payload?.path) sftpService.realpath(sessionId, payload.path, requestId);
                 else throw new Error("Missing 'path' in payload for realpath");
                 break;
+            case 'sftp:backupfile':
+                if (typeof payload?.path === 'string' && typeof payload?.backupPath === 'string' && payload.path && payload.backupPath) {
+                    sftpService.backupFile(sessionId, payload.path, payload.backupPath, requestId);
+                } else throw new Error("Missing 'path' or 'backupPath' in payload for backupfile");
+                break;
             case 'sftp:copy':
                 if (Array.isArray(payload?.sources) && payload?.destination) {
                     sftpService.copy(sessionId, payload.sources, payload.destination, requestId);

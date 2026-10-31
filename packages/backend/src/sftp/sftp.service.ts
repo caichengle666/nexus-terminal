@@ -1191,6 +1191,38 @@ export class SftpService {
         }
     }
 
+    /**
+     * 备份单个文件到指定路径（AI write_remote_file 覆盖前使用）。
+     * 只复制普通文件；目标已存在时拒绝，绝不覆盖已有文件。
+     */
+    async backupFile(sessionId: string, sourcePath: string, backupPath: string, requestId: string): Promise<void> {
+        const state = this.clientStates.get(sessionId);
+        const send = (message: Record<string, unknown>) => {
+            if (state?.ws.readyState === WebSocket.OPEN) state.ws.send(JSON.stringify({ ...message, requestId }));
+        };
+        if (!state || !state.sftp) {
+            send({ type: 'sftp:backupfile:error', payload: 'SFTP 会话未就绪' });
+            return;
+        }
+        const sftp = state.sftp;
+        this.beginSessionActivity(sessionId);
+        try {
+            const sourceStats = await this.getStats(sftp, sourcePath);
+            if (!sourceStats.isFile()) throw new Error('源路径不是普通文件');
+            const backupExists = await this.getStats(sftp, backupPath).then(() => true, () => false);
+            if (backupExists) throw new Error('备份目标已存在');
+            await this.copyFile(sftp, sourcePath, backupPath);
+            const backupStats = await this.getStats(sftp, backupPath);
+            if (backupStats.size !== sourceStats.size) throw new Error('备份文件大小与源文件不一致');
+            send({ type: 'sftp:backupfile:success', payload: { path: sourcePath, backupPath, size: backupStats.size } });
+        } catch (error: any) {
+            console.error(`[SFTP ${sessionId}] backupFile ${sourcePath} -> ${backupPath} failed (ID: ${requestId}):`, error);
+            send({ type: 'sftp:backupfile:error', payload: `备份文件失败: ${error?.message || error}` });
+        } finally {
+            this.endSessionActivity(sessionId);
+        }
+    }
+
     // +++ 复制文件或目录 +++
     async copy(sessionId: string, sources: string[], destinationDir: string, requestId: string): Promise<void> {
         const state = this.clientStates.get(sessionId);
