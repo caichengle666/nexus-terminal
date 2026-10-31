@@ -162,3 +162,83 @@ test('tool results are tagged as untrusted and remain JSON', () => {
   assert.match(parsed._untrusted, /UNTRUSTED/);
   assert.equal(parsed.ok, true);
 });
+
+// ---------------------------------------------------------------------------
+// write_remote_file / reasoning / usage helpers
+// ---------------------------------------------------------------------------
+const {
+  aiTools, buildBackupPath, computeLineDiff, extractReasoningText, normalizeUsage, stripUiOnlyMessageFields,
+  MAX_WRITE_FILE_BYTES,
+} = tools;
+
+test('write_remote_file is a declared tool with path/content/reason', () => {
+  const tool = aiTools.find(item => item.function.name === 'write_remote_file');
+  assert.ok(tool, 'write_remote_file tool exists');
+  assert.deepEqual([...tool.function.parameters.required].sort(), ['content', 'path', 'reason']);
+  assert.equal(tool.function.parameters.properties.content.maxLength, MAX_WRITE_FILE_BYTES);
+  assert.match(tool.function.description, /readOnly/);
+  assert.match(tool.function.description, /backed up/);
+});
+
+test('buildBackupPath appends a sortable local timestamp', () => {
+  const date = new Date(2026, 9, 31, 9, 5, 7);
+  assert.equal(buildBackupPath('/etc/nginx/nginx.conf', date), '/etc/nginx/nginx.conf.nexus-bak-20261031-090507');
+});
+
+test('computeLineDiff: new file is all additions', () => {
+  const diff = computeLineDiff('', 'a\nb\nc\n');
+  assert.equal(diff.added, 3);
+  assert.equal(diff.removed, 0);
+  assert.deepEqual(diff.lines.map(line => [line.type, line.text, line.newNo]), [['add', 'a', 1], ['add', 'b', 2], ['add', 'c', 3]]);
+});
+
+test('computeLineDiff: replaced line with context and collapsed unchanged runs', () => {
+  const oldText = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n');
+  const newText = oldText.replace('line 10', 'line ten');
+  const diff = computeLineDiff(oldText, newText, { context: 2 });
+  assert.equal(diff.added, 1);
+  assert.equal(diff.removed, 1);
+  assert.deepEqual(diff.lines[0], { type: 'skip', count: 7 });
+  const changed = diff.lines.filter(line => line.type === 'add' || line.type === 'del');
+  assert.deepEqual(changed.map(line => [line.type, line.text, line.oldNo, line.newNo]), [['del', 'line 10', 10, undefined], ['add', 'line ten', undefined, 10]]);
+  assert.deepEqual(diff.lines.at(-1), { type: 'skip', count: 8 });
+  assert.equal(diff.lines.filter(line => line.type === 'context').length, 4);
+});
+
+test('computeLineDiff: insertions/deletions in the middle use LCS and CRLF equals LF', () => {
+  const diff = computeLineDiff('a\r\nb\r\nc\r\nd\r\n', 'a\nc\nx\nd\n', { context: 0 });
+  assert.equal(diff.added, 1);
+  assert.equal(diff.removed, 1);
+  assert.deepEqual(diff.lines.filter(line => line.type !== 'skip').map(line => `${line.type}:${line.text}`), ['del:b', 'add:x']);
+  assert.equal(computeLineDiff('same\n', 'same\n').added, 0);
+});
+
+test('computeLineDiff caps rendered lines but keeps exact counts', () => {
+  const big = Array.from({ length: 300 }, (_, i) => `n${i}`).join('\n');
+  const diff = computeLineDiff('', big, { maxLines: 50 });
+  assert.equal(diff.added, 300);
+  assert.equal(diff.truncated, true);
+  assert.ok(diff.lines.length <= 51);
+});
+
+test('reasoning is read from reasoning_content or reasoning', () => {
+  assert.equal(extractReasoningText({ reasoning_content: 'think' }), 'think');
+  assert.equal(extractReasoningText({ reasoning: 'or' }), 'or');
+  assert.equal(extractReasoningText({ content: 'x' }), '');
+  assert.equal(extractReasoningText(null), '');
+});
+
+test('usage is normalized from OpenAI-style fields', () => {
+  assert.deepEqual(normalizeUsage({ prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 }), { promptTokens: 120, completionTokens: 30, totalTokens: 150 });
+  assert.deepEqual(normalizeUsage({ input_tokens: 5, output_tokens: 2 }), { promptTokens: 5, completionTokens: 2, totalTokens: 7 });
+  assert.equal(normalizeUsage({}), undefined);
+  assert.equal(normalizeUsage(null), undefined);
+  assert.equal(normalizeUsage({ prompt_tokens: -1 }), undefined);
+});
+
+test('UI-only fields never reach the model', () => {
+  const message = { role: 'assistant', content: 'hi', reasoning: 'secret thoughts', usage: { promptTokens: 1 }, stopped: true, reasoning_content: 'raw' };
+  const stripped = stripUiOnlyMessageFields(message);
+  assert.deepEqual(stripped, { role: 'assistant', content: 'hi' });
+  assert.ok(message.reasoning, 'original message is not mutated');
+});

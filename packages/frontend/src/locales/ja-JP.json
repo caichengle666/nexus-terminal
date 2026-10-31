@@ -2415,7 +2415,8 @@
       "read_remote_file": "リモートファイルの読み取り",
       "send_terminal_key": "ターミナルキーの送信",
       "terminal_input": "ターミナルコマンドの入力",
-      "wait_for_terminal_output": "ターミナル出力の待機"
+      "wait_for_terminal_output": "ターミナル出力の待機",
+      "write_remote_file": "リモートファイル書き込み"
     },
     "toolResultEmpty": "出力なし",
     "toolResultTruncated": "<結果は省略されました>",
@@ -2534,6 +2535,60 @@
       "typeIntoTerminal": "ターミナルに入力",
       "whyAndWhat": "原因と対処法を表示",
       "writeMarkdown": "読みやすい Markdown 版も作成"
+    },
+    "profiles": {
+      "label": "モデル設定",
+      "count": "全 {count} 件",
+      "add": "モデル設定を新規作成",
+      "rename": "現在の設定の名前を変更",
+      "delete": "削除",
+      "ok": "OK",
+      "namePlaceholder": "設定名（例: DeepSeek）",
+      "created": "「{name}」を作成して切り替えました。URL・キー・モデルを入力して保存してください。",
+      "renamed": "「{name}」に名前を変更しました。",
+      "deleted": "モデル設定を削除しました。",
+      "deleteTitle": "モデル設定の削除",
+      "deleteMessage": "「{name}」を削除しますか？この設定に保存された API キーも削除されます。",
+      "deleteLast": "モデル設定は少なくとも 1 つ必要です",
+      "switchTitle": "モデルを切り替え",
+      "switchDisabledRunning": "AI の実行中はモデルを切り替えられません",
+      "headerTitle": "モデル設定: {name} · {model}（クリックで切り替え）",
+      "manage": "モデル設定を管理…",
+      "noModel": "モデル未設定",
+      "keyMissing": "キーなし",
+      "hint": "設定ごとに API URL・キー・モデルを保存します。カスタムシステムプロンプトはすべての設定で共通です。",
+      "switchFailed": "モデル設定の切り替えに失敗しました",
+      "saveFailed": "モデル設定の保存に失敗しました"
+    },
+    "reasoning": {
+      "title": "思考プロセス",
+      "live": "思考中…",
+      "chars": "{count} 文字",
+      "expand": "思考プロセスを表示",
+      "collapse": "思考プロセスを閉じる"
+    },
+    "usage": {
+      "turn": "入力 {prompt} · 出力 {completion} tokens",
+      "turnTitle": "このターンのモデルリクエスト {requests} 回：入力 {prompt} tokens、出力 {completion} tokens（表示のみ・モデルには送信されません）",
+      "session": "セッション {total} tokens",
+      "sessionTitle": "このセッションのモデルリクエスト {requests} 回：入力 {prompt} tokens、出力 {completion} tokens（使用量を返さないリクエストは含みません）"
+    },
+    "writeFile": {
+      "activity": "リモートファイルの書き込みを準備中",
+      "awaiting": "ファイル変更の確認待ち",
+      "titleNew": "AI がファイルの作成を求めています",
+      "titleOverwrite": "AI がファイルの変更を求めています",
+      "backup": "上書き前のバックアップ先: {path}",
+      "newFile": "新規ファイル：作成します（存在しない親ディレクトリも作成）。",
+      "lineEndings": "元ファイルの CRLF 改行は LF になります。",
+      "note": "ファイルの書き込みはどのモードでも必ず確認が必要です。",
+      "confirm": "書き込む",
+      "newBadge": "新規",
+      "diffAria": "ファイルの変更内容",
+      "emptyDiff": "（空のファイル）",
+      "skipped": "⋯ 変更のない {count} 行",
+      "truncated": "変更が多いため先頭部分のみ表示しています（+/- の件数は正確です）。",
+      "approximate": "大きなファイルのため、変更範囲を全体の置き換えとして表示しています。"
     }
   },
   "uxAi": {
@@ -2652,5 +2707,14 @@
       "dynamic": "ローカル SOCKS5 プロキシ（SSH サーバー経由で接続）",
       "remote": "SSH サーバーのポート → このマシン → 転送先"
     }
+  },
+  "terminalAskAi": {
+    "menuAria": "ターミナル選択メニュー",
+    "menuAsk": "AI に質問",
+    "menuCopy": "コピー",
+    "menuPaste": "貼り付け",
+    "prompt": "この出力を説明し、修正案を提示してください：",
+    "truncated": "（選択範囲が長すぎるため末尾のみ残しています）",
+    "paneMissing": "選択内容を AI 入力欄に入れましたが、現在のレイアウトに AI アシスタントパネルがありません。レイアウト設定で追加してください。"
   }
 }

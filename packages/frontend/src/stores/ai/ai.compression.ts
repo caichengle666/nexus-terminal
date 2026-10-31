@@ -6,7 +6,7 @@ import {
   MIN_TAIL_MESSAGES,
   TAIL_CONTEXT_BUDGET_CHARS,
 } from './ai.constants';
-import { aiTools, parseToolArgs, summarizeToolResultContent } from './ai.tools';
+import { aiTools, parseToolArgs, stripUiOnlyMessageFields, summarizeToolResultContent } from './ai.tools';
 import type {
   AiChatMessage,
   AiCompactResult,
@@ -227,8 +227,9 @@ export const formatMessagesForSummary = (items: AiChatMessage[]) => {
   return joined.slice(-18000);
 };
 
+// Reasoning text, token usage and the stopped flag are UI-only and never part of a request.
 export const estimateMemoryRequestBytes = (memory: AiSessionMemory) => estimateJsonBytes({
-  messages: memory.messages,
+  messages: memory.messages.map(message => stripUiOnlyMessageFields(message)),
   summary: memory.summary,
   tools: aiTools,
 });

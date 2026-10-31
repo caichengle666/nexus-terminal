@@ -2439,7 +2439,8 @@
       "read_remote_file": "读取远程文件",
       "send_terminal_key": "发送终端按键",
       "terminal_input": "输入终端命令",
-      "wait_for_terminal_output": "等待终端输出"
+      "wait_for_terminal_output": "等待终端输出",
+      "write_remote_file": "写入远程文件"
     },
     "toolResultEmpty": "无返回内容",
     "toolResultTruncated": "<结果已截断>",
@@ -2558,6 +2559,60 @@
       "typeIntoTerminal": "输入终端",
       "whyAndWhat": "查看原因与建议",
       "writeMarkdown": "同时生成 Markdown 阅读版"
+    },
+    "profiles": {
+      "label": "模型配置",
+      "count": "共 {count} 个",
+      "add": "新建模型配置",
+      "rename": "重命名当前配置",
+      "delete": "删除",
+      "ok": "确定",
+      "namePlaceholder": "配置名称，例如 DeepSeek",
+      "created": "已新建并切换到「{name}」，填写地址、密钥和模型后保存。",
+      "renamed": "已重命名为「{name}」。",
+      "deleted": "已删除模型配置。",
+      "deleteTitle": "删除模型配置",
+      "deleteMessage": "确定删除「{name}」？该配置保存的 API Key 会一并删除。",
+      "deleteLast": "至少需要保留一个模型配置",
+      "switchTitle": "切换模型",
+      "switchDisabledRunning": "AI 运行中不能切换模型",
+      "headerTitle": "模型配置：{name} · {model}（点击切换）",
+      "manage": "管理模型配置…",
+      "noModel": "未设置模型",
+      "keyMissing": "无密钥",
+      "hint": "每个配置单独保存 API 地址、密钥和模型；自定义系统提示词对所有配置通用。",
+      "switchFailed": "切换模型配置失败",
+      "saveFailed": "保存模型配置失败"
+    },
+    "reasoning": {
+      "title": "思考过程",
+      "live": "思考中…",
+      "chars": "{count} 字",
+      "expand": "展开思考过程",
+      "collapse": "收起思考过程"
+    },
+    "usage": {
+      "turn": "输入 {prompt} · 输出 {completion} tokens",
+      "turnTitle": "本轮 {requests} 次模型请求：输入 {prompt} tokens，输出 {completion} tokens（仅显示，不发送给模型）",
+      "session": "本会话 {total} tokens",
+      "sessionTitle": "本会话累计 {requests} 次模型请求：输入 {prompt} tokens，输出 {completion} tokens（服务商未返回用量的请求不计入）"
+    },
+    "writeFile": {
+      "activity": "准备写入远程文件",
+      "awaiting": "等待确认文件修改",
+      "titleNew": "AI 请求创建文件",
+      "titleOverwrite": "AI 请求修改文件",
+      "backup": "覆盖前备份到：{path}",
+      "newFile": "新文件：将创建该文件（缺失的父目录会一并创建）。",
+      "lineEndings": "原文件的 CRLF 换行写入后会变为 LF。",
+      "note": "写文件在任何模式下都需要你确认。",
+      "confirm": "写入文件",
+      "newBadge": "新文件",
+      "diffAria": "文件改动对比",
+      "emptyDiff": "（空文件）",
+      "skipped": "⋯ {count} 行未改动",
+      "truncated": "改动太多，只显示了前一部分（+/- 统计是完整的）。",
+      "approximate": "文件较大，改动区域按整体替换显示。"
     }
   },
   "uxAi": {
@@ -2652,5 +2707,14 @@
       "dynamic": "本机 SOCKS5 代理，流量经 SSH 服务器出去",
       "remote": "SSH 服务器端口 → 回到本机 → 目标"
     }
+  },
+  "terminalAskAi": {
+    "menuAria": "终端选区菜单",
+    "menuAsk": "问 AI",
+    "menuCopy": "复制",
+    "menuPaste": "粘贴",
+    "prompt": "解释这段输出并给出修复建议：",
+    "truncated": "（选中内容过长，只保留了最后一部分）",
+    "paneMissing": "已把选中内容填入 AI 输入框，但当前布局里没有 AI 助手面板，请在布局设置中添加。"
   }
 }

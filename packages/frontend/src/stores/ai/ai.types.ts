@@ -16,6 +16,42 @@ export type AiChatMessage = {
   tool_call_id?: string;
   /** UI-only: the user stopped the run while this reply was streaming. Never sent to the model. */
   stopped?: boolean;
+  /** UI-only: provider reasoning text (reasoning_content / reasoning). Never sent to the model. */
+  reasoning?: string;
+  /** UI-only: token usage reported for the request that produced this reply. Never sent to the model. */
+  usage?: AiTokenUsage;
+};
+
+export type AiTokenUsage = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+};
+
+export type AiUsageTotals = AiTokenUsage & {
+  /** Model requests that reported usage. */
+  requests: number;
+};
+
+export type AiModelProfile = {
+  id: string;
+  name: string;
+  apiBaseUrl: string;
+  model: string;
+  hasApiKey: boolean;
+};
+
+export type FileWritePreview = {
+  path: string;
+  reason: string;
+  isNewFile: boolean;
+  oldContent: string;
+  newContent: string;
+  backupPath?: string;
+  sessionId: string;
+  connectionName?: string;
+  lineEndingsNormalized?: boolean;
+  signal?: AbortSignal;
 };
 
 export type TerminalInputArgs = {
@@ -106,6 +142,8 @@ export type AiCompressionStats = {
 
 export type SendMessageOptions = {
   confirmCommand?: (preview: CommandPreview) => Promise<boolean>;
+  /** Shows the write_remote_file diff; required for that tool (it is never auto-approved). */
+  confirmFileWrite?: (preview: FileWritePreview) => Promise<boolean>;
 };
 
 export type AiSessionMemory = {
@@ -115,6 +153,8 @@ export type AiSessionMemory = {
   summaryUpdatedAt?: number;
   lastCompactedAt?: number;
   compression?: AiCompressionStats;
+  /** UI-only running token totals for this conversation (kept across compaction). */
+  usageTotals?: AiUsageTotals;
   /** Connection this memory belongs to (memories are keyed per connection, see ai.memory.ts). */
   connectionId?: string;
   updatedAt?: number;

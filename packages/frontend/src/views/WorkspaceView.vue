@@ -20,6 +20,7 @@ import { useSettingsStore } from '../stores/settings.store';
 import { useFileEditorStore, type FileTab } from '../stores/fileEditor.store';
 import { useCommandHistoryStore } from '../stores/commandHistory.store';
 import { useAiStore } from '../stores/ai.store';
+import { useUiNotificationsStore } from '../stores/uiNotifications.store';
 import { useConfirmDialog } from '../composables/useConfirmDialog';
 import type { Terminal as XtermTerminal } from '@xterm/xterm';
 import type { ISearchOptions } from '@xterm/addon-search';
@@ -180,6 +181,16 @@ const openMobileAiAssistant = () => {
 const closeMobileAiAssistant = () => {
   showMobileAiAssistant.value = false;
 };
+
+// 终端选区「问 AI」：移动端打开 AI 全屏层；桌面端 AI 面板不在布局里时给出提示（输入框已预填）
+watch(() => aiStore.focusInputRequest?.nonce, (nonce) => {
+  if (!nonce) return;
+  if (isMobile.value) {
+    openMobileAiAssistant();
+  } else if (!layoutStore.usedPanes.has('aiAssistant')) {
+    useUiNotificationsStore().showInfo(t('terminalAskAi.paneMissing'));
+  }
+});
 
 // --- 文件管理器模态框状态 ---
 const showFileManagerModal = ref(false);

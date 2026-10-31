@@ -7,6 +7,8 @@ import { useConfirmDialog } from '../composables/useConfirmDialog';
 import nexusAiAvatar from '../assets/nexus-ai-avatar.jpg';
 import { MAX_IMPORT_FILE_BYTES } from '../stores/ai/ai.constants';
 import { describeAiError } from '../stores/ai/ai.errors';
+import { computeLineDiff } from '../stores/ai/ai.tools';
+import type { AiChatMessage, AiTokenUsage, FileWritePreview } from '../stores/ai/ai.types';
 import { useKeyboardInset } from '../composables/useKeyboardInset';
 
 const props = withDefaults(defineProps<{ mobileOverlay?: boolean }>(), {
@@ -55,6 +57,13 @@ const {
   hasActiveTerminal,
   continuationAvailable,
   pendingPromptProposal,
+  profiles,
+  activeProfileId,
+  activeProfile,
+  isSwitchingProfile,
+  usageTotals,
+  focusInputRequest,
+  messages: allMessages,
 } = storeToRefs(aiStore);
 
 const modeMenuOpen = ref(false);
@@ -63,6 +72,8 @@ const modelMenuOpen = ref(false);
 const modelMenuRef = ref<HTMLElement | null>(null);
 const moreMenuOpen = ref(false);
 const moreMenuRef = ref<HTMLElement | null>(null);
+const profileMenuOpen = ref(false);
+const profileMenuRef = ref<HTMLElement | null>(null);
 const contextExpanded = ref(false);
 const promptSettingsExpanded = ref(false);
 const toolRenderLimit = ref(20);
@@ -74,8 +85,9 @@ const modeOptions = computed(() => ([
 ] as const));
 const activeModeOption = computed(() => modeOptions.value.find(option => option.value === runMode.value) || modeOptions.value[1]);
 const conversationMessages = computed(() => visibleMessages.value.filter(message => (
-  message.role !== 'assistant' || !!message.content?.trim() || !message.tool_calls?.length
+  message.role !== 'assistant' || !!message.content?.trim() || !message.tool_calls?.length || hasReasoning(message)
 )));
+const hasReasoning = (message: AiChatMessage) => typeof message.reasoning === 'string' && !!message.reasoning.trim();
 const conversationScroller = ref<HTMLElement | null>(null);
 const shouldAutoFollow = ref(true);
 let scrollFrame: number | null = null;
@@ -97,6 +109,7 @@ watch(
   () => [
     conversationMessages.value.length,
     conversationMessages.value.at(-1)?.content?.length || 0,
+    conversationMessages.value.at(-1)?.reasoning?.length || 0,
     activeActivities.value.length,
     errorMessage.value,
   ],
@@ -119,12 +132,14 @@ const handleDocumentPointerDown = (event: PointerEvent) => {
   if (!modeMenuRef.value?.contains(event.target as Node)) modeMenuOpen.value = false;
   if (!modelMenuRef.value?.contains(event.target as Node)) modelMenuOpen.value = false;
   if (!moreMenuRef.value?.contains(event.target as Node)) moreMenuOpen.value = false;
+  if (!profileMenuRef.value?.contains(event.target as Node)) profileMenuOpen.value = false;
 };
 
 const closePopupMenus = () => {
   modeMenuOpen.value = false;
   modelMenuOpen.value = false;
   moreMenuOpen.value = false;
+  profileMenuOpen.value = false;
 };
 
 const focusFirstPopupItem = (container: HTMLElement | null) => {
@@ -229,6 +244,7 @@ const formatToolName = (name: string) => {
   if (name === 'execute_command') return t('aiAssistant.tool.execute_command');
   if (name === 'send_terminal_key') return t('aiAssistant.tool.send_terminal_key');
   if (name === 'read_remote_file') return t('aiAssistant.tool.read_remote_file');
+  if (name === 'write_remote_file') return t('aiAssistant.tool.write_remote_file');
   if (name === 'list_remote_directory') return t('aiAssistant.tool.list_remote_directory');
   if (name === 'list_active_terminals') return t('aiAssistant.tool.list_active_terminals');
   if (name === 'execute_command_batch') return t('aiAssistant.tool.execute_command_batch');
@@ -292,6 +308,7 @@ const formatToolSummary = (run: AiToolRun) => {
   }
   if (run.name === 'send_terminal_key') return String(run.args.key || t('aiAssistant.toolSummary.noKey'));
   if (run.name === 'read_remote_file') return String(run.args.path || t('aiAssistant.toolSummary.noPath'));
+  if (run.name === 'write_remote_file') return String(run.args.path || t('aiAssistant.toolSummary.noPath'));
   if (run.name === 'list_remote_directory') return String(run.args.path || t('aiAssistant.toolSummary.noPath'));
   if (run.name === 'execute_command_batch') {
     const count = Array.isArray(run.args.targetSessionIds) ? run.args.targetSessionIds.length : 0;
@@ -547,10 +564,31 @@ const confirmAiCommand = async ({ command, reason, riskReason, riskLevel, connec
   signal,
 });
 
+// write_remote_file: always confirmed with a diff (also in auto mode).
+const confirmAiFileWrite = (preview: FileWritePreview) => {
+  const diff = computeLineDiff(preview.isNewFile ? '' : preview.oldContent, preview.newContent);
+  return showConfirmDialog({
+    title: preview.isNewFile ? t('aiAssistant.writeFile.titleNew') : t('aiAssistant.writeFile.titleOverwrite'),
+    message: [
+      t('aiAssistant.confirm.target', { name: preview.connectionName || sessionLabel.value }),
+      preview.reason ? t('aiAssistant.confirm.reason', { reason: preview.reason }) : '',
+      preview.backupPath ? t('aiAssistant.writeFile.backup', { path: preview.backupPath }) : t('aiAssistant.writeFile.newFile'),
+      preview.lineEndingsNormalized ? t('aiAssistant.writeFile.lineEndings') : '',
+      t('aiAssistant.writeFile.note'),
+    ].filter(Boolean).join('\n'),
+    confirmText: t('aiAssistant.writeFile.confirm'),
+    cancelText: t('aiAssistant.common.cancel'),
+    signal: preview.signal,
+    diff: { ...diff, path: preview.path, isNewFile: preview.isNewFile },
+  });
+};
+
+const runOptions = () => ({ confirmCommand: confirmAiCommand, confirmFileWrite: confirmAiFileWrite });
+
 const sendMessage = () => {
   shouldAutoFollow.value = true;
   void scrollConversationToBottom();
-  return aiStore.sendMessage({ confirmCommand: confirmAiCommand });
+  return aiStore.sendMessage(runOptions());
 };
 
 const handleInputKeydown = (event: KeyboardEvent) => {
@@ -644,7 +682,142 @@ const switchReadOnly = () => {
   runMode.value = 'readOnly';
 };
 
-const continueLastResponse = () => aiStore.continueLastResponse({ confirmCommand: confirmAiCommand });
+const continueLastResponse = () => aiStore.continueLastResponse(runOptions());
+
+// --- Model profiles: header quick switch + settings drawer management ---
+const profileLabel = computed(() => activeProfile.value?.name || t('aiAssistant.profiles.label'));
+const profileModelLabel = computed(() => config.value.model || activeProfile.value?.model || t('aiAssistant.profiles.noModel'));
+const switchProfileFromHeader = async (profileId: string) => {
+  profileMenuOpen.value = false;
+  try {
+    await aiStore.switchProfile(profileId);
+  } catch (error) {
+    errorMessage.value = describeAiError(error, t('aiAssistant.profiles.switchFailed'));
+  }
+};
+const openProfileSettings = () => {
+  profileMenuOpen.value = false;
+  openSettingsDrawer();
+};
+const profileEditMode = ref<'create' | 'rename' | null>(null);
+const profileNameDraft = ref('');
+const profileNameInput = ref<HTMLInputElement | null>(null);
+const startProfileEdit = (mode: 'create' | 'rename') => {
+  profileEditMode.value = mode;
+  profileNameDraft.value = mode === 'rename' ? (activeProfile.value?.name || '') : '';
+  void nextTick(() => profileNameInput.value?.focus());
+};
+const cancelProfileEdit = () => {
+  profileEditMode.value = null;
+  profileNameDraft.value = '';
+};
+const submitProfileEdit = () => runConfigAction(async () => {
+  const name = profileNameDraft.value.trim();
+  if (!name) return;
+  if (profileEditMode.value === 'create') await aiStore.createProfile(name);
+  else if (profileEditMode.value === 'rename' && activeProfileId.value) await aiStore.renameProfile(activeProfileId.value, name);
+  cancelProfileEdit();
+}, t('aiAssistant.profiles.saveFailed'));
+const selectProfileInDrawer = (event: Event) => {
+  const value = (event.target as HTMLSelectElement).value;
+  cancelProfileEdit();
+  void runConfigAction(() => aiStore.switchProfile(value), t('aiAssistant.profiles.switchFailed'));
+};
+const deleteActiveProfile = async () => {
+  const profile = activeProfile.value;
+  if (!profile || profiles.value.length <= 1) return;
+  const confirmed = await showConfirmDialog({
+    title: t('aiAssistant.profiles.deleteTitle'),
+    message: t('aiAssistant.profiles.deleteMessage', { name: profile.name }),
+    confirmText: t('aiAssistant.profiles.delete'),
+    cancelText: t('aiAssistant.common.cancel'),
+  });
+  if (!confirmed) return;
+  await runConfigAction(() => aiStore.deleteProfile(profile.id), t('aiAssistant.profiles.saveFailed'));
+};
+
+// --- Reasoning blocks: live/expanded while streaming, collapsed once finished ---
+const reasoningToggles = new WeakMap<object, boolean>();
+const reasoningToggleVersion = ref(0);
+// Only the reply currently being generated counts as live (not while a tool runs or waits for confirmation).
+const isStreamingMessage = (message: AiChatMessage) => isRunning.value && taskStatus.value === 'thinking' && conversationMessages.value.at(-1) === message;
+const isReasoningOpen = (message: AiChatMessage) => {
+  void reasoningToggleVersion.value;
+  const toggled = reasoningToggles.get(message);
+  return toggled ?? isStreamingMessage(message);
+};
+const toggleReasoning = (message: AiChatMessage) => {
+  reasoningToggles.set(message, !isReasoningOpen(message));
+  reasoningToggleVersion.value += 1;
+};
+const reasoningLiveRefs = new Set<HTMLElement>();
+const setReasoningLiveRef = (element: unknown) => {
+  if (element instanceof HTMLElement) reasoningLiveRefs.add(element);
+};
+watch(() => conversationMessages.value.at(-1)?.reasoning?.length || 0, () => {
+  void nextTick(() => {
+    reasoningLiveRefs.forEach((element) => {
+      if (!element.isConnected) {
+        reasoningLiveRefs.delete(element);
+        return;
+      }
+      element.scrollTop = element.scrollHeight;
+    });
+  });
+});
+
+// --- Token usage (UI only): per user turn under the last reply, session total in the footer ---
+const formatTokens = (value: number) => {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 10_000) return `${Math.round(value / 1000)}k`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  return String(value);
+};
+const turnUsageByMessage = computed(() => {
+  const result = new Map<AiChatMessage, AiTokenUsage & { requests: number }>();
+  let turn: (AiTokenUsage & { requests: number }) | null = null;
+  let lastAssistant: AiChatMessage | null = null;
+  const flush = () => {
+    if (turn && lastAssistant) result.set(lastAssistant, turn);
+    turn = null;
+    lastAssistant = null;
+  };
+  for (const message of allMessages.value) {
+    if (message.role === 'user') {
+      flush();
+      continue;
+    }
+    if (message.role !== 'assistant') continue;
+    if (message.content?.trim() || !message.tool_calls?.length || hasReasoning(message)) lastAssistant = message;
+    if (message.usage) {
+      const current: AiTokenUsage & { requests: number } = turn || { promptTokens: 0, completionTokens: 0, totalTokens: 0, requests: 0 };
+      current.promptTokens += message.usage.promptTokens || 0;
+      current.completionTokens += message.usage.completionTokens || 0;
+      current.totalTokens += message.usage.totalTokens || 0;
+      current.requests += 1;
+      turn = current;
+    }
+  }
+  flush();
+  return result;
+});
+
+// Terminal selection → "Ask AI": focus the prefilled input (caret at the end).
+watch(() => focusInputRequest.value?.nonce, (nonce) => {
+  if (!nonce) return;
+  showConfig.value = false;
+  drawerPanel.value = null;
+  void nextTick(() => {
+    window.setTimeout(() => {
+      const textarea = textareaInput.value;
+      if (!textarea || !textarea.isConnected || textarea.offsetParent === null) return;
+      textarea.focus();
+      const end = textarea.value.length;
+      textarea.setSelectionRange(end, end);
+      textarea.scrollTop = textarea.scrollHeight;
+    }, 60);
+  });
+});
 
 const saveConfig = () => runConfigAction(() => aiStore.saveConfig(), t('aiAssistant.errors.saveConfig'));
 
@@ -837,8 +1010,58 @@ const deleteHistory = async () => {
           <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="isRunning ? 'animate-pulse bg-primary' : taskStatus === 'error' ? 'bg-error' : 'bg-success'" />
           <span class="truncate">{{ formatTaskStatus(taskStatus) }}</span>
         </div>
-        <div class="ai-header-model min-w-0 truncate text-[10px] text-text-secondary/60" :title="activeModelId || t('aiAssistant.ui.noModel')">
-          {{ t('aiAssistant.ui.modelLabel', { model: activeModelId || t('aiAssistant.ui.noModel') }) }}
+        <div ref="profileMenuRef" class="ai-header-model relative min-w-0">
+          <button
+            type="button"
+            class="ai-profile-trigger flex min-w-0 max-w-full items-center gap-1 rounded border border-transparent px-1.5 py-0.5 text-[11px] text-text-secondary transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+            :class="mobileOverlay ? 'min-h-[32px]' : ''"
+            :disabled="isRunning || isSwitchingProfile"
+            :title="isRunning ? t('aiAssistant.profiles.switchDisabledRunning') : t('aiAssistant.profiles.headerTitle', { name: profileLabel, model: activeModelId || profileModelLabel })"
+            :aria-label="t('aiAssistant.profiles.headerTitle', { name: profileLabel, model: profileModelLabel })"
+            :aria-expanded="profileMenuOpen"
+            aria-haspopup="menu"
+            @click="profileMenuOpen = !profileMenuOpen"
+            @keydown.down.prevent="profileMenuOpen = true; focusFirstPopupItem(profileMenuRef)"
+          >
+            <i class="fas fa-layer-group flex-shrink-0 text-[10px] opacity-70" aria-hidden="true" />
+            <span v-if="profiles.length > 1" class="max-w-[7rem] flex-shrink-0 truncate font-medium text-foreground/90">{{ profileLabel }}</span>
+            <span v-if="profiles.length > 1" class="flex-shrink-0 opacity-50">·</span>
+            <span class="min-w-0 truncate">{{ profileModelLabel }}</span>
+            <i class="fas flex-shrink-0 text-[9px] opacity-70" :class="isSwitchingProfile ? 'fa-spinner fa-spin' : profileMenuOpen ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
+          </button>
+          <div
+            v-if="profileMenuOpen"
+            role="menu"
+            class="ai-profile-menu absolute left-0 top-full z-40 mt-1 overflow-hidden rounded border border-border bg-background py-1 text-xs shadow-xl"
+            style="width: min(16rem, calc(100cqw - 1.25rem))"
+            @keydown="handlePopupMenuKeydown"
+          >
+            <div class="px-3 pb-1 pt-1.5 text-[10px] uppercase tracking-wide text-text-secondary">{{ t('aiAssistant.profiles.switchTitle') }}</div>
+            <div class="max-h-64 overflow-y-auto">
+              <button
+                v-for="profile in profiles"
+                :key="profile.id"
+                type="button"
+                role="menuitemradio"
+                :aria-checked="profile.id === activeProfileId"
+                class="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-hover"
+                :class="profile.id === activeProfileId ? 'bg-primary/15 text-primary' : 'text-foreground'"
+                @click="switchProfileFromHeader(profile.id)"
+              >
+                <i class="fas mt-0.5 w-3 flex-shrink-0 text-[10px]" :class="profile.id === activeProfileId ? 'fa-check' : ''" aria-hidden="true" />
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate font-medium">{{ profile.name }}</span>
+                  <span class="mt-0.5 block truncate text-[11px] text-text-secondary">{{ profile.model || t('aiAssistant.profiles.noModel') }}</span>
+                </span>
+                <span v-if="!profile.hasApiKey" class="mt-0.5 flex-shrink-0 rounded border border-warning/50 px-1 text-[10px] text-warning">{{ t('aiAssistant.profiles.keyMissing') }}</span>
+              </button>
+            </div>
+            <div class="my-1 border-t border-border" />
+            <button type="button" role="menuitem" class="flex w-full items-center gap-2 px-3 py-2 text-left text-text-secondary hover:bg-hover hover:text-foreground" @click="openProfileSettings">
+              <i class="fas fa-sliders w-3 text-[10px]" aria-hidden="true" />
+              <span>{{ t('aiAssistant.profiles.manage') }}</span>
+            </button>
+          </div>
         </div>
       </div>
       <div class="flex flex-shrink-0 items-center gap-1">
@@ -873,6 +1096,54 @@ const deleteHistory = async () => {
         </button>
       </div>
       <div class="ai-drawer-body space-y-2 text-xs">
+      <div class="ai-profile-section rounded border border-border/70 bg-header/20 p-2">
+        <div class="mb-1.5 flex items-center justify-between gap-2">
+          <span class="min-w-0 truncate font-medium text-foreground">{{ t('aiAssistant.profiles.label') }}<span class="ml-1.5 font-normal text-text-secondary">{{ t('aiAssistant.profiles.count', { count: profiles.length }) }}</span></span>
+          <span v-if="!profileEditMode" class="flex flex-shrink-0 gap-1">
+            <button type="button" class="ai-icon-btn" :title="t('aiAssistant.profiles.add')" :aria-label="t('aiAssistant.profiles.add')" :disabled="configBusy || isRunning" @click="startProfileEdit('create')">
+              <i class="fas fa-plus" aria-hidden="true" />
+            </button>
+            <button type="button" class="ai-icon-btn" :title="t('aiAssistant.profiles.rename')" :aria-label="t('aiAssistant.profiles.rename')" :disabled="configBusy || !activeProfile" @click="startProfileEdit('rename')">
+              <i class="fas fa-pen" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              class="ai-icon-btn ai-icon-btn-danger"
+              :title="profiles.length <= 1 ? t('aiAssistant.profiles.deleteLast') : t('aiAssistant.profiles.delete')"
+              :aria-label="t('aiAssistant.profiles.delete')"
+              :disabled="configBusy || isRunning || profiles.length <= 1"
+              @click="deleteActiveProfile"
+            >
+              <i class="fas fa-trash-can" aria-hidden="true" />
+            </button>
+          </span>
+        </div>
+        <div v-if="profileEditMode" class="flex gap-1.5">
+          <input
+            ref="profileNameInput"
+            v-model="profileNameDraft"
+            maxlength="64"
+            class="min-w-0 flex-1 rounded border border-primary/40 bg-input px-2 py-1 text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/25"
+            :placeholder="t('aiAssistant.profiles.namePlaceholder')"
+            :aria-label="profileEditMode === 'create' ? t('aiAssistant.profiles.add') : t('aiAssistant.profiles.rename')"
+            @keydown.enter.prevent="submitProfileEdit"
+            @keydown.esc.stop.prevent="cancelProfileEdit"
+          />
+          <button type="button" class="flex-shrink-0 rounded border border-primary/50 px-2 py-1 text-primary hover:bg-primary/10 disabled:opacity-50" :disabled="configBusy || !profileNameDraft.trim()" @click="submitProfileEdit">{{ t('aiAssistant.profiles.ok') }}</button>
+          <button type="button" class="flex-shrink-0 rounded border border-border px-2 py-1 hover:bg-hover" @click="cancelProfileEdit">{{ t('aiAssistant.common.cancel') }}</button>
+        </div>
+        <select
+          v-else
+          class="w-full rounded border border-border bg-input px-2 py-1 text-foreground"
+          :value="activeProfileId"
+          :disabled="configBusy || isSwitchingProfile || isRunning"
+          :aria-label="t('aiAssistant.profiles.label')"
+          @change="selectProfileInDrawer"
+        >
+          <option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profile.name }}{{ profile.model ? ` · ${profile.model}` : '' }}</option>
+        </select>
+        <p class="mt-1.5 text-[11px] leading-relaxed text-text-secondary">{{ t('aiAssistant.profiles.hint') }}</p>
+      </div>
       <label class="block">
         <span class="mb-1 block text-text-secondary">API Base URL</span>
         <input v-model="config.apiBaseUrl" class="w-full rounded border border-border bg-input px-2 py-1" placeholder="https://api.openai.com/v1" />
@@ -1113,7 +1384,27 @@ const deleteHistory = async () => {
               <span>{{ copiedKey === `msg-${index}` ? t('aiAssistant.ui.copied') : t('aiAssistant.ui.copy') }}</span>
             </button>
           </div>
+          <div v-if="message.role === 'assistant' && hasReasoning(message)" class="ai-reasoning mb-2" :class="{ 'is-live': isStreamingMessage(message) }">
+            <button
+              type="button"
+              class="ai-reasoning-toggle"
+              :aria-expanded="isReasoningOpen(message)"
+              :title="isReasoningOpen(message) ? t('aiAssistant.reasoning.collapse') : t('aiAssistant.reasoning.expand')"
+              @click="toggleReasoning(message)"
+            >
+              <i class="fas text-[10px]" :class="isStreamingMessage(message) && !message.content?.trim() ? 'fa-circle-notch fa-spin text-primary' : 'fa-brain'" aria-hidden="true" />
+              <span class="font-medium">{{ isStreamingMessage(message) && !message.content?.trim() ? t('aiAssistant.reasoning.live') : t('aiAssistant.reasoning.title') }}</span>
+              <span class="text-text-secondary/70">{{ t('aiAssistant.reasoning.chars', { count: message.reasoning?.length || 0 }) }}</span>
+              <i class="fas ml-auto text-[9px]" :class="isReasoningOpen(message) ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
+            </button>
+            <div
+              v-if="isReasoningOpen(message)"
+              :ref="setReasoningLiveRef"
+              class="ai-reasoning-body"
+            >{{ message.reasoning }}</div>
+          </div>
           <div
+            v-if="message.role !== 'assistant' || message.content?.trim() || message.tool_calls?.length || !hasReasoning(message)"
             class="ai-message-content break-words text-sm leading-relaxed"
             v-html="getMessageRenderCache(message).html"
           />
@@ -1137,6 +1428,14 @@ const deleteHistory = async () => {
               </div>
               <pre class="overflow-auto whitespace-pre-wrap break-words rounded bg-black/20 p-2 font-mono text-xs leading-relaxed">{{ command }}</pre>
             </div>
+          </div>
+          <div
+            v-if="message.role === 'assistant' && turnUsageByMessage.get(message)"
+            class="ai-turn-usage mt-1.5 flex items-center gap-1 text-[10px] text-text-secondary/70"
+            :title="t('aiAssistant.usage.turnTitle', { requests: turnUsageByMessage.get(message)!.requests, prompt: turnUsageByMessage.get(message)!.promptTokens, completion: turnUsageByMessage.get(message)!.completionTokens })"
+          >
+            <i class="fas fa-coins text-[9px] opacity-70" aria-hidden="true" />
+            <span>{{ t('aiAssistant.usage.turn', { prompt: formatTokens(turnUsageByMessage.get(message)!.promptTokens), completion: formatTokens(turnUsageByMessage.get(message)!.completionTokens) }) }}</span>
           </div>
         </div>
       </div>
@@ -1312,7 +1611,17 @@ const deleteHistory = async () => {
           </button>
         </div>
       </div>
-      <div class="mt-1 text-[11px] text-text-secondary">{{ isRunning ? t('aiAssistant.ui.hintRunning') : t('aiAssistant.ui.hintIdle') }}</div>
+      <div class="mt-1 flex items-center justify-between gap-2 text-[11px] text-text-secondary">
+        <span class="min-w-0 truncate">{{ isRunning ? t('aiAssistant.ui.hintRunning') : t('aiAssistant.ui.hintIdle') }}</span>
+        <span
+          v-if="usageTotals && usageTotals.totalTokens > 0"
+          class="ai-session-usage flex flex-shrink-0 items-center gap-1 text-text-secondary/80"
+          :title="t('aiAssistant.usage.sessionTitle', { requests: usageTotals.requests, prompt: usageTotals.promptTokens, completion: usageTotals.completionTokens })"
+        >
+          <i class="fas fa-coins text-[9px] opacity-70" aria-hidden="true" />
+          {{ t('aiAssistant.usage.session', { total: formatTokens(usageTotals.totalTokens) }) }}
+        </span>
+      </div>
     </div>
   </div>
 </template>
@@ -1463,6 +1772,67 @@ const deleteHistory = async () => {
   opacity: 0.92;
 }
 
+.ai-icon-btn {
+  display: inline-grid;
+  width: 26px;
+  height: 24px;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 4px;
+  color: var(--text-color-secondary, #94a3b8);
+  font-size: 11px;
+}
+
+.ai-icon-btn:hover:not(:disabled) {
+  color: var(--text-color, #e8ebef);
+  background: color-mix(in srgb, var(--text-color, #e8ebef) 8%, transparent);
+}
+
+.ai-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.ai-icon-btn-danger:hover:not(:disabled) {
+  color: var(--color-error, #ef4444);
+}
+
+.ai-reasoning {
+  border-left: 2px solid color-mix(in srgb, var(--text-color-secondary, #94a3b8) 45%, transparent);
+  padding-left: 8px;
+}
+
+.ai-reasoning.is-live {
+  border-left-color: color-mix(in srgb, var(--link-active-color, #e83e67) 70%, transparent);
+}
+
+.ai-reasoning-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  color: var(--text-color-secondary, #94a3b8);
+  font-size: 11px;
+  text-align: left;
+}
+
+.ai-reasoning-toggle:hover {
+  color: var(--text-color, #e8ebef);
+}
+
+.ai-reasoning-body {
+  max-height: 12rem;
+  margin-top: 4px;
+  overflow-y: auto;
+  color: var(--text-color-secondary, #94a3b8);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .ai-activity-item {
   min-height: 1.25rem;
 }
@@ -1503,6 +1873,11 @@ const deleteHistory = async () => {
   .ai-header-status {
     flex: 1 1 auto;
     justify-content: flex-end;
+  }
+
+  .ai-header-model {
+    flex: 1 1 100%;
+    margin-left: -0.375rem;
   }
 }
 </style>

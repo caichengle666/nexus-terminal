@@ -12,6 +12,8 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon, type ISearchOptions } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { useWorkspaceEventEmitter, useWorkspaceEventSubscriber, useWorkspaceEventOff } from '../composables/workspaceEvents'; // +++ Import subscriber and off
+import { useI18n } from 'vue-i18n';
+import { useAiStore } from '../stores/ai.store';
 
 
 // 定义 props 和 emits
@@ -191,6 +193,87 @@ const getScrollbackValue = (limit: number): number => {
   return Math.max(0, limit); // Ensure non-negative, return the number otherwise
 };
 
+// --- 选区右键菜单：问 AI / 复制 / 粘贴 ---
+// 有选区时右键弹出这个小菜单；没有选区时保持原行为（开启右键粘贴则粘贴，否则浏览器默认菜单）。
+const { t } = useI18n();
+const aiStore = useAiStore();
+const selectionMenu = ref<{ x: number; y: number; selection: string } | null>(null);
+const selectionMenuRef = ref<HTMLElement | null>(null);
+const SELECTION_MENU_WIDTH = 208;
+const SELECTION_MENU_HEIGHT = 132;
+const selectionMenuStyle = computed(() => {
+  const menu = selectionMenu.value;
+  if (!menu) return {};
+  const x = Number.isFinite(menu.x) ? menu.x : window.innerWidth / 2;
+  const y = Number.isFinite(menu.y) ? menu.y : window.innerHeight / 2;
+  const left = Math.max(8, Math.min(x, window.innerWidth - SELECTION_MENU_WIDTH - 8));
+  const top = Math.max(8, Math.min(y, window.innerHeight - SELECTION_MENU_HEIGHT - 8));
+  return { left: `${left}px`, top: `${top}px`, width: `${SELECTION_MENU_WIDTH}px` };
+});
+const closeSelectionMenu = () => {
+  if (!selectionMenu.value) return;
+  selectionMenu.value = null;
+  document.removeEventListener('pointerdown', handleSelectionMenuOutside, true);
+  document.removeEventListener('keydown', handleSelectionMenuKeydown, true);
+  window.removeEventListener('blur', closeSelectionMenu);
+  window.removeEventListener('resize', closeSelectionMenu);
+};
+const handleSelectionMenuOutside = (event: Event) => {
+  if (!selectionMenuRef.value?.contains(event.target as Node)) closeSelectionMenu();
+};
+const handleSelectionMenuKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeSelectionMenu();
+    terminal?.focus();
+  }
+};
+const openSelectionMenu = (x: number, y: number, selection: string) => {
+  closeSelectionMenu();
+  selectionMenu.value = { x, y, selection };
+  document.addEventListener('pointerdown', handleSelectionMenuOutside, true);
+  document.addEventListener('keydown', handleSelectionMenuKeydown, true);
+  window.addEventListener('blur', closeSelectionMenu);
+  window.addEventListener('resize', closeSelectionMenu);
+  void nextTick(() => selectionMenuRef.value?.querySelector<HTMLButtonElement>('button')?.focus());
+};
+const askAiAboutSelection = (selection?: string) => {
+  const text = selection ?? terminal?.getSelection() ?? '';
+  closeSelectionMenu();
+  if (!text.trim()) return;
+  aiStore.askAiAboutSelection(props.sessionId, text);
+};
+const copySelectionFromMenu = async () => {
+  const text = selectionMenu.value?.selection || '';
+  closeSelectionMenu();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    console.error('[Terminal] Failed to copy selection from menu:', err);
+  }
+  terminal?.focus();
+};
+const pasteFromMenu = async () => {
+  closeSelectionMenu();
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text && terminal) terminal.paste(text);
+  } catch (err) {
+    console.error('[Terminal] Failed to paste from menu:', err);
+  }
+  terminal?.focus();
+};
+const handleTerminalContextMenu = (event: MouseEvent) => {
+  const selection = terminal?.getSelection() || '';
+  if (selection.trim()) {
+    event.preventDefault();
+    openSelectionMenu(event.clientX, event.clientY, selection);
+    return;
+  }
+  if (terminalEnableRightClickPasteBoolean.value) void handleContextMenuPaste(event);
+};
+
 // --- 右键粘贴功能 ---
 const handleContextMenuPaste = async (event: MouseEvent) => {
   event.preventDefault(); // 阻止默认右键菜单
@@ -207,13 +290,13 @@ const handleContextMenuPaste = async (event: MouseEvent) => {
 
 const addContextMenuListener = () => {
   if (terminalRef.value) {
-    terminalRef.value.addEventListener('contextmenu', handleContextMenuPaste);
+    terminalRef.value.addEventListener('contextmenu', handleTerminalContextMenu);
   }
 };
 
 const removeContextMenuListener = () => {
   if (terminalRef.value) {
-    terminalRef.value.removeEventListener('contextmenu', handleContextMenuPaste);
+    terminalRef.value.removeEventListener('contextmenu', handleTerminalContextMenu);
   }
 };
 
@@ -550,6 +633,15 @@ onMounted(() => {
                     }
                 }
             }
+            // Ctrl+Shift+A: 把选区发给 AI（预填输入框，不自动发送）
+            else if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.code === 'KeyA') {
+                const selection = terminal?.getSelection() || '';
+                if (selection.trim()) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    askAiAboutSelection(selection);
+                }
+            }
             // Ctrl+Shift+V for Paste
             else if (event.ctrlKey && event.shiftKey && event.code === 'KeyV') {
                 event.preventDefault();
@@ -569,19 +661,8 @@ onMounted(() => {
         });
     }
 
-    // 根据初始设置添加监听器
-    if (terminalEnableRightClickPasteBoolean.value) {
-      addContextMenuListener();
-    }
-
-    // 监听设置变化
-    watch(terminalEnableRightClickPasteBoolean, (newValue) => {
-      if (newValue) {
-        addContextMenuListener();
-      } else {
-        removeContextMenuListener();
-      }
-    });
+    // 右键监听始终挂载：有选区时弹出「问 AI」菜单；无选区时按「右键粘贴」设置处理
+    addContextMenuListener();
 
 
     // 重新添加鼠标滚轮缩放功能到内部容器 terminalRef
@@ -660,6 +741,7 @@ onBeforeUnmount(() => {
   
     // 确保在卸载时移除右键监听器
     removeContextMenuListener();
+    closeSelectionMenu();
 
     // Remove touch listeners on unmount
     if (isMobile.value && terminalRef.value) {
@@ -780,6 +862,33 @@ watchEffect(() => {
       搜索命中标记：贴着右侧滚动条画小横条，哪些位置有命中一眼可见。
       pointer-events: none，不抢滚动条拖拽与终端选区。
     -->
+    <teleport to="body">
+      <div
+        v-if="selectionMenu"
+        ref="selectionMenuRef"
+        role="menu"
+        :aria-label="t('terminalAskAi.menuAria')"
+        class="terminal-selection-menu fixed z-[1000] overflow-hidden rounded-md border border-border bg-background py-1 text-xs text-foreground shadow-xl"
+        :style="selectionMenuStyle"
+        @contextmenu.prevent
+      >
+        <button type="button" role="menuitem" class="terminal-selection-menu-item" @click="askAiAboutSelection(selectionMenu?.selection)">
+          <i class="fas fa-robot w-4 text-center text-primary" aria-hidden="true" />
+          <span class="flex-1">{{ t('terminalAskAi.menuAsk') }}</span>
+          <kbd class="text-[10px] text-text-secondary">Ctrl+Shift+A</kbd>
+        </button>
+        <button type="button" role="menuitem" class="terminal-selection-menu-item" @click="copySelectionFromMenu">
+          <i class="fas fa-copy w-4 text-center text-text-secondary" aria-hidden="true" />
+          <span class="flex-1">{{ t('terminalAskAi.menuCopy') }}</span>
+          <kbd class="text-[10px] text-text-secondary">Ctrl+Shift+C</kbd>
+        </button>
+        <button type="button" role="menuitem" class="terminal-selection-menu-item" @click="pasteFromMenu">
+          <i class="fas fa-paste w-4 text-center text-text-secondary" aria-hidden="true" />
+          <span class="flex-1">{{ t('terminalAskAi.menuPaste') }}</span>
+          <kbd class="text-[10px] text-text-secondary">Ctrl+Shift+V</kbd>
+        </button>
+      </div>
+    </teleport>
     <div v-if="searchMarkers.length" class="search-marker-track" aria-hidden="true">
       <div
         v-for="(marker, index) in searchMarkers"
@@ -793,6 +902,22 @@ watchEffect(() => {
 </template>
 
 <style scoped>
+.terminal-selection-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.terminal-selection-menu-item:hover,
+.terminal-selection-menu-item:focus-visible {
+  background: color-mix(in srgb, var(--text-color, #e8ebef) 10%, transparent);
+  outline: none;
+}
+
 .terminal-outer-wrapper {
   width: 100%;
   height: 100%;

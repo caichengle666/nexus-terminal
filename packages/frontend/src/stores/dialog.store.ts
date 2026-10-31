@@ -1,6 +1,13 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import type { LineDiff } from './ai/ai.tools';
+
+/** Optional line diff shown in the confirm dialog (AI write_remote_file). */
+export interface ConfirmDialogDiff extends LineDiff {
+  path: string;
+  isNewFile: boolean;
+}
 
 interface DialogState {
   visible: boolean;
@@ -9,6 +16,7 @@ interface DialogState {
   confirmText?: string;
   cancelText?: string;
   isLoading: boolean;
+  diff?: ConfirmDialogDiff;
   resolvePromise?: (value: boolean) => void;
   rejectPromise?: (reason?: any) => void;
 }
@@ -18,6 +26,7 @@ export interface ShowDialogOptions {
   message: string;
   confirmText?: string;
   cancelText?: string;
+  diff?: ConfirmDialogDiff;
   /** Aborting resolves the dialog with `false` and dismisses it (or drops it from the queue). */
   signal?: AbortSignal;
 }
@@ -41,6 +50,7 @@ export const useDialogStore = defineStore('dialog', () => {
     confirmText: t('common.confirm', '确认'),
     cancelText: t('common.cancel', '取消'),
     isLoading: false,
+    diff: undefined,
   };
 
   const state = ref<DialogState>({ ...defaultState });

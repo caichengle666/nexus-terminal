@@ -109,6 +109,23 @@ export const aiTools = [
   {
     type: 'function',
     function: {
+      name: 'write_remote_file',
+      description: 'Create or overwrite a text file on the target locked SSH session through SFTP. The user always reviews a diff and must approve it (in every run mode); an existing file is first backed up as <path>.nexus-bak-<timestamp>. Not available in readOnly mode. Content is at most 64KB; read the current file with read_remote_file first and send the complete new content, not a patch.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['path', 'content', 'reason'],
+        properties: {
+          path: { type: 'string', maxLength: 4096, description: 'Absolute remote file path to write.' },
+          content: { type: 'string', maxLength: 65536, description: 'Complete new file content (UTF-8 text, maximum 64KB). Line endings are written as LF.' },
+          reason: { type: 'string', maxLength: 1000, description: 'Short reason for the change, shown to the user in the confirmation.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_remote_directory',
       description: 'List files and directories on the target locked SSH session through SFTP. This tool is read-only and returns at most 500 entries.',
       parameters: {
@@ -517,4 +534,160 @@ export const applyTerminalInput = (pending: string, data: string): { executed: s
     previous = char;
   }
   return { executed, pending: line };
+};
+
+// ---------------------------------------------------------------------------
+// write_remote_file helpers (pure).
+// ---------------------------------------------------------------------------
+
+export const MAX_WRITE_FILE_BYTES = 65536;
+/** Existing files larger than this are not overwritten (same limit as read_remote_file). */
+export const MAX_WRITE_EXISTING_FILE_BYTES = 1048576;
+
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+/** `<path>.nexus-bak-YYYYMMDD-HHmmss` in local time. */
+export const buildBackupPath = (path: string, date = new Date()) => {
+  const stamp = `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}-${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}`;
+  return `${path}.nexus-bak-${stamp}`;
+};
+
+export type DiffLine =
+  | { type: 'context' | 'add' | 'del'; text: string; oldNo?: number; newNo?: number }
+  | { type: 'skip'; count: number };
+
+export type LineDiff = {
+  lines: DiffLine[];
+  added: number;
+  removed: number;
+  /** True when the rendered lines were capped (counts stay exact). */
+  truncated: boolean;
+  /** True when the inputs were too large for an exact LCS and the changed block is shown as replaced. */
+  approximate: boolean;
+};
+
+const splitLines = (text: string) => {
+  if (!text) return [] as string[];
+  const lines = text.split(/\r\n|\r|\n/);
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  return lines;
+};
+
+const MAX_LCS_CELLS = 4_000_000;
+
+/**
+ * Small line diff (common prefix/suffix + LCS on the middle) for the write
+ * confirmation. Unchanged runs longer than 2 * context lines are collapsed.
+ */
+export const computeLineDiff = (oldText: string, newText: string, options: { context?: number; maxLines?: number } = {}): LineDiff => {
+  const context = Math.max(0, options.context ?? 3);
+  const maxLines = Math.max(10, options.maxLines ?? 2000);
+  const a = splitLines(oldText);
+  const b = splitLines(newText);
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start += 1;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA -= 1; endB -= 1; }
+
+  type Op = { type: 'context' | 'add' | 'del'; text: string; oldNo?: number; newNo?: number };
+  const ops: Op[] = [];
+  for (let i = 0; i < start; i += 1) ops.push({ type: 'context', text: a[i], oldNo: i + 1, newNo: i + 1 });
+
+  const midA = a.slice(start, endA);
+  const midB = b.slice(start, endB);
+  const n = midA.length;
+  const m = midB.length;
+  let approximate = false;
+  if (n > 0 && m > 0 && (n + 1) * (m + 1) <= MAX_LCS_CELLS) {
+    const width = m + 1;
+    const table = new Uint32Array((n + 1) * width);
+    for (let i = n - 1; i >= 0; i -= 1) {
+      for (let j = m - 1; j >= 0; j -= 1) {
+        table[i * width + j] = midA[i] === midB[j]
+          ? table[(i + 1) * width + j + 1] + 1
+          : Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
+      }
+    }
+    let i = 0;
+    let j = 0;
+    while (i < n || j < m) {
+      if (i < n && j < m && midA[i] === midB[j]) {
+        ops.push({ type: 'context', text: midA[i], oldNo: start + i + 1, newNo: start + j + 1 });
+        i += 1; j += 1;
+      } else if (j < m && (i >= n || table[i * width + j + 1] > table[(i + 1) * width + j])) {
+        ops.push({ type: 'add', text: midB[j], newNo: start + j + 1 });
+        j += 1;
+      } else {
+        ops.push({ type: 'del', text: midA[i], oldNo: start + i + 1 });
+        i += 1;
+      }
+    }
+  } else {
+    approximate = n > 0 && m > 0;
+    midA.forEach((text, index) => ops.push({ type: 'del', text, oldNo: start + index + 1 }));
+    midB.forEach((text, index) => ops.push({ type: 'add', text, newNo: start + index + 1 }));
+  }
+  for (let k = 0; k < a.length - endA; k += 1) {
+    ops.push({ type: 'context', text: a[endA + k], oldNo: endA + k + 1, newNo: endB + k + 1 });
+  }
+
+  const added = ops.filter(op => op.type === 'add').length;
+  const removed = ops.filter(op => op.type === 'del').length;
+  const keep = ops.map(op => op.type !== 'context');
+  if (context > 0) {
+    const changed = keep.slice();
+    for (let index = 0; index < ops.length; index += 1) {
+      if (!changed[index]) continue;
+      for (let offset = Math.max(0, index - context); offset <= Math.min(ops.length - 1, index + context); offset += 1) keep[offset] = true;
+    }
+  }
+  const lines: DiffLine[] = [];
+  let skipped = 0;
+  let truncated = false;
+  for (let index = 0; index < ops.length; index += 1) {
+    if (!keep[index]) { skipped += 1; continue; }
+    if (skipped > 0) { lines.push({ type: 'skip', count: skipped }); skipped = 0; }
+    if (lines.length >= maxLines) { truncated = true; break; }
+    lines.push(ops[index]);
+  }
+  if (!truncated && skipped > 0) lines.push({ type: 'skip', count: skipped });
+  return { lines, added, removed, truncated, approximate };
+};
+
+// ---------------------------------------------------------------------------
+// Reasoning / usage helpers (UI-only fields, never sent back to the model).
+// ---------------------------------------------------------------------------
+
+/** Reasoning text from a streamed delta or a full message (DeepSeek/Qwen `reasoning_content`, OpenRouter `reasoning`). */
+export const extractReasoningText = (value: unknown): string => {
+  if (!value || typeof value !== 'object') return '';
+  const item = value as Record<string, unknown>;
+  if (typeof item.reasoning_content === 'string') return item.reasoning_content;
+  if (typeof item.reasoning === 'string') return item.reasoning;
+  return '';
+};
+
+export type AiTokenUsageInput = { promptTokens: number; completionTokens: number; totalTokens: number };
+
+/** Normalizes an OpenAI-style `usage` object; returns undefined when it carries no token counts. */
+export const normalizeUsage = (value: unknown): AiTokenUsageInput | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const usage = value as Record<string, unknown>;
+  const num = (input: unknown) => (typeof input === 'number' && Number.isFinite(input) && input >= 0 ? Math.round(input) : undefined);
+  const promptTokens = num(usage.prompt_tokens) ?? num(usage.input_tokens);
+  const completionTokens = num(usage.completion_tokens) ?? num(usage.output_tokens);
+  const totalTokens = num(usage.total_tokens);
+  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) return undefined;
+  return {
+    promptTokens: promptTokens ?? 0,
+    completionTokens: completionTokens ?? 0,
+    totalTokens: totalTokens ?? (promptTokens ?? 0) + (completionTokens ?? 0),
+  };
+};
+
+/** Drops UI-only message fields (stopped flag, reasoning text, token usage) before a message goes to the model. */
+export const stripUiOnlyMessageFields = <T extends Record<string, unknown>>(message: T) => {
+  const { stopped: _stopped, reasoning: _reasoning, usage: _usage, reasoning_content: _rc, ...rest } = message as Record<string, unknown>;
+  return rest as Omit<T, 'stopped' | 'reasoning' | 'usage' | 'reasoning_content'>;
 };

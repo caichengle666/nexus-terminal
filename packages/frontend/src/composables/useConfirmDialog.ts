@@ -1,4 +1,4 @@
-import { useDialogStore } from '../stores/dialog.store';
+import { useDialogStore, type ConfirmDialogDiff } from '../stores/dialog.store';
 import { useI18n } from 'vue-i18n';
 
 interface ConfirmDialogOptions {
@@ -6,6 +6,8 @@ interface ConfirmDialogOptions {
   message: string;
   confirmText?: string;
   cancelText?: string;
+  /** Renders a line diff below the message and widens the dialog. */
+  diff?: ConfirmDialogDiff;
   /** Aborting dismisses the dialog and resolves it as cancelled. */
   signal?: AbortSignal;
 }
@@ -22,6 +24,7 @@ export function useConfirmDialog() {
       confirmText: options.confirmText,
       cancelText: options.cancelText,
       signal: options.signal,
+      diff: options.diff,
     };
     return dialogStore.showDialog(finalOptions);
   };

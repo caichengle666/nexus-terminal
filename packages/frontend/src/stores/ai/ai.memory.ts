@@ -99,6 +99,9 @@ const normalizeMessagesForStorage = (items: AiChatMessage[]) => items
     content: typeof message.content === 'string'
       ? message.content.slice(0, MAX_SAVED_CONTENT_LENGTH)
       : message.content,
+    ...(typeof message.reasoning === 'string' && message.reasoning
+      ? { reasoning: message.reasoning.slice(0, MAX_SAVED_CONTENT_LENGTH) }
+      : {}),
   }));
 
 const normalizeToolRunsForStorage = (items: AiToolRun[]) => items.slice(-MAX_SAVED_TOOL_RUNS);
@@ -116,6 +119,7 @@ export const normalizeMemoryForStorage = (memory: AiSessionMemory): AiSessionMem
   summaryUpdatedAt: memory.summaryUpdatedAt,
   lastCompactedAt: memory.lastCompactedAt,
   compression: memory.compression,
+  ...(memory.usageTotals && typeof memory.usageTotals === 'object' ? { usageTotals: memory.usageTotals } : {}),
   ...(memory.connectionId ? { connectionId: String(memory.connectionId) } : {}),
   ...(memory.updatedAt ? { updatedAt: memory.updatedAt } : {}),
 });

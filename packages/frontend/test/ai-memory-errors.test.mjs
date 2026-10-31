@@ -79,3 +79,15 @@ test('describeAiError names the cause and keeps the provider message', () => {
   assert.match(text, /Incorrect API key provided/);
   assert.match(describeAiError(httpError(429, { code: 'AI_RATE_LIMIT' })), /uxAi\.errors\.rateLimit/);
 });
+
+test('storage keeps UI-only reasoning (capped) and usage totals', () => {
+  const stored = memory.normalizeMemoryForStorage({
+    messages: [{ role: 'assistant', content: 'ok', reasoning: 'r'.repeat(200000), usage: { promptTokens: 3, completionTokens: 2, totalTokens: 5 } }],
+    toolRuns: [],
+    summary: '',
+    usageTotals: { promptTokens: 3, completionTokens: 2, totalTokens: 5, requests: 1 },
+  });
+  assert.deepEqual(stored.usageTotals, { promptTokens: 3, completionTokens: 2, totalTokens: 5, requests: 1 });
+  assert.ok(stored.messages[0].reasoning.length < 200000);
+  assert.deepEqual(stored.messages[0].usage, { promptTokens: 3, completionTokens: 2, totalTokens: 5 });
+});

@@ -2439,7 +2439,8 @@
       "read_remote_file": "Read remote file",
       "send_terminal_key": "Send terminal key",
       "terminal_input": "Type terminal command",
-      "wait_for_terminal_output": "Wait for terminal output"
+      "wait_for_terminal_output": "Wait for terminal output",
+      "write_remote_file": "Write remote file"
     },
     "toolResultEmpty": "No output",
     "toolResultTruncated": "<result truncated>",
@@ -2558,6 +2559,60 @@
       "typeIntoTerminal": "Type into terminal",
       "whyAndWhat": "Cause and suggestions",
       "writeMarkdown": "Also write a readable Markdown copy"
+    },
+    "profiles": {
+      "label": "Model profile",
+      "count": "{count} total",
+      "add": "New model profile",
+      "rename": "Rename current profile",
+      "delete": "Delete",
+      "ok": "OK",
+      "namePlaceholder": "Profile name, e.g. DeepSeek",
+      "created": "Created and switched to \"{name}\". Fill in the URL, key and model, then save.",
+      "renamed": "Renamed to \"{name}\".",
+      "deleted": "Model profile deleted.",
+      "deleteTitle": "Delete model profile",
+      "deleteMessage": "Delete \"{name}\"? The API key saved for this profile is deleted too.",
+      "deleteLast": "At least one model profile is required",
+      "switchTitle": "Switch model",
+      "switchDisabledRunning": "The model can not be switched while the AI is running",
+      "headerTitle": "Model profile: {name} · {model} (click to switch)",
+      "manage": "Manage model profiles…",
+      "noModel": "No model set",
+      "keyMissing": "No key",
+      "hint": "Each profile stores its own API URL, key and model. The custom system prompt is shared by all profiles.",
+      "switchFailed": "Failed to switch model profile",
+      "saveFailed": "Failed to save model profile"
+    },
+    "reasoning": {
+      "title": "Reasoning",
+      "live": "Thinking…",
+      "chars": "{count} chars",
+      "expand": "Show reasoning",
+      "collapse": "Hide reasoning"
+    },
+    "usage": {
+      "turn": "In {prompt} · Out {completion} tokens",
+      "turnTitle": "{requests} model request(s) in this turn: {prompt} input tokens, {completion} output tokens (display only, never sent to the model)",
+      "session": "Session {total} tokens",
+      "sessionTitle": "{requests} model request(s) in this session: {prompt} input tokens, {completion} output tokens (requests without provider usage are not counted)"
+    },
+    "writeFile": {
+      "activity": "Preparing to write a remote file",
+      "awaiting": "Waiting for you to confirm the file change",
+      "titleNew": "AI wants to create a file",
+      "titleOverwrite": "AI wants to modify a file",
+      "backup": "Backup before overwrite: {path}",
+      "newFile": "New file: it will be created (missing parent directories too).",
+      "lineEndings": "CRLF line endings of the original file will become LF.",
+      "note": "File writes always need your confirmation, in every mode.",
+      "confirm": "Write file",
+      "newBadge": "New file",
+      "diffAria": "File changes",
+      "emptyDiff": "(empty file)",
+      "skipped": "⋯ {count} unchanged line(s)",
+      "truncated": "Too many changes: only the first part is shown (the +/- counts are complete).",
+      "approximate": "Large file: the changed region is shown as a full replacement."
     }
   },
   "uxAi": {
@@ -2652,5 +2707,14 @@
       "dynamic": "Local SOCKS5 proxy, traffic exits via the SSH server",
       "remote": "SSH server port → back to this machine → target"
     }
+  },
+  "terminalAskAi": {
+    "menuAria": "Terminal selection menu",
+    "menuAsk": "Ask AI",
+    "menuCopy": "Copy",
+    "menuPaste": "Paste",
+    "prompt": "Explain this output and suggest a fix:",
+    "truncated": "(selection was too long; only the last part is kept)",
+    "paneMissing": "The selection was put into the AI input, but the current layout has no AI assistant pane. Add it in the layout settings."
   }
 }
