@@ -31,6 +31,30 @@ export const saveConfig = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
+export const createProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    res.status(201).json(await AiService.createProfile(req.body || {}));
+  } catch (error: any) {
+    res.status(error.status || 500).json({ message: error.message || 'Failed to create AI profile.' });
+  }
+};
+
+export const deleteProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    res.status(200).json(await AiService.deleteProfile(req.params.profileId));
+  } catch (error: any) {
+    res.status(error.status || 500).json({ message: error.message || 'Failed to delete AI profile.' });
+  }
+};
+
+export const activateProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    res.status(200).json(await AiService.activateProfile(req.body?.profileId));
+  } catch (error: any) {
+    res.status(error.status || 500).json({ message: error.message || 'Failed to switch AI profile.' });
+  }
+};
+
 export const testConfig = async (req: Request, res: Response): Promise<void> => {
   try {
     res.status(200).json(await AiService.testConfig(req.body || {}));

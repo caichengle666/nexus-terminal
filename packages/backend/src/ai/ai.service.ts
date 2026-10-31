@@ -2,8 +2,24 @@ import { safeAxios as axios } from '../utils/safe-http';
 import { settingsRepository } from '../settings/settings.repository';
 import { decrypt, encrypt } from '../utils/crypto';
 import { decideStoredKeyOnSave, resolveAiCredentials, validateApiBaseUrl } from './ai-config.validation';
+import {
+  addProfile,
+  createProfileId,
+  DEFAULT_AI_PROFILE_NAME,
+  findProfile,
+  normalizeProfileName,
+  parseStoredAiConfig,
+  removeProfile,
+  replaceProfile,
+  serializeAiConfig,
+  setActiveProfile,
+  toClientConfig,
+  type StoredAiConfig,
+  type StoredAiProfile,
+} from './ai-profiles';
 
 export interface AiChatRequest {
+  profileId?: unknown;
   apiBaseUrl: unknown;
   apiKey: unknown;
   model: unknown;
@@ -17,10 +33,20 @@ export interface AiChatRequest {
 }
 
 export interface AiConfigRequest {
+  profileId?: unknown;
+  name?: unknown;
   apiBaseUrl?: unknown;
   apiKey?: unknown;
   model?: unknown;
   customSystemPrompt?: unknown;
+}
+
+export interface AiProfileCreateRequest {
+  name?: unknown;
+  apiBaseUrl?: unknown;
+  apiKey?: unknown;
+  model?: unknown;
+  activate?: unknown;
 }
 
 const AI_CONFIG_KEY = 'aiTerminalConfig';
@@ -28,23 +54,14 @@ const AI_CONFIG_KEY = 'aiTerminalConfig';
 // Validates protocol (http/https only) and rejects embedded credentials.
 const normalizeApiBaseUrl = (value: unknown): string => validateApiBaseUrl(value);
 
-const readStoredConfig = async () => {
+// Reads the stored config; the legacy single-config shape is migrated to one "默认" profile.
+const readStoredConfig = async (): Promise<StoredAiConfig> => {
   const raw = await settingsRepository.getSetting(AI_CONFIG_KEY);
-  if (!raw) {
-    return { apiBaseUrl: '', model: '', encryptedApiKey: '', customSystemPrompt: '' };
-  }
+  return parseStoredAiConfig(raw);
+};
 
-  try {
-    const parsed = JSON.parse(raw);
-    return {
-      apiBaseUrl: typeof parsed.apiBaseUrl === 'string' ? parsed.apiBaseUrl : '',
-      model: typeof parsed.model === 'string' ? parsed.model : '',
-      encryptedApiKey: typeof parsed.encryptedApiKey === 'string' ? parsed.encryptedApiKey : '',
-      customSystemPrompt: typeof parsed.customSystemPrompt === 'string' ? parsed.customSystemPrompt : '',
-    };
-  } catch {
-    return { apiBaseUrl: '', model: '', encryptedApiKey: '', customSystemPrompt: '' };
-  }
+const writeStoredConfig = async (config: StoredAiConfig) => {
+  await settingsRepository.setSetting(AI_CONFIG_KEY, serializeAiConfig(config));
 };
 
 const normalizeCustomSystemPrompt = (value: unknown, fallback = '') => {
@@ -73,18 +90,10 @@ const validateRequestBudget = (payload: AiChatRequest) => {
   }
 };
 
-export const getConfig = async () => {
-  const stored = await readStoredConfig();
-  return {
-    apiBaseUrl: stored.apiBaseUrl,
-    model: stored.model,
-    customSystemPrompt: stored.customSystemPrompt,
-    hasApiKey: !!stored.encryptedApiKey,
-  };
-};
+export const getConfig = async () => toClientConfig(await readStoredConfig());
 
-export const saveConfig = async (payload: AiConfigRequest) => {
-  const current = await readStoredConfig();
+// Applies a settings payload to one profile (the given profileId, or the active one).
+const applyProfileUpdate = (current: StoredAiProfile, payload: AiConfigRequest): StoredAiProfile => {
   // The stored key stays bound to its base URL: changing the URL requires a new key.
   const keyDecision = decideStoredKeyOnSave(payload, {
     apiBaseUrl: current.apiBaseUrl,
@@ -93,35 +102,88 @@ export const saveConfig = async (payload: AiConfigRequest) => {
   const nextApiKey = keyDecision === 'replace'
     ? encrypt(String(payload.apiKey).trim())
     : current.encryptedApiKey;
-
-  const next = {
-    apiBaseUrl: typeof payload.apiBaseUrl === 'string' ? payload.apiBaseUrl.trim() : current.apiBaseUrl,
-    model: typeof payload.model === 'string' ? payload.model.trim() : current.model,
-    customSystemPrompt: normalizeCustomSystemPrompt(payload.customSystemPrompt, current.customSystemPrompt),
-    encryptedApiKey: nextApiKey,
-  };
-
-  await settingsRepository.setSetting(AI_CONFIG_KEY, JSON.stringify(next));
+  const nextBaseUrl = typeof payload.apiBaseUrl === 'string' ? payload.apiBaseUrl.trim() : current.apiBaseUrl;
   return {
-    apiBaseUrl: next.apiBaseUrl,
-    model: next.model,
-    customSystemPrompt: next.customSystemPrompt,
-    hasApiKey: !!next.encryptedApiKey,
+    ...current,
+    name: normalizeProfileName(payload.name, current.name),
+    apiBaseUrl: nextBaseUrl,
+    model: typeof payload.model === 'string' ? payload.model.trim() : current.model,
+    encryptedApiKey: nextApiKey,
+    // A different endpoint or key may support stream usage again.
+    ...(keyDecision === 'replace' || nextBaseUrl !== current.apiBaseUrl ? { streamUsageUnsupported: undefined } : {}),
   };
+};
+
+export const saveConfig = async (payload: AiConfigRequest) => {
+  const current = await readStoredConfig();
+  const profile = findProfile(current, payload.profileId);
+  let next = replaceProfile(current, applyProfileUpdate(profile, payload));
+  next = {
+    ...next,
+    customSystemPrompt: normalizeCustomSystemPrompt(payload.customSystemPrompt, current.customSystemPrompt),
+  };
+  await writeStoredConfig(next);
+  return toClientConfig(next);
+};
+
+export const createProfile = async (payload: AiProfileCreateRequest) => {
+  const current = await readStoredConfig();
+  const id = createProfileId();
+  const name = normalizeProfileName(payload.name, `${DEFAULT_AI_PROFILE_NAME} ${current.profiles.length + 1}`);
+  const apiBaseUrl = typeof payload.apiBaseUrl === 'string' && payload.apiBaseUrl.trim()
+    ? validateApiBaseUrl(payload.apiBaseUrl)
+    : '';
+  const apiKey = typeof payload.apiKey === 'string' ? payload.apiKey.trim() : '';
+  const next = addProfile(current, {
+    id,
+    name,
+    apiBaseUrl,
+    model: typeof payload.model === 'string' ? payload.model.trim() : '',
+    encryptedApiKey: apiKey ? encrypt(apiKey) : '',
+  }, payload.activate === true);
+  await writeStoredConfig(next);
+  return { ...toClientConfig(next), createdProfileId: id };
+};
+
+export const deleteProfile = async (profileId: unknown) => {
+  const next = removeProfile(await readStoredConfig(), profileId);
+  await writeStoredConfig(next);
+  return toClientConfig(next);
+};
+
+export const activateProfile = async (profileId: unknown) => {
+  const next = setActiveProfile(await readStoredConfig(), profileId);
+  await writeStoredConfig(next);
+  return toClientConfig(next);
 };
 
 const resolveConfig = async (payload: AiChatRequest | AiConfigRequest) => {
   const stored = await readStoredConfig();
+  const profile = findProfile(stored, payload.profileId);
   // Never send the stored key to a base URL other than the stored one.
   const credentials = resolveAiCredentials(payload, {
-    apiBaseUrl: stored.apiBaseUrl,
-    apiKey: decryptStoredApiKey(stored.encryptedApiKey),
+    apiBaseUrl: profile.apiBaseUrl,
+    apiKey: decryptStoredApiKey(profile.encryptedApiKey),
   });
   return {
+    profileId: profile.id,
+    streamUsageUnsupported: profile.streamUsageUnsupported === true,
     apiBaseUrl: credentials.apiBaseUrl,
     apiKey: credentials.apiKey,
-    model: payload.model || stored.model,
+    model: payload.model || profile.model,
   };
+};
+
+// Remembers (per profile) that the provider rejected stream_options.include_usage.
+const markStreamUsageUnsupported = async (profileId: string) => {
+  try {
+    const current = await readStoredConfig();
+    const profile = current.profiles.find(item => item.id === profileId);
+    if (!profile || profile.streamUsageUnsupported) return;
+    await writeStoredConfig(replaceProfile(current, { ...profile, streamUsageUnsupported: true }));
+  } catch (error) {
+    console.warn('[AI] Failed to remember stream usage support:', error);
+  }
 };
 
 export const forwardChatCompletion = async (payload: AiChatRequest) => {
@@ -169,7 +231,7 @@ export const forwardChatCompletion = async (payload: AiChatRequest) => {
 export const forwardChatCompletionStream = async (payload: AiChatRequest) => {
   validateRequestBudget(payload);
   const { messages, tools, toolChoice, responseFormat, temperature } = payload;
-  const { apiBaseUrl, apiKey, model } = await resolveConfig(payload);
+  const { apiBaseUrl, apiKey, model, profileId, streamUsageUnsupported } = await resolveConfig(payload);
 
   if (!apiKey || !model || !Array.isArray(messages)) {
     const error = new Error('Missing required AI chat fields.');
@@ -178,7 +240,7 @@ export const forwardChatCompletionStream = async (payload: AiChatRequest) => {
   }
 
   const endpoint = `${normalizeApiBaseUrl(apiBaseUrl)}/chat/completions`;
-  return axios.post(
+  const send = (includeUsage: boolean) => axios.post(
     endpoint,
     {
       model,
@@ -187,6 +249,8 @@ export const forwardChatCompletionStream = async (payload: AiChatRequest) => {
       response_format: responseFormat,
       temperature: typeof temperature === 'number' ? temperature : 0.2,
       stream: true,
+      // Ask for a final usage chunk (token counts shown in the UI only).
+      ...(includeUsage ? { stream_options: { include_usage: true } } : {}),
     },
     {
       timeout: 120000,
@@ -198,6 +262,19 @@ export const forwardChatCompletionStream = async (payload: AiChatRequest) => {
       },
     },
   );
+
+  if (streamUsageUnsupported) return send(false);
+  try {
+    return await send(true);
+  } catch (error: any) {
+    // Some OpenAI-compatible providers reject unknown stream_options with 400:
+    // retry once without it and remember that for this profile.
+    if (error?.response?.status !== 400) throw error;
+    error.response?.data?.destroy?.();
+    const response = await send(false);
+    await markStreamUsageUnsupported(profileId);
+    return response;
+  }
 };
 
 export const testConfig = async (payload: AiConfigRequest) => {
