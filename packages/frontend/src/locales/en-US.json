@@ -2716,5 +2716,65 @@
     "prompt": "Explain this output and suggest a fix:",
     "truncated": "(selection was too long; only the last part is kept)",
     "paneMissing": "The selection was put into the AI input, but the current layout has no AI assistant pane. Add it in the layout settings."
+  },
+  "aiUi": {
+    "code": {
+      "copy": "Copy code",
+      "insert": "Type into terminal (no Enter)",
+      "label": "code"
+    },
+    "actions": {
+      "toolbar": "Reply actions",
+      "retry": "Regenerate",
+      "retryHint": "Regenerate this reply from here",
+      "retryDisabled": "AI is running; cannot regenerate now",
+      "retryTitle": "Regenerate this reply?",
+      "retryMessage": "There are {count} later turn(s) after this reply. Regenerating removes them.",
+      "insertCode": "Type the first code block into the terminal (no Enter)",
+      "insertText": "Type the reply text into the terminal (no Enter)"
+    },
+    "steps": {
+      "title": "Steps",
+      "count": "{count} step(s)",
+      "problems": "{count} not successful",
+      "details": "Show tool call details",
+      "status": {
+        "running": "Running",
+        "ok": "OK",
+        "error": "Error",
+        "denied": "Denied",
+        "cancelled": "Cancelled"
+      }
+    },
+    "model": {
+      "reported": "Model reported by provider: {model} (configured: {configured})",
+      "reportedShort": "Actual model: {model}"
+    },
+    "badge": {
+      "auto": "Auto",
+      "autoTitle": "Auto mode: normal commands run without per-command confirmation",
+      "pending": "Confirm",
+      "pendingTitle": "An action is waiting for your confirmation"
+    },
+    "usage": {
+      "sectionTitle": "Context usage",
+      "toolsRunning": "Tool running: {name} ({count})",
+      "contextHigh": "Context {percent}% used, close to the limit",
+      "manage": "Manage",
+      "details": "Details"
+    },
+    "empty": {
+      "title": "Nexus AI can help you",
+      "noTerminal": "No active terminal. Open a terminal session first.",
+      "capRead": "Read terminal output and explain errors",
+      "capRun": "Run commands in the terminal (confirmed per the current mode)",
+      "capFiles": "Read and write remote files (diff shown before writing)",
+      "capFilesOff": "Remote file read/write: turn on background tools",
+      "on": "On",
+      "off": "Off"
+    },
+    "options": {
+      "title": "Chat options"
+    }
   }
 }

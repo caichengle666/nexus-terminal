@@ -20,6 +20,22 @@ export type AiChatMessage = {
   reasoning?: string;
   /** UI-only: token usage reported for the request that produced this reply. Never sent to the model. */
   usage?: AiTokenUsage;
+  /** UI-only: tool steps this reply ran (执行步骤 timeline). Never sent to the model. */
+  steps?: AiMessageStep[];
+  /** UI-only: model id the provider reported for this reply. Never sent to the model. */
+  model?: string;
+};
+
+export type AiStepStatus = 'running' | 'ok' | 'error' | 'denied' | 'cancelled';
+
+export type AiMessageStep = {
+  /** tool_call id (also the AiToolRun id). */
+  id: string;
+  name: string;
+  summary: string;
+  status: AiStepStatus;
+  startedAt: number;
+  durationMs?: number;
 };
 
 export type AiTokenUsage = {

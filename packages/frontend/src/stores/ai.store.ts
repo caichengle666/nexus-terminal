@@ -92,6 +92,7 @@ import type { SessionState } from './session/types';
 import { decodeRawContent } from './session/utils';
 import { useUiNotificationsStore } from './uiNotifications.store';
 import { describeAiError, isRetryableAiError, isStreamUnsupportedError } from './ai/ai.errors';
+import { createStep, findToolCallOwner, finishStep, retryTruncateIndex, upsertStep } from './ai/ai.steps';
 import i18n from '../i18n';
 import type { ComposerTranslation } from 'vue-i18n';
 import { registerLogoutCleanup } from '../utils/sensitiveStorage';
@@ -2290,6 +2291,7 @@ export const useAiStore = defineStore('ai', () => {
       }
       if (typeof response?.model === 'string' && response.model.trim()) {
         context.runtime.modelId = response.model.trim();
+        assistantMessage.model = response.model.trim();
       }
       recordUsage(context.memory, response?.usage);
 
@@ -2336,7 +2338,15 @@ export const useAiStore = defineStore('ai', () => {
 
       for (const toolCall of toolCalls) {
         if (context.runtime.stopRequested) break;
+        const owner = findToolCallOwner(context.memory.messages, toolCall.id);
+        let stepArgs: Record<string, unknown> = {};
+        try { stepArgs = parseToolArgs(toolCall); } catch { stepArgs = {}; }
+        const step = owner ? upsertStep(owner, createStep(toolCall.id, toolCall.function.name, stepArgs)) : null;
         const result = await runTool(toolCall, context, options);
+        if (step) {
+          const run = [...context.memory.toolRuns].reverse().find(item => item.id === toolCall.id);
+          if (run) finishStep(step, run, context.runtime.stopRequested);
+        }
         context.memory.messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -2381,6 +2391,14 @@ export const useAiStore = defineStore('ai', () => {
       runtime,
     };
     context.memory.messages.push({ role: 'user', content });
+    await executeTask(context, options);
+  };
+
+  // Shared by sendMessage and retryFromMessage: runs the agent loop for a context
+  // whose last message is the user turn to answer.
+  const executeTask = async (context: AiRunContext, options?: SendMessageOptions) => {
+    const runtime = context.runtime;
+    const runSessionId = context.sessionId;
     context.memory.updatedAt = Date.now();
     runtime.isRunning = true;
     runtime.stopRequested = false;
@@ -2439,10 +2457,29 @@ export const useAiStore = defineStore('ai', () => {
       runtime.abortController = null;
       runtime.stopRequested = false;
       runtime.activityEvents = [];
-      if (runtime.taskStatus === 'thinking' || runtime.taskStatus === 'runningTool' || runtime.taskStatus === 'waitingOutput') {
+      if (runtime.taskStatus === 'thinking' || runtime.taskStatus === 'runningTool' || runtime.taskStatus === 'waitingOutput' || runtime.taskStatus === 'awaitingConfirmation') {
         runtime.taskStatus = 'idle';
       }
     }
+  };
+
+  /**
+   * Regenerates the assistant turn containing `message`: drops that turn's replies
+   * and every later message, then answers the turn's user message again.
+   */
+  const retryFromMessage = async (message: AiChatMessage, options?: SendMessageOptions) => {
+    const runSessionId = activeSessionId.value || 'global';
+    const runtime = getRuntimeBySessionId(runSessionId);
+    if (runtime.isRunning) return false;
+    const memory = getMemoryBySessionId(runSessionId);
+    const index = memory.messages.indexOf(message);
+    const cut = retryTruncateIndex(memory.messages, index);
+    if (cut < 0) return false;
+    memory.messages.splice(cut);
+    runtime.errorMessage = '';
+    runtime.continuationAvailable = false;
+    await executeTask({ sessionId: runSessionId, memory, runtime }, options);
+    return true;
   };
 
   const continueLastResponse = async (options?: SendMessageOptions) => {
@@ -2505,7 +2542,7 @@ export const useAiStore = defineStore('ai', () => {
       runtime.abortController = null;
       runtime.stopRequested = false;
       runtime.activityEvents = [];
-      if (runtime.taskStatus === 'thinking' || runtime.taskStatus === 'runningTool' || runtime.taskStatus === 'waitingOutput') {
+      if (runtime.taskStatus === 'thinking' || runtime.taskStatus === 'runningTool' || runtime.taskStatus === 'waitingOutput' || runtime.taskStatus === 'awaitingConfirmation') {
         runtime.taskStatus = 'idle';
       }
     }
@@ -2779,6 +2816,7 @@ export const useAiStore = defineStore('ai', () => {
     stopRun,
     clearChat,
     continueLastResponse,
+    retryFromMessage,
     continuationAvailable,
     pendingPromptProposal,
     acceptPromptProposal,

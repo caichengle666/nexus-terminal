@@ -10,6 +10,8 @@ interface ConfirmDialogOptions {
   diff?: ConfirmDialogDiff;
   /** Aborting dismisses the dialog and resolves it as cancelled. */
   signal?: AbortSignal;
+  /** false = modal: backdrop click / Esc never cancel; only the buttons resolve it. */
+  dismissible?: boolean;
 }
 
 export function useConfirmDialog() {
@@ -25,6 +27,7 @@ export function useConfirmDialog() {
       cancelText: options.cancelText,
       signal: options.signal,
       diff: options.diff,
+      dismissible: options.dismissible,
     };
     return dialogStore.showDialog(finalOptions);
   };

@@ -2716,5 +2716,65 @@
     "prompt": "解释这段输出并给出修复建议：",
     "truncated": "（选中内容过长，只保留了最后一部分）",
     "paneMissing": "已把选中内容填入 AI 输入框，但当前布局里没有 AI 助手面板，请在布局设置中添加。"
+  },
+  "aiUi": {
+    "code": {
+      "copy": "复制代码",
+      "insert": "填入终端（不回车）",
+      "label": "代码"
+    },
+    "actions": {
+      "toolbar": "回复操作",
+      "retry": "重新生成",
+      "retryHint": "从这里重新生成这条回复",
+      "retryDisabled": "AI 运行中，无法重新生成",
+      "retryTitle": "重新生成这条回复？",
+      "retryMessage": "这条回复之后还有 {count} 轮对话，重新生成会删除它们。",
+      "insertCode": "把第一个代码块填入终端（不回车）",
+      "insertText": "把回复文本填入终端（不回车）"
+    },
+    "steps": {
+      "title": "执行步骤",
+      "count": "{count} 步",
+      "problems": "{count} 个未成功",
+      "details": "查看工具调用详情",
+      "status": {
+        "running": "运行中",
+        "ok": "成功",
+        "error": "失败",
+        "denied": "已拒绝",
+        "cancelled": "已取消"
+      }
+    },
+    "model": {
+      "reported": "服务商返回的模型：{model}（配置：{configured}）",
+      "reportedShort": "实际模型：{model}"
+    },
+    "badge": {
+      "auto": "自动",
+      "autoTitle": "自动执行模式：普通命令不再逐条确认",
+      "pending": "待确认",
+      "pendingTitle": "有操作正在等待你确认"
+    },
+    "usage": {
+      "sectionTitle": "上下文用量",
+      "toolsRunning": "工具运行中：{name}（{count}）",
+      "contextHigh": "上下文已用 {percent}%，接近上限",
+      "manage": "管理",
+      "details": "详情"
+    },
+    "empty": {
+      "title": "Nexus AI 可以帮你",
+      "noTerminal": "当前没有活动终端，先打开一个终端会话。",
+      "capRead": "读取终端输出，分析报错",
+      "capRun": "在终端里运行命令（按当前模式确认）",
+      "capFiles": "读取、写入远程文件（写入前展示 diff）",
+      "capFilesOff": "读写远程文件：需开启后台工具",
+      "on": "开",
+      "off": "关"
+    },
+    "options": {
+      "title": "对话选项"
+    }
   }
 }

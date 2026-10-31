@@ -8,7 +8,9 @@ import nexusAiAvatar from '../assets/nexus-ai-avatar.jpg';
 import { MAX_IMPORT_FILE_BYTES } from '../stores/ai/ai.constants';
 import { describeAiError } from '../stores/ai/ai.errors';
 import { computeLineDiff } from '../stores/ai/ai.tools';
-import type { AiChatMessage, AiTokenUsage, FileWritePreview } from '../stores/ai/ai.types';
+import type { AiChatMessage, AiMessageStep, AiTokenUsage, FileWritePreview } from '../stores/ai/ai.types';
+import { collectTurnSteps } from '../stores/ai/ai.steps';
+import { escapeHtml, getTerminalInsertText, renderAiMarkdown } from '../utils/aiMarkdown';
 import { useKeyboardInset } from '../composables/useKeyboardInset';
 
 const props = withDefaults(defineProps<{ mobileOverlay?: boolean }>(), {
@@ -17,7 +19,7 @@ const props = withDefaults(defineProps<{ mobileOverlay?: boolean }>(), {
 const emit = defineEmits<{ (event: 'close-mobile-overlay'): void }>();
 
 const aiStore = useAiStore();
-const { t } = useI18n();
+const { t, locale } = useI18n();
 // Keeps the full-screen mobile overlay (and its input) above the on-screen keyboard.
 useKeyboardInset(() => props.mobileOverlay);
 const { showConfirmDialog } = useConfirmDialog();
@@ -74,7 +76,6 @@ const moreMenuOpen = ref(false);
 const moreMenuRef = ref<HTMLElement | null>(null);
 const profileMenuOpen = ref(false);
 const profileMenuRef = ref<HTMLElement | null>(null);
-const contextExpanded = ref(false);
 const promptSettingsExpanded = ref(false);
 const toolRenderLimit = ref(20);
 const importFileInput = ref<HTMLInputElement | null>(null);
@@ -153,6 +154,7 @@ const handleDocumentKeydown = (event: KeyboardEvent) => {
   closePopupMenus();
   showConfig.value = false;
   drawerPanel.value = null;
+  optionsSheetOpen.value = false;
 };
 
 const handlePopupMenuKeydown = (event: KeyboardEvent) => {
@@ -177,16 +179,34 @@ const handlePopupMenuKeydown = (event: KeyboardEvent) => {
   buttons[nextIndex]?.focus();
 };
 
+// Pane resize (divider drag, rotation): re-measure the composer and keep the
+// conversation pinned to the bottom when it was following. Message content itself
+// reflows through CSS (fluid widths, min-width: 0, wrapping).
+const rootRef = ref<HTMLElement | null>(null);
+let resizeObserver: ResizeObserver | null = null;
+let lastObservedWidth = 0;
 onMounted(() => {
   document.addEventListener('pointerdown', handleDocumentPointerDown);
   document.addEventListener('keydown', handleDocumentKeydown);
   void scrollConversationToBottom();
+  void nextTick(autoGrowInput);
+  if (typeof ResizeObserver !== 'undefined' && rootRef.value) {
+    resizeObserver = new ResizeObserver((entries) => {
+      const width = Math.round(entries[0]?.contentRect.width || 0);
+      if (width === lastObservedWidth) return;
+      lastObservedWidth = width;
+      autoGrowInput();
+      if (shouldAutoFollow.value) void scrollConversationToBottom();
+    });
+    resizeObserver.observe(rootRef.value);
+  }
 });
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown);
   document.removeEventListener('keydown', handleDocumentKeydown);
   if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame);
   if (copiedTimer !== null) window.clearTimeout(copiedTimer);
+  resizeObserver?.disconnect();
 });
 
 const sessionLabel = computed(() => activeSession.value?.connectionName || t('aiAssistant.noActiveTerminal'));
@@ -210,18 +230,6 @@ const lastUserPrompt = computed(() => {
   return typeof lastUser?.content === 'string' ? lastUser.content : '';
 });
 
-const timelineItems = computed(() => latestToolRuns.value
-  .slice()
-  .reverse()
-  .slice(-8)
-  .map(run => ({
-    id: run.id,
-    title: formatToolName(run.name),
-    status: formatToolStatus(run.status),
-    summary: formatToolSummary(run),
-    duration: formatToolDuration(run),
-    failed: run.status === 'error',
-  })));
 const currentActivityId = computed(() => [...activeActivities.value]
   .reverse()
   .find(activity => activity.state === 'active')?.id || null);
@@ -425,55 +433,42 @@ const messageLabelClass = (role: string) => {
   return 'text-text-secondary';
 };
 
-const escapeHtml = (value: string) => value
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&#39;');
-
 type MessageRenderCache = {
   source: string;
+  locale: string;
   html: string;
-  commandBlocks: string[];
+  codeBlocks: string[];
 };
 const messageRenderCache = new WeakMap<object, MessageRenderCache>();
 
-const renderMarkdown = (content?: string | null) => {
-  const text = content || '';
-  const escaped = escapeHtml(text);
-  return escaped
-    .replace(/```(?:[a-zA-Z0-9_+-]+)?\s*[\s\S]*?```/g, '')
-    .replace(/`([^`]+)`/g, '<code class="rounded bg-black/20 px-1 py-0.5 font-mono text-xs">$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br>');
+const codeRiskBadge = (code: string) => {
+  const risk = detectCommandRisk(code);
+  if (risk === 'normal') return null;
+  return { label: formatRiskLabel(risk), className: risk === 'danger' ? 'is-danger' : 'is-confirm' };
 };
 
-const extractCommandBlocks = (content?: string | null) => {
-  if (!content) return [];
-  const blocks: string[] = [];
-  const fencePattern = /```(?:[a-zA-Z0-9_+-]+)?\s*([\s\S]*?)```/gi;
-  let match: RegExpExecArray | null;
-  while ((match = fencePattern.exec(content)) !== null) {
-    const block = match[1]
-      .split('\n')
-      .map(line => line.replace(/^\$\s?/, ''))
-      .join('\n')
-      .trim();
-    if (block) blocks.push(block);
-  }
-  return blocks.slice(0, 4);
+// A tool-call-only reply shows "calling tools…" only while one of its calls is still in flight.
+const isToolCallPending = (message: AiChatMessage) => {
+  if (!message.tool_calls?.length || !isRunning.value) return false;
+  if (message.steps?.some(step => step.status === 'running')) return true;
+  const messages = allMessages.value;
+  const lastAssistant = [...messages].reverse().find(item => item.role === 'assistant');
+  if (lastAssistant !== message) return false;
+  const answered = new Set(messages.filter(item => item.role === 'tool').map(item => item.tool_call_id));
+  return message.tool_calls.some(call => !answered.has(call.id));
 };
 
-const getMessageRenderCache = (message: object & { content?: string | null; tool_calls?: unknown[] }) => {
-  const source = message.content || (message.tool_calls?.length ? t('aiAssistant.callingTools') : '');
+const getMessageRenderCache = (message: AiChatMessage) => {
+  const source = message.content || (isToolCallPending(message) ? t('aiAssistant.callingTools') : '');
   const cached = messageRenderCache.get(message);
-  if (cached?.source === source) return cached;
-  const next = {
-    source,
-    html: renderMarkdown(source),
-    commandBlocks: extractCommandBlocks(message.content),
-  };
+  if (cached?.source === source && cached.locale === locale.value) return cached;
+  const rendered = message.role === 'assistant'
+    ? renderAiMarkdown(source, {
+      labels: { copy: t('aiUi.code.copy'), insert: t('aiUi.code.insert'), code: t('aiUi.code.label') },
+      codeBadge: codeRiskBadge,
+    })
+    : { html: `<p>${escapeHtml(source).replace(/\n/g, '<br>')}</p>`, codeBlocks: [] as string[] };
+  const next = { source, locale: locale.value, html: source ? rendered.html : '', codeBlocks: rendered.codeBlocks };
   messageRenderCache.set(message, next);
   return next;
 };
@@ -495,19 +490,193 @@ const copyText = async (text: string, key = 'default') => {
   }, 1600);
 };
 
-const fillCommandInput = (command: string) => {
-  const normalized = command.trim();
-  if (!normalized) return;
-  if (/\r|\n/.test(normalized)) {
+// Types text into the session's terminal input WITHOUT pressing Enter. Multi-line
+// text is only allowed when the shell has bracketed paste on (then it is pasted, not run).
+const insertTextIntoTerminal = (raw: string) => {
+  const text = raw.replace(/\r\n?/g, '\n').replace(/\n+$/, '').trimStart();
+  if (!text.trim()) return false;
+  const manager = activeSession.value?.terminalManager;
+  const term = manager?.terminalInstance?.value as { paste?: (data: string) => void; modes?: { bracketedPasteMode?: boolean }; focus?: () => void } | null | undefined;
+  if (text.includes('\n')) {
+    if (term?.paste && term.modes?.bracketedPasteMode) {
+      term.paste(text);
+      term.focus?.();
+      return true;
+    }
     errorMessage.value = t('aiAssistant.multilineNotAllowed');
-    return;
+    return false;
   }
-  const sender = activeSession.value?.terminalManager?.sendData;
-  if (sender) {
-    sender(normalized);
-    return;
+  if (manager?.sendData) {
+    manager.sendData(text);
+    term?.focus?.();
+    return true;
   }
   errorMessage.value = t('aiAssistant.noTerminalForInput');
+  return false;
+};
+
+// --- Per-reply actions (copy / retry from here / insert into terminal) ---
+const copyMessage = (message: AiChatMessage, index: number) => copyText(message.content || '', `msg-${index}`);
+const insertMessageIntoTerminal = (message: AiChatMessage) => {
+  const { text } = getTerminalInsertText(message.content);
+  insertTextIntoTerminal(text);
+};
+const retryMessage = async (message: AiChatMessage) => {
+  if (isRunning.value) return;
+  const all = allMessages.value;
+  const index = all.indexOf(message);
+  const laterUserTurns = all.slice(index + 1).filter(item => item.role === 'user').length;
+  if (laterUserTurns > 0) {
+    const confirmed = await showConfirmDialog({
+      title: t('aiUi.actions.retryTitle'),
+      message: t('aiUi.actions.retryMessage', { count: laterUserTurns }),
+      confirmText: t('aiUi.actions.retry'),
+      cancelText: t('aiAssistant.common.cancel'),
+    });
+    if (!confirmed) return;
+  }
+  shouldAutoFollow.value = true;
+  void scrollConversationToBottom();
+  await aiStore.retryFromMessage(message, runOptions());
+};
+
+// Code-block buttons are plain HTML inside v-html: handle them by delegation.
+const handleMessageContentClick = (event: MouseEvent, message: AiChatMessage) => {
+  const button = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>('button[data-ai-code-action]');
+  if (!button) return;
+  event.stopPropagation();
+  const index = Number(button.dataset.aiCodeIndex);
+  const code = getMessageRenderCache(message).codeBlocks[index];
+  if (!code) return;
+  if (button.dataset.aiCodeAction === 'insert') {
+    insertTextIntoTerminal(code);
+    return;
+  }
+  void navigator.clipboard?.writeText(code).then(() => {
+    button.classList.add('is-done');
+    button.querySelector('i')?.classList.replace('fa-copy', 'fa-check');
+    window.setTimeout(() => {
+      button.classList.remove('is-done');
+      button.querySelector('i')?.classList.replace('fa-check', 'fa-copy');
+    }, 1600);
+  }).catch(() => {
+    errorMessage.value = t('aiAssistant.copyFailed');
+  });
+};
+
+// --- 执行步骤 timeline (per reply, collapsed by default) ---
+const isVisibleAssistant = (message: AiChatMessage) => !!message.content?.trim() || !message.tool_calls?.length || hasReasoning(message);
+const stepsByMessage = computed(() => collectTurnSteps(allMessages.value, isVisibleAssistant));
+const stepToggles = new WeakMap<object, boolean>();
+const stepToggleVersion = ref(0);
+const isStepsOpen = (message: AiChatMessage) => {
+  void stepToggleVersion.value;
+  return stepToggles.get(message) === true;
+};
+const toggleSteps = (message: AiChatMessage) => {
+  stepToggles.set(message, !isStepsOpen(message));
+  stepToggleVersion.value += 1;
+};
+const stepIconClass = (step: AiMessageStep) => {
+  if (step.status === 'ok') return 'fa-circle-check is-ok';
+  if (step.status === 'error') return 'fa-circle-xmark is-error';
+  if (step.status === 'denied') return 'fa-ban is-denied';
+  if (step.status === 'cancelled') return 'fa-circle-stop is-cancelled';
+  return 'fa-circle-notch fa-spin is-running';
+};
+const stepSummaryText = (step: AiMessageStep) => {
+  if (step.name === 'get_terminal_output' && /^\d+$/.test(step.summary)) return t('aiAssistant.toolSummary.readLines', { count: Number(step.summary) });
+  return step.summary;
+};
+const stepStatusLabel = (step: AiMessageStep) => t(`aiUi.steps.status.${step.status}`);
+const formatStepDuration = (step: AiMessageStep) => {
+  if (step.durationMs === undefined) return '';
+  return step.durationMs < 1000 ? `${step.durationMs}ms` : `${(step.durationMs / 1000).toFixed(1)}s`;
+};
+const stepProblemCount = (steps: AiMessageStep[]) => steps.filter(step => step.status === 'error' || step.status === 'denied').length;
+const findRunForStep = (step: AiMessageStep) => {
+  const candidates = latestToolRuns.value.filter(run => run.id === step.id);
+  if (candidates.length <= 1) return candidates[0];
+  return candidates.reduce((best, run) => (Math.abs(run.startedAt - step.startedAt) < Math.abs(best.startedAt - step.startedAt) ? run : best));
+};
+const highlightedRunKey = ref('');
+const runKey = (run: AiToolRun) => `${run.id}-${run.startedAt}`;
+const openToolRunDetails = (step: AiMessageStep) => {
+  const run = findRunForStep(step);
+  if (!run) return;
+  const position = latestToolRuns.value.indexOf(run);
+  if (position >= toolRenderLimit.value) toolRenderLimit.value = position + 1;
+  highlightedRunKey.value = runKey(run);
+  showConfig.value = false;
+  drawerPanel.value = 'context';
+  void nextTick(() => {
+    const element = document.getElementById(`ai-tool-run-${runKey(run)}`) as HTMLDetailsElement | null;
+    if (element) {
+      element.open = true;
+      element.scrollIntoView({ block: 'center' });
+    }
+  });
+};
+
+// --- Provider-reported model, shown when it differs from the configured one ---
+const configuredModel = computed(() => (config.value.model || activeProfile.value?.model || '').trim());
+const reportedModel = (message: AiChatMessage) => {
+  const model = (message.model || '').trim();
+  if (!model || !configuredModel.value) return '';
+  return model.toLowerCase() === configuredModel.value.toLowerCase() ? '' : model;
+};
+
+// --- Header badges / footer usage ---
+const isAutoMode = computed(() => runMode.value === 'auto');
+const isAwaitingConfirmation = computed(() => isRunning.value && taskStatus.value === 'awaitingConfirmation');
+const runningToolRuns = computed(() => (isRunning.value ? latestToolRuns.value.filter(run => run.status === 'running') : []));
+const contextHigh = computed(() => contextUsagePercent.value >= 70);
+const showUsageAlert = computed(() => contextHigh.value || runningToolRuns.value.length > 0);
+const headerStatusTitle = computed(() => `${t('aiAssistant.ui.title')} · ${sessionLabel.value} · ${formatTaskStatus(taskStatus.value)}`);
+
+// --- Composer: auto-grow textarea (up to ~8 lines, then scroll) ---
+const COMPOSER_MAX_LINES = 8;
+const autoGrowInput = () => {
+  const textarea = textareaInput.value;
+  if (!textarea) return;
+  const style = window.getComputedStyle(textarea);
+  const lineHeight = Number.parseFloat(style.lineHeight) || 21;
+  const padding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
+  const border = (Number.parseFloat(style.borderTopWidth) || 0) + (Number.parseFloat(style.borderBottomWidth) || 0);
+  const maxHeight = Math.round(lineHeight * COMPOSER_MAX_LINES + padding + border);
+  if (!textarea.value) {
+    // Empty: back to the one-line minimum (the placeholder is ellipsized, never grows the box).
+    textarea.style.height = '';
+    textarea.style.overflowY = 'hidden';
+    return;
+  }
+  textarea.style.height = 'auto';
+  const needed = textarea.scrollHeight + border;
+  const next = Math.min(needed, maxHeight);
+  textarea.style.height = `${next}px`;
+  textarea.style.overflowY = needed > maxHeight ? 'auto' : 'hidden';
+};
+watch(userInput, () => { void nextTick(autoGrowInput); });
+watch(activeSessionId, () => { void nextTick(autoGrowInput); });
+
+// --- Options bottom sheet (narrow panes / mobile): mode, background tools, Ctrl+C ---
+const optionsSheetOpen = ref(false);
+const optionsSheetRef = ref<HTMLElement | null>(null);
+const openOptionsSheet = () => {
+  closePopupMenus();
+  optionsSheetOpen.value = true;
+  void nextTick(() => optionsSheetRef.value?.querySelector<HTMLButtonElement>('[aria-checked="true"], button')?.focus());
+};
+const closeOptionsSheet = () => {
+  optionsSheetOpen.value = false;
+};
+const interruptFromSheet = () => {
+  optionsSheetOpen.value = false;
+  void interruptTerminal();
+};
+const openContextFromSheet = () => {
+  optionsSheetOpen.value = false;
+  openDrawer('context');
 };
 
 const openDrawer = (panel: Exclude<DrawerPanel, null>) => {
@@ -562,6 +731,8 @@ const confirmAiCommand = async ({ command, reason, riskReason, riskLevel, connec
   confirmText: t('aiAssistant.confirm.run'),
   cancelText: t('aiAssistant.common.cancel'),
   signal,
+  // Tool confirmations are modal: only the explicit buttons approve or deny.
+  dismissible: false,
 });
 
 // write_remote_file: always confirmed with a diff (also in auto mode).
@@ -580,6 +751,7 @@ const confirmAiFileWrite = (preview: FileWritePreview) => {
     cancelText: t('aiAssistant.common.cancel'),
     signal: preview.signal,
     diff: { ...diff, path: preview.path, isNewFile: preview.isNewFile },
+    dismissible: false,
   });
 };
 
@@ -660,6 +832,7 @@ const compactContext = async () => {
 
 const useQuickTask = (task: string) => {
   userInput.value = task;
+  refocusInput();
 };
 
 const rereadTerminal = () => {
@@ -811,6 +984,7 @@ watch(() => focusInputRequest.value?.nonce, (nonce) => {
     window.setTimeout(() => {
       const textarea = textareaInput.value;
       if (!textarea || !textarea.isConnected || textarea.offsetParent === null) return;
+      autoGrowInput();
       textarea.focus();
       const end = textarea.value.length;
       textarea.setSelectionRange(end, end);
@@ -988,7 +1162,7 @@ const deleteHistory = async () => {
 </script>
 
 <template>
-  <div class="ai-terminal-assistant relative flex h-full min-h-0 flex-col bg-background text-foreground">
+  <div ref="rootRef" class="ai-terminal-assistant relative flex h-full min-h-0 min-w-0 flex-col bg-background text-foreground" :class="{ 'is-mobile-overlay': mobileOverlay }">
     <input ref="importFileInput" type="file" accept=".json,application/json" class="hidden" @change="importSessionFile" />
     <div class="ai-assistant-header flex items-center justify-between gap-3 border-b border-border/70 bg-header/20 px-3 py-2.5">
       <div class="ai-header-main flex min-w-0 items-center gap-2.5">
@@ -1003,20 +1177,37 @@ const deleteHistory = async () => {
         >
           <i class="fas fa-arrow-left text-sm text-text-secondary" aria-hidden="true" />
         </button>
-        <div class="ai-header-title flex-shrink-0 text-sm font-semibold tracking-tight">{{ t('aiAssistant.ui.title') }}</div>
-        <span class="ai-header-divider h-3 w-px flex-shrink-0 bg-border" />
+        <div class="ai-header-title flex-shrink-0 text-sm font-semibold tracking-tight" :title="headerStatusTitle">{{ t('aiAssistant.ui.title') }}</div>
+        <span class="ai-header-divider h-3 w-px flex-shrink-0 bg-border" aria-hidden="true" />
         <div class="ai-header-session min-w-0 truncate text-xs text-text-secondary" :title="sessionLabel">{{ sessionLabel }}</div>
-        <div class="ai-header-status flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">
-          <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="isRunning ? 'animate-pulse bg-primary' : taskStatus === 'error' ? 'bg-error' : 'bg-success'" />
-          <span class="truncate">{{ formatTaskStatus(taskStatus) }}</span>
+        <div class="ai-header-status flex min-w-0 flex-shrink-0 items-center gap-1.5 text-[11px] text-text-secondary" :title="headerStatusTitle" role="status">
+          <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="isAwaitingConfirmation ? 'animate-pulse bg-warning' : isRunning ? 'animate-pulse bg-primary' : taskStatus === 'error' ? 'bg-error' : 'bg-success'" aria-hidden="true" />
+          <span class="ai-header-status-text truncate">{{ formatTaskStatus(taskStatus) }}</span>
         </div>
+        <span
+          v-if="isAwaitingConfirmation"
+          class="ai-badge ai-badge-pending"
+          role="status"
+          :title="t('aiUi.badge.pendingTitle')"
+        >
+          <i class="fas fa-hand text-[9px]" aria-hidden="true" />
+          <span>{{ t('aiUi.badge.pending') }}</span>
+        </span>
+        <span
+          v-if="isAutoMode"
+          class="ai-badge ai-badge-auto"
+          :title="t('aiUi.badge.autoTitle')"
+        >
+          <i class="fas fa-bolt text-[9px]" aria-hidden="true" />
+          <span>{{ t('aiUi.badge.auto') }}</span>
+        </span>
         <div ref="profileMenuRef" class="ai-header-model relative min-w-0">
           <button
             type="button"
             class="ai-profile-trigger flex min-w-0 max-w-full items-center gap-1 rounded border border-transparent px-1.5 py-0.5 text-[11px] text-text-secondary transition hover:border-border hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
             :class="mobileOverlay ? 'min-h-[32px]' : ''"
             :disabled="isRunning || isSwitchingProfile"
-            :title="isRunning ? t('aiAssistant.profiles.switchDisabledRunning') : t('aiAssistant.profiles.headerTitle', { name: profileLabel, model: activeModelId || profileModelLabel })"
+            :title="`${isRunning ? t('aiAssistant.profiles.switchDisabledRunning') : t('aiAssistant.profiles.headerTitle', { name: profileLabel, model: profileModelLabel })}${activeModelId && activeModelId !== profileModelLabel ? `\n${t('aiUi.model.reportedShort', { model: activeModelId })}` : ''}\n${sessionLabel}`"
             :aria-label="t('aiAssistant.profiles.headerTitle', { name: profileLabel, model: profileModelLabel })"
             :aria-expanded="profileMenuOpen"
             aria-haspopup="menu"
@@ -1072,7 +1263,7 @@ const deleteHistory = async () => {
           <button type="button" class="flex items-center justify-center rounded hover:bg-hover" :class="mobileOverlay ? 'h-10 w-10' : 'h-7 w-7'" :title="t('aiAssistant.ui.more')" :aria-label="t('aiAssistant.ui.more')" :aria-expanded="moreMenuOpen" @click="moreMenuOpen = !moreMenuOpen" @keydown.down.prevent="moreMenuOpen = true; focusFirstPopupItem(moreMenuRef)">
             <i class="fas fa-ellipsis-v text-xs text-text-secondary" aria-hidden="true" />
           </button>
-          <div v-if="moreMenuOpen" role="menu" class="absolute right-0 top-full z-40 mt-1 w-44 overflow-hidden rounded border border-border bg-background py-1 text-xs shadow-xl" @keydown="handlePopupMenuKeydown">
+          <div v-if="moreMenuOpen" role="menu" class="ai-popup-menu absolute right-0 top-full z-40 mt-1 w-44 overflow-hidden rounded border border-border bg-background py-1 text-xs shadow-xl" @keydown="handlePopupMenuKeydown">
             <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="openDrawer('context'); moreMenuOpen = false">{{ t('aiAssistant.ui.contextMemory') }}</button>
             <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="exportJson(); moreMenuOpen = false">{{ t('aiAssistant.ui.exportSession') }}</button>
             <button role="menuitem" class="block w-full px-3 py-2 text-left hover:bg-hover" @click="openImportDialog(); moreMenuOpen = false">{{ t('aiAssistant.ui.importSession') }}</button>
@@ -1280,78 +1471,61 @@ const deleteHistory = async () => {
       </div>
     </div>
 
-    <div class="border-b border-border px-3 py-1.5 text-xs">
-      <div v-if="storageWarning" class="mb-1 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning">{{ storageWarning }}</div>
-      <div v-if="historySyncWarning" class="mb-1 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning">{{ historySyncWarning }}</div>
-      <button type="button" class="flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left text-text-secondary hover:bg-hover" :aria-expanded="contextExpanded" @click="contextExpanded = !contextExpanded">
-        <span class="flex min-w-0 items-center gap-2">
-          <span class="truncate">{{ t('aiAssistant.ui.contextUsage', { percent: contextUsagePercent, used: formatBytes(contextRequestBytes), max: maxRequestKb }) }}</span>
-          <span class="ai-context-meter" :title="t('aiAssistant.ui.contextUsageTitle')"><span :style="{ width: `${contextUsagePercent}%` }" /></span>
-        </span>
-        <span class="flex min-w-0 items-center gap-2">
-          <span v-if="timelineItems.length > 0" class="hidden truncate text-[11px] text-text-secondary/80 sm:inline">{{ t('aiAssistant.ui.latest', { title: timelineItems[0].title }) }}</span>
-          <i class="fas text-[10px]" :class="contextExpanded ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
-        </span>
-      </button>
-      <div v-if="contextExpanded" class="mt-1 grid gap-2 rounded border border-border/60 bg-header/20 p-2 sm:grid-cols-3">
-        <label :title="t('aiAssistant.ui.compactThresholdTitle')">
-          <span class="mb-1 flex justify-between gap-2"><span>{{ t('aiAssistant.ui.compactThreshold') }}</span><strong class="text-foreground">{{ compactTriggerPercent }}%</strong></span>
-          <input v-model.number="config.compactTriggerPercent" type="range" min="1" max="80" class="w-full accent-primary" :aria-label="t('aiAssistant.ui.compactThreshold')" />
-        </label>
-        <label :title="t('aiAssistant.ui.requestLimitTitle')">
-          <span class="mb-1 flex justify-between gap-2"><span>{{ t('aiAssistant.ui.requestLimit') }}</span><strong class="text-foreground">{{ maxRequestKb }}KB</strong></span>
-          <input v-model.number="config.maxRequestKb" type="range" min="64" max="1024" step="16" class="w-full accent-primary" :aria-label="t('aiAssistant.ui.requestLimitAria')" />
-        </label>
-        <label :title="t('aiAssistant.ui.compactsPerTaskTitle')">
-          <span class="mb-1 flex justify-between gap-2"><span>{{ t('aiAssistant.ui.compactsPerTask') }}</span><strong class="text-foreground">{{ t('aiAssistant.ui.times', { count: maxAutoCompactsPerTask }) }}</strong></span>
-          <input v-model.number="config.maxAutoCompactsPerTask" type="range" min="1" max="5" step="1" class="w-full accent-primary" :aria-label="t('aiAssistant.ui.compactsPerTaskAria')" />
-        </label>
-        <div class="flex items-center justify-between gap-2 sm:col-span-3">
-          <span v-if="compression" class="truncate text-[11px] text-text-secondary">{{ t('aiAssistant.ui.lastCompaction', { before: formatBytes(compression.beforeBytes), after: formatBytes(compression.afterBytes), count: compression.compactedCount }) }}</span>
-          <span v-else class="text-[11px] text-text-secondary">{{ t('aiAssistant.ui.notCompacted') }}</span>
-          <button class="flex-shrink-0 rounded border border-border px-2 py-1 text-foreground hover:bg-hover" @click.stop="compactContext">{{ t('aiAssistant.ui.compactNow') }}</button>
-        </div>
-      </div>
-      <details v-if="latestToolRuns.length > 0" class="ai-tool-details group mt-1 rounded border border-border/50 bg-header/20 px-2 py-1">
-        <summary class="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px]">
-          <span class="min-w-0 truncate text-text-secondary">{{ t('aiAssistant.ui.toolCallsAll', { count: latestToolRuns.length }) }}</span>
-          <span class="flex-shrink-0 text-text-secondary">{{ t('aiAssistant.ui.showDetails') }}</span>
-        </summary>
-        <div class="mt-1 max-h-64 space-y-1 overflow-y-auto border-t border-border/50 pt-1">
-          <details v-for="run in renderedToolRuns" :key="run.id" class="rounded border border-border/40 bg-background/60 px-2 py-1.5 text-[11px]">
-            <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
-              <span class="min-w-0 truncate font-medium text-foreground">{{ formatToolName(run.name) }} · {{ formatToolStatus(run.status) }}</span>
-              <span class="flex-shrink-0 text-text-secondary">{{ formatToolDuration(run) }}</span>
-            </summary>
-            <div class="mt-0.5 truncate font-mono text-text-secondary">{{ formatToolSummary(run) }}</div>
-            <div class="mt-2 border-t border-border/40 pt-2">
-              <div class="mb-1 flex items-center justify-between gap-2 text-text-secondary"><span>{{ t('aiAssistant.ui.arguments') }}</span><button v-if="getToolCommand(run)" class="rounded border border-border px-1.5 py-0.5 hover:bg-hover" @click="copyText(getToolCommand(run), `tool-${run.id}`)">{{ copiedKey === `tool-${run.id}` ? t('aiAssistant.ui.copied') : t('aiAssistant.ui.copyCommand') }}</button></div>
-              <pre class="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolArguments(run) }}</pre>
-              <div class="mb-1 mt-2 text-text-secondary">{{ t('aiAssistant.ui.resultTruncated') }}</div>
-              <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolResult(run) }}</pre>
-              <div v-if="run.error" class="mt-1 break-words text-error">{{ t('aiAssistant.ui.failedWith', { error: run.error }) }}</div>
-            </div>
-          </details>
-          <button v-if="hasMoreToolRuns" type="button" class="w-full rounded border border-border/60 px-2 py-1.5 text-center text-[11px] text-text-secondary hover:bg-hover hover:text-foreground" @click="loadMoreToolRuns">
-            {{ t('aiAssistant.ui.loadMore', { shown: renderedToolRuns.length, total: latestToolRuns.length }) }}
-          </button>
-        </div>
-      </details>
+    <div v-if="storageWarning || historySyncWarning" class="border-b border-border/70 px-3 py-1.5 text-xs">
+      <div v-if="storageWarning" class="rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning">{{ storageWarning }}</div>
+      <div v-if="historySyncWarning" class="rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning" :class="storageWarning ? 'mt-1' : ''">{{ historySyncWarning }}</div>
     </div>
 
     <div class="relative flex-1 min-h-0 overflow-hidden">
       <div ref="conversationScroller" class="ai-conversation h-full space-y-4 overflow-y-auto p-3 text-sm" @scroll="handleConversationScroll">
       <div
+        v-if="conversationMessages.length === 0 && !isRunning && !errorMessage"
+        class="ai-empty-state"
+      >
+        <div class="ai-empty-card">
+          <img :src="nexusAiAvatar" alt="" class="mx-auto h-10 w-10 rounded-full border border-primary/40 object-cover" />
+          <div class="mt-2 text-sm font-semibold text-foreground">{{ t('aiUi.empty.title') }}</div>
+          <p v-if="!hasActiveTerminal" class="mt-1 text-xs text-warning">{{ t('aiUi.empty.noTerminal') }}</p>
+          <ul class="ai-empty-caps">
+            <li><i class="fas fa-file-lines" aria-hidden="true" /><span>{{ t('aiUi.empty.capRead') }}</span></li>
+            <li><i class="fas fa-terminal" aria-hidden="true" /><span>{{ t('aiUi.empty.capRun') }}</span></li>
+            <li :class="{ 'is-off': !config.enableBackgroundTools }"><i class="fas fa-folder-open" aria-hidden="true" /><span>{{ config.enableBackgroundTools ? t('aiUi.empty.capFiles') : t('aiUi.empty.capFilesOff') }}</span></li>
+          </ul>
+          <div class="ai-empty-meta">
+            <span class="ai-empty-chip" :class="{ 'is-auto': isAutoMode }" :title="activeModeOption.description">
+              <span class="text-text-secondary">{{ t('aiAssistant.ui.mode') }}</span>
+              <strong>{{ activeModeOption.label }}</strong>
+            </span>
+            <span class="ai-empty-chip" :title="t('aiAssistant.ui.backgroundToolsTitle')">
+              <span class="text-text-secondary">{{ t('aiAssistant.ui.backgroundTools') }}</span>
+              <strong>{{ config.enableBackgroundTools ? t('aiUi.empty.on') : t('aiUi.empty.off') }}</strong>
+            </span>
+          </div>
+          <p class="mt-1.5 text-[11px] leading-relaxed text-text-secondary">{{ activeModeOption.description }}</p>
+          <div class="mt-3 flex flex-wrap justify-center gap-1.5" role="group" :aria-label="t('aiAssistant.ui.examples')">
+            <button
+              v-for="task in quickTasks"
+              :key="task.label"
+              type="button"
+              class="ai-quick-chip"
+              @click="useQuickTask(task.prompt)"
+            >
+              {{ task.label }}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div
         v-for="(message, index) in conversationMessages"
         :key="index"
-        class="flex"
+        class="ai-message-row flex min-w-0"
         :class="message.role === 'user' ? 'justify-end' : message.role === 'assistant' ? 'justify-start' : 'justify-center'"
       >
         <div
-          class="ai-message-shell"
-          :class="messageShellClass(message.role)"
+          class="ai-message-shell group/msg min-w-0"
+          :class="[messageShellClass(message.role), message.role === 'assistant' ? 'is-assistant' : '']"
         >
-          <div class="mb-1 flex items-center gap-1.5 text-xs font-medium" :class="messageLabelClass(message.role)">
+          <div class="ai-message-head mb-1 flex min-w-0 items-center gap-1.5 text-xs font-medium" :class="messageLabelClass(message.role)">
             <img
               v-if="message.role === 'assistant'"
               :src="nexusAiAvatar"
@@ -1366,23 +1540,53 @@ const deleteHistory = async () => {
             >
               <i :class="messageIconClass(message.role)" aria-hidden="true" />
             </span>
-            <span>{{ messageLabel(message.role) }}</span>
+            <span class="flex-shrink-0">{{ messageLabel(message.role) }}</span>
+            <span
+              v-if="message.role === 'assistant' && reportedModel(message)"
+              class="ai-msg-model min-w-0 truncate"
+              :title="t('aiUi.model.reported', { model: reportedModel(message), configured: configuredModel })"
+            >{{ reportedModel(message) }}</span>
             <span
               v-if="message.stopped"
-              class="rounded border border-warning/50 bg-warning/10 px-1.5 py-0.5 text-[10px] font-normal text-warning"
+              class="flex-shrink-0 rounded border border-warning/50 bg-warning/10 px-1.5 py-0.5 text-[10px] font-normal text-warning"
               :title="t('uxAi.stoppedTagTitle')"
             >{{ t('uxAi.stoppedTag') }}</span>
-            <button
+            <span
               v-if="message.role === 'assistant' && message.content?.trim()"
-              type="button"
-              class="ml-auto flex h-6 items-center gap-1 rounded border border-border/60 px-1.5 text-[11px] text-text-secondary transition hover:bg-hover hover:text-foreground"
-              :title="t('aiAssistant.ui.copyReply')"
-              :aria-label="t('aiAssistant.ui.copyReply')"
-              @click.stop="copyText(message.content || '', `msg-${index}`)"
+              class="ai-msg-actions ml-auto flex flex-shrink-0 items-center gap-0.5"
+              role="toolbar"
+              :aria-label="t('aiUi.actions.toolbar')"
             >
-              <i class="fas text-[11px]" :class="copiedKey === `msg-${index}` ? 'fa-check' : 'fa-copy'" aria-hidden="true" />
-              <span>{{ copiedKey === `msg-${index}` ? t('aiAssistant.ui.copied') : t('aiAssistant.ui.copy') }}</span>
-            </button>
+              <button
+                type="button"
+                class="ai-msg-action"
+                :title="copiedKey === `msg-${index}` ? t('aiAssistant.ui.copied') : t('aiAssistant.ui.copyReply')"
+                :aria-label="t('aiAssistant.ui.copyReply')"
+                @click.stop="copyMessage(message, index)"
+              >
+                <i class="fas" :class="copiedKey === `msg-${index}` ? 'fa-check text-success' : 'fa-copy'" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                class="ai-msg-action"
+                :disabled="isRunning"
+                :title="isRunning ? t('aiUi.actions.retryDisabled') : t('aiUi.actions.retryHint')"
+                :aria-label="t('aiUi.actions.retry')"
+                @click.stop="retryMessage(message)"
+              >
+                <i class="fas fa-rotate-right" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                class="ai-msg-action"
+                :disabled="!hasActiveTerminal"
+                :title="getMessageRenderCache(message).codeBlocks.length ? t('aiUi.actions.insertCode') : t('aiUi.actions.insertText')"
+                :aria-label="getMessageRenderCache(message).codeBlocks.length ? t('aiUi.actions.insertCode') : t('aiUi.actions.insertText')"
+                @click.stop="insertMessageIntoTerminal(message)"
+              >
+                <i class="fas fa-terminal" aria-hidden="true" />
+              </button>
+            </span>
           </div>
           <div v-if="message.role === 'assistant' && hasReasoning(message)" class="ai-reasoning mb-2" :class="{ 'is-live': isStreamingMessage(message) }">
             <button
@@ -1404,30 +1608,48 @@ const deleteHistory = async () => {
             >{{ message.reasoning }}</div>
           </div>
           <div
-            v-if="message.role !== 'assistant' || message.content?.trim() || message.tool_calls?.length || !hasReasoning(message)"
-            class="ai-message-content break-words text-sm leading-relaxed"
+            v-if="getMessageRenderCache(message).html"
+            class="ai-message-content ai-md"
+            :class="{ 'is-pending': !message.content && isToolCallPending(message) }"
+            @click="handleMessageContentClick($event, message)"
             v-html="getMessageRenderCache(message).html"
           />
-          <div v-if="message.role === 'assistant' && getMessageRenderCache(message).commandBlocks.length > 0" class="mt-3 space-y-2">
-            <div
-              v-for="command in getMessageRenderCache(message).commandBlocks"
-              :key="command"
-              class="rounded border border-border/70 bg-header/30 p-2"
+          <div v-if="message.role === 'assistant' && stepsByMessage.get(message)" class="ai-steps">
+            <button
+              type="button"
+              class="ai-steps-toggle"
+              :aria-expanded="isStepsOpen(message)"
+              @click="toggleSteps(message)"
             >
-              <div class="mb-2 flex items-center justify-between gap-2">
-                <span
-                  class="rounded border px-1.5 py-0.5 text-[11px]"
-                  :class="formatRiskClass(detectCommandRisk(command))"
-                >
-                  {{ formatRiskLabel(detectCommandRisk(command)) }}
-                </span>
-                <div class="flex flex-shrink-0 gap-1">
-                  <button class="rounded border border-border px-2 py-1 text-[11px] hover:bg-hover" @click="copyText(command, `cmd-${message.role}-${index}-${command}`)">{{ copiedKey === `cmd-${message.role}-${index}-${command}` ? t('aiAssistant.ui.copied') : t('aiAssistant.ui.copy') }}</button>
-                  <button class="rounded border border-border px-2 py-1 text-[11px] hover:bg-hover" @click="fillCommandInput(command)">{{ t('aiAssistant.ui.typeIntoTerminal') }}</button>
+              <i class="fas fa-list-check text-[10px]" aria-hidden="true" />
+              <span class="font-medium">{{ t('aiUi.steps.title') }}</span>
+              <span class="text-text-secondary/80">{{ t('aiUi.steps.count', { count: stepsByMessage.get(message)!.length }) }}</span>
+              <span v-if="stepProblemCount(stepsByMessage.get(message)!)" class="ai-steps-problems">{{ t('aiUi.steps.problems', { count: stepProblemCount(stepsByMessage.get(message)!) }) }}</span>
+              <i class="fas ml-auto text-[9px]" :class="isStepsOpen(message) ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
+            </button>
+            <ol v-if="isStepsOpen(message)" class="ai-steps-list">
+              <li v-for="(step, stepIndex) in stepsByMessage.get(message)" :key="`${step.id}-${stepIndex}`" class="ai-step">
+                <i class="fas ai-step-icon" :class="stepIconClass(step)" :title="stepStatusLabel(step)" aria-hidden="true" />
+                <div class="min-w-0 flex-1">
+                  <div class="flex min-w-0 items-center gap-1.5">
+                    <span class="min-w-0 truncate font-medium text-foreground">{{ formatToolName(step.name) }}</span>
+                    <span class="ai-step-status" :class="`is-${step.status}`">{{ stepStatusLabel(step) }}</span>
+                    <span v-if="formatStepDuration(step)" class="ml-auto flex-shrink-0 tabular-nums text-text-secondary">{{ formatStepDuration(step) }}</span>
+                  </div>
+                  <div v-if="step.summary" class="ai-step-summary" :title="stepSummaryText(step)">{{ stepSummaryText(step) }}</div>
                 </div>
-              </div>
-              <pre class="overflow-auto whitespace-pre-wrap break-words rounded bg-black/20 p-2 font-mono text-xs leading-relaxed">{{ command }}</pre>
-            </div>
+                <button
+                  v-if="findRunForStep(step)"
+                  type="button"
+                  class="ai-msg-action is-visible"
+                  :title="t('aiUi.steps.details')"
+                  :aria-label="t('aiUi.steps.details')"
+                  @click="openToolRunDetails(step)"
+                >
+                  <i class="fas fa-up-right-from-square text-[10px]" aria-hidden="true" />
+                </button>
+              </li>
+            </ol>
           </div>
           <div
             v-if="message.role === 'assistant' && turnUsageByMessage.get(message)"
@@ -1503,6 +1725,60 @@ const deleteHistory = async () => {
         </div>
 
         <div v-if="drawerPanel === 'context'" class="ai-drawer-body text-xs">
+          <section class="ai-ctx-section mb-3" :aria-label="t('aiUi.usage.sectionTitle')">
+            <div class="mb-1.5 flex items-center justify-between gap-2">
+              <span class="font-medium text-foreground">{{ t('aiUi.usage.sectionTitle') }}</span>
+              <span class="flex-shrink-0 tabular-nums" :class="contextHigh ? 'text-warning' : 'text-text-secondary'" :title="t('aiAssistant.ui.contextUsage', { percent: contextUsagePercent, used: formatBytes(contextRequestBytes), max: maxRequestKb })">{{ contextUsagePercent }}% · {{ formatBytes(contextRequestBytes) }} / {{ maxRequestKb }} KB</span>
+            </div>
+            <span class="ai-context-meter is-wide" :class="{ 'is-high': contextHigh }" :title="t('aiAssistant.ui.contextUsageTitle')"><span :style="{ width: `${contextUsagePercent}%` }" /></span>
+            <div class="mt-2 grid gap-2">
+              <label :title="t('aiAssistant.ui.compactThresholdTitle')">
+                <span class="mb-1 flex justify-between gap-2"><span>{{ t('aiAssistant.ui.compactThreshold') }}</span><strong class="text-foreground">{{ compactTriggerPercent }}%</strong></span>
+                <input v-model.number="config.compactTriggerPercent" type="range" min="1" max="80" class="w-full accent-primary" :aria-label="t('aiAssistant.ui.compactThreshold')" />
+              </label>
+              <label :title="t('aiAssistant.ui.requestLimitTitle')">
+                <span class="mb-1 flex justify-between gap-2"><span>{{ t('aiAssistant.ui.requestLimit') }}</span><strong class="text-foreground">{{ maxRequestKb }}KB</strong></span>
+                <input v-model.number="config.maxRequestKb" type="range" min="64" max="1024" step="16" class="w-full accent-primary" :aria-label="t('aiAssistant.ui.requestLimitAria')" />
+              </label>
+              <label :title="t('aiAssistant.ui.compactsPerTaskTitle')">
+                <span class="mb-1 flex justify-between gap-2"><span>{{ t('aiAssistant.ui.compactsPerTask') }}</span><strong class="text-foreground">{{ t('aiAssistant.ui.times', { count: maxAutoCompactsPerTask }) }}</strong></span>
+                <input v-model.number="config.maxAutoCompactsPerTask" type="range" min="1" max="5" step="1" class="w-full accent-primary" :aria-label="t('aiAssistant.ui.compactsPerTaskAria')" />
+              </label>
+              <div class="flex items-center justify-between gap-2">
+                <span v-if="compression" class="min-w-0 truncate text-[11px] text-text-secondary">{{ t('aiAssistant.ui.lastCompaction', { before: formatBytes(compression.beforeBytes), after: formatBytes(compression.afterBytes), count: compression.compactedCount }) }}</span>
+                <span v-else class="text-[11px] text-text-secondary">{{ t('aiAssistant.ui.notCompacted') }}</span>
+                <button type="button" class="flex-shrink-0 rounded border border-border px-2 py-1 text-foreground hover:bg-hover" @click.stop="compactContext">{{ t('aiAssistant.ui.compactNow') }}</button>
+              </div>
+            </div>
+          </section>
+          <section v-if="latestToolRuns.length > 0" class="ai-ctx-section mb-3">
+            <div class="mb-1.5 font-medium text-foreground">{{ t('aiAssistant.ui.toolCallsAll', { count: latestToolRuns.length }) }}</div>
+            <div class="space-y-1">
+              <details
+                v-for="run in renderedToolRuns"
+                :id="`ai-tool-run-${runKey(run)}`"
+                :key="runKey(run)"
+                class="ai-tool-run rounded border border-border/50 px-2 py-1.5 text-[11px]"
+                :class="{ 'is-highlighted': highlightedRunKey === runKey(run) }"
+              >
+                <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+                  <span class="min-w-0 truncate font-medium text-foreground">{{ formatToolName(run.name) }} · {{ formatToolStatus(run.status) }}</span>
+                  <span class="flex-shrink-0 text-text-secondary">{{ formatToolDuration(run) }}</span>
+                </summary>
+                <div class="mt-0.5 truncate font-mono text-text-secondary">{{ formatToolSummary(run) }}</div>
+                <div class="mt-2 border-t border-border/40 pt-2">
+                  <div class="mb-1 flex items-center justify-between gap-2 text-text-secondary"><span>{{ t('aiAssistant.ui.arguments') }}</span><button v-if="getToolCommand(run)" type="button" class="rounded border border-border px-1.5 py-0.5 hover:bg-hover" @click="copyText(getToolCommand(run), `tool-${runKey(run)}`)">{{ copiedKey === `tool-${runKey(run)}` ? t('aiAssistant.ui.copied') : t('aiAssistant.ui.copyCommand') }}</button></div>
+                  <pre class="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolArguments(run) }}</pre>
+                  <div class="mb-1 mt-2 text-text-secondary">{{ t('aiAssistant.ui.resultTruncated') }}</div>
+                  <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-header/40 p-1.5 font-mono text-[10px] text-foreground">{{ formatToolResult(run) }}</pre>
+                  <div v-if="run.error" class="mt-1 break-words text-error">{{ t('aiAssistant.ui.failedWith', { error: run.error }) }}</div>
+                </div>
+              </details>
+              <button v-if="hasMoreToolRuns" type="button" class="w-full rounded border border-border/60 px-2 py-1.5 text-center text-[11px] text-text-secondary hover:bg-hover hover:text-foreground" @click="loadMoreToolRuns">
+                {{ t('aiAssistant.ui.loadMore', { shown: renderedToolRuns.length, total: latestToolRuns.length }) }}
+              </button>
+            </div>
+          </section>
           <div class="mb-3 flex flex-wrap gap-2">
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportJson">{{ t('aiAssistant.ui.exportJson') }}</button>
             <button class="rounded border border-border px-3 py-1.5 hover:bg-hover" @click="exportMarkdown">{{ t('aiAssistant.ui.exportMarkdown') }}</button>
@@ -1525,102 +1801,186 @@ const deleteHistory = async () => {
     </div>
 
     <div class="ai-composer border-t border-border/70 bg-header/15 p-2.5">
-      <div class="mb-1.5 flex items-stretch gap-2">
+      <div v-if="showUsageAlert" class="ai-usage-alert" :class="contextHigh ? 'is-high' : 'is-tools'" role="status">
+        <template v-if="runningToolRuns.length > 0">
+          <i class="fas fa-circle-notch fa-spin text-[10px] text-primary" aria-hidden="true" />
+          <span class="min-w-0 flex-1 truncate">{{ t('aiUi.usage.toolsRunning', { name: formatToolName(runningToolRuns[0].name), count: runningToolRuns.length }) }}</span>
+        </template>
+        <template v-else>
+          <i class="fas fa-triangle-exclamation text-[10px]" aria-hidden="true" />
+          <span class="min-w-0 flex-1 truncate">{{ t('aiUi.usage.contextHigh', { percent: contextUsagePercent }) }}</span>
+        </template>
+        <span v-if="contextHigh && runningToolRuns.length > 0" class="ai-usage-alert-pct">{{ contextUsagePercent }}%</span>
+        <button type="button" class="ai-usage-alert-btn" @click="openDrawer('context')">{{ contextHigh ? t('aiUi.usage.manage') : t('aiUi.usage.details') }}</button>
+      </div>
+      <div class="ai-composer-row flex items-end gap-2">
         <textarea
           ref="textareaInput"
           v-model="userInput"
-          class="h-16 min-w-0 flex-1 resize-none rounded border border-border bg-input px-2.5 py-2 text-sm text-foreground outline-none transition placeholder:text-text-secondary/70 focus:border-primary focus:ring-2 focus:ring-primary/25"
+          rows="1"
+          class="ai-composer-input min-w-0 flex-1 resize-none rounded border border-border bg-input px-2.5 py-2 text-sm text-foreground outline-none transition placeholder:text-text-secondary/70 focus:border-primary focus:ring-2 focus:ring-primary/25"
+          :class="{ 'is-running': isRunning }"
           :placeholder="isRunning ? t('aiAssistant.ui.guidancePlaceholder') : t('aiAssistant.ui.inputPlaceholder')"
+          :aria-label="isRunning ? t('aiAssistant.ui.guidancePlaceholder') : t('aiAssistant.ui.inputPlaceholder')"
           @keydown="handleInputKeydown"
+          @input="autoGrowInput"
         />
         <button
           v-if="!isRunning"
-          class="w-20 flex-shrink-0 rounded bg-primary px-3 text-sm font-medium text-white disabled:opacity-60"
+          type="button"
+          class="ai-send-btn flex-shrink-0 rounded bg-primary px-3 text-sm font-medium text-white disabled:opacity-60"
           :disabled="!canSend"
           @click="sendMessage"
         >
           {{ t('aiAssistant.ui.send') }}
         </button>
-        <div v-else class="flex w-20 flex-shrink-0 flex-col gap-1.5">
-          <button class="min-h-0 flex-1 rounded bg-primary px-2 text-xs font-medium text-white disabled:opacity-50" :disabled="!canQueueGuidance" @click="sendMessage">{{ t('aiAssistant.ui.addGuidance') }}</button>
-          <button class="min-h-0 flex-1 rounded bg-error px-2 text-xs font-medium text-white" @click="stopAi">{{ t('aiAssistant.ui.stopAi') }}</button>
+        <div v-else class="ai-run-actions flex flex-shrink-0 flex-col gap-1.5">
+          <button type="button" class="min-h-0 flex-1 rounded bg-primary px-2 text-xs font-medium text-white disabled:opacity-50" :disabled="!canQueueGuidance" @click="sendMessage">{{ t('aiAssistant.ui.addGuidance') }}</button>
+          <button type="button" class="ai-stop-btn min-h-0 flex-1 rounded bg-error px-2 text-xs font-medium text-white" @click="stopAi">{{ t('aiAssistant.ui.stopAi') }}</button>
         </div>
       </div>
-      <div v-if="visibleMessages.length === 0 && !isRunning" class="mb-2 flex max-h-16 flex-wrap gap-1.5 overflow-y-auto" :aria-label="t('aiAssistant.ui.examples')">
+      <div class="ai-composer-bar mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-text-secondary">
+        <span class="ai-composer-hint min-w-0 truncate">{{ isRunning ? t('aiAssistant.ui.hintRunning') : t('aiAssistant.ui.hintIdle') }}</span>
         <button
-          v-for="task in quickTasks"
-          :key="task.label"
           type="button"
-          class="rounded border border-border/60 bg-background/25 px-2.5 py-1 text-[11px] text-text-secondary transition hover:border-primary/50 hover:bg-hover hover:text-foreground"
-          @click="useQuickTask(task.prompt)"
+          class="ai-ctx-chip"
+          :class="{ 'is-high': contextHigh }"
+          :title="t('aiAssistant.ui.contextUsage', { percent: contextUsagePercent, used: formatBytes(contextRequestBytes), max: maxRequestKb })"
+          :aria-label="t('aiAssistant.ui.contextUsage', { percent: contextUsagePercent, used: formatBytes(contextRequestBytes), max: maxRequestKb })"
+          @click="openDrawer('context')"
         >
-          {{ task.label }}
+          <span class="ai-context-meter" :class="{ 'is-high': contextHigh }" aria-hidden="true"><span :style="{ width: `${contextUsagePercent}%` }" /></span>
+          <span class="tabular-nums">{{ contextUsagePercent }}%</span>
         </button>
-      </div>
-      <div class="flex items-center justify-end gap-2 text-xs">
-        <div class="flex flex-shrink-0 items-center gap-2">
-          <label class="flex items-center gap-1.5 text-text-secondary" :title="t('aiAssistant.ui.backgroundToolsTitle')">
+        <span
+          v-if="usageTotals && usageTotals.totalTokens > 0"
+          class="ai-session-usage flex min-w-0 items-center gap-1 overflow-hidden text-text-secondary/80"
+          :title="t('aiAssistant.usage.sessionTitle', { requests: usageTotals.requests, prompt: usageTotals.promptTokens, completion: usageTotals.completionTokens })"
+        >
+          <i class="fas fa-coins flex-shrink-0 text-[9px] opacity-70" aria-hidden="true" />
+          <span class="min-w-0 truncate">{{ t('aiAssistant.usage.session', { total: formatTokens(usageTotals.totalTokens) }) }}</span>
+        </span>
+        <div class="ai-composer-controls ml-auto flex flex-shrink-0 items-center gap-2">
+          <label class="flex items-center gap-1.5" :title="t('aiAssistant.ui.backgroundToolsTitle')">
             <input v-model="config.enableBackgroundTools" type="checkbox" class="accent-primary" :disabled="isRunning" />
             <span>{{ t('aiAssistant.ui.backgroundTools') }}</span>
           </label>
           <div ref="modeMenuRef" class="relative">
+            <button
+              type="button"
+              class="flex items-center gap-1.5 rounded border bg-input px-2 py-1 text-foreground transition-colors hover:bg-hover"
+              :class="isAutoMode ? 'border-warning/60' : 'border-border'"
+              :aria-expanded="modeMenuOpen"
+              aria-haspopup="menu"
+              @click="modeMenuOpen = !modeMenuOpen"
+              @keydown.down.prevent="modeMenuOpen = true; focusFirstPopupItem(modeMenuRef)"
+            >
+              <span class="text-text-secondary">{{ t('aiAssistant.ui.mode') }}</span>
+              <span class="font-medium" :class="isAutoMode ? 'text-warning' : ''">{{ activeModeOption.label }}</span>
+              <i class="fas text-[10px] text-text-secondary" :class="modeMenuOpen ? 'fa-chevron-down' : 'fa-chevron-up'" aria-hidden="true" />
+            </button>
+            <div
+              v-if="modeMenuOpen"
+              role="menu"
+              class="ai-popup-menu absolute bottom-full right-0 z-30 mb-1 w-44 overflow-hidden rounded border border-border bg-background py-1 shadow-xl"
+              @keydown="handlePopupMenuKeydown"
+            >
+              <button
+                v-for="option in modeOptions"
+                :key="option.value"
+                type="button"
+                role="menuitemradio"
+                :aria-checked="runMode === option.value"
+                class="flex w-full items-start gap-2 px-2.5 py-2 text-left text-xs transition-colors hover:bg-hover"
+                :class="runMode === option.value ? 'bg-primary/15 text-primary' : 'text-foreground'"
+                @click="selectRunMode(option.value)"
+              >
+                <span class="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="runMode === option.value ? 'bg-primary' : 'bg-border'" />
+                <span>
+                  <span class="block font-medium">{{ option.label }}</span>
+                  <span class="mt-0.5 block text-[11px] text-text-secondary">{{ option.description }}</span>
+                </span>
+              </button>
+            </div>
+          </div>
           <button
             type="button"
-            class="flex items-center gap-1.5 rounded border border-border bg-input px-2 py-1 text-foreground transition-colors hover:bg-hover"
-            :aria-expanded="modeMenuOpen"
-            aria-haspopup="menu"
-            @click="modeMenuOpen = !modeMenuOpen"
-            @keydown.down.prevent="modeMenuOpen = true; focusFirstPopupItem(modeMenuRef)"
-          >
-            <span class="text-text-secondary">{{ t('aiAssistant.ui.mode') }}</span>
-            <span class="font-medium">{{ activeModeOption.label }}</span>
-            <i class="fas text-[10px] text-text-secondary" :class="modeMenuOpen ? 'fa-chevron-down' : 'fa-chevron-up'" aria-hidden="true" />
-          </button>
-          <div
-            v-if="modeMenuOpen"
-            role="menu"
-            class="absolute bottom-full right-0 z-30 mb-1 w-44 overflow-hidden rounded border border-border bg-background py-1 shadow-xl"
-            @keydown="handlePopupMenuKeydown"
-          >
-            <button
-              v-for="option in modeOptions"
-              :key="option.value"
-              type="button"
-              role="menuitemradio"
-              :aria-checked="runMode === option.value"
-              class="flex w-full items-start gap-2 px-2.5 py-2 text-left text-xs transition-colors hover:bg-hover"
-              :class="runMode === option.value ? 'bg-primary/15 text-primary' : 'text-foreground'"
-              @click="selectRunMode(option.value)"
-            >
-              <span class="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full" :class="runMode === option.value ? 'bg-primary' : 'bg-border'" />
-              <span>
-                <span class="block font-medium">{{ option.label }}</span>
-                <span class="mt-0.5 block text-[11px] text-text-secondary">{{ option.description }}</span>
-              </span>
-            </button>
-          </div>
-          </div>
-          <button
-            class="flex h-7 w-7 items-center justify-center rounded border border-error/40 text-error hover:bg-error/10 disabled:opacity-40"
+            class="ai-ctrlc-btn"
             :disabled="!hasActiveTerminal"
             :title="t('aiAssistant.ui.sendCtrlC')"
             :aria-label="t('aiAssistant.ui.sendCtrlC')"
             @click="interruptTerminal"
-          >
-            <i class="fas fa-stop text-[10px]" aria-hidden="true" />
-          </button>
+          >^C</button>
         </div>
-      </div>
-      <div class="mt-1 flex items-center justify-between gap-2 text-[11px] text-text-secondary">
-        <span class="min-w-0 truncate">{{ isRunning ? t('aiAssistant.ui.hintRunning') : t('aiAssistant.ui.hintIdle') }}</span>
-        <span
-          v-if="usageTotals && usageTotals.totalTokens > 0"
-          class="ai-session-usage flex flex-shrink-0 items-center gap-1 text-text-secondary/80"
-          :title="t('aiAssistant.usage.sessionTitle', { requests: usageTotals.requests, prompt: usageTotals.promptTokens, completion: usageTotals.completionTokens })"
+        <button
+          type="button"
+          class="ai-options-btn ml-auto"
+          :class="{ 'is-auto': isAutoMode }"
+          :aria-expanded="optionsSheetOpen"
+          aria-haspopup="dialog"
+          :title="t('aiUi.options.title')"
+          @click="openOptionsSheet"
         >
-          <i class="fas fa-coins text-[9px] opacity-70" aria-hidden="true" />
-          {{ t('aiAssistant.usage.session', { total: formatTokens(usageTotals.totalTokens) }) }}
-        </span>
+          <i class="fas fa-sliders text-[11px]" aria-hidden="true" />
+          <span class="truncate">{{ activeModeOption.label }}</span>
+          <span class="sr-only">{{ t('aiUi.options.title') }}</span>
+        </button>
+      </div>
+    </div>
+
+    <div v-if="optionsSheetOpen" class="ai-sheet-scrim" @click="closeOptionsSheet" />
+    <div
+      v-if="optionsSheetOpen"
+      ref="optionsSheetRef"
+      class="ai-options-sheet"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="t('aiUi.options.title')"
+    >
+      <div class="ai-sheet-handle" aria-hidden="true" />
+      <div class="ai-sheet-head">
+        <span class="text-sm font-semibold">{{ t('aiUi.options.title') }}</span>
+        <button type="button" class="ai-drawer-close" :title="t('aiAssistant.common.close')" :aria-label="t('aiAssistant.common.close')" @click="closeOptionsSheet">
+          <i class="fas fa-xmark" aria-hidden="true" />
+        </button>
+      </div>
+      <div class="ai-sheet-label">{{ t('aiAssistant.ui.mode') }}</div>
+      <div role="radiogroup" :aria-label="t('aiAssistant.ui.mode')" class="ai-sheet-group">
+        <button
+          v-for="option in modeOptions"
+          :key="option.value"
+          type="button"
+          role="radio"
+          :aria-checked="runMode === option.value"
+          class="ai-sheet-item"
+          :class="{ 'is-selected': runMode === option.value, 'is-auto': option.value === 'auto' }"
+          @click="selectRunMode(option.value)"
+        >
+          <i class="w-4 flex-shrink-0 text-center" :class="runMode === option.value ? 'fas fa-circle-dot text-primary' : 'far fa-circle text-text-secondary'" aria-hidden="true" />
+          <span class="min-w-0 flex-1">
+            <span class="block font-medium">{{ option.label }}</span>
+            <span class="mt-0.5 block text-xs text-text-secondary">{{ option.description }}</span>
+          </span>
+        </button>
+      </div>
+      <div class="ai-sheet-group mt-2">
+        <label class="ai-sheet-item" :title="t('aiAssistant.ui.backgroundToolsTitle')">
+          <i class="fas fa-toolbox w-4 flex-shrink-0 text-center text-text-secondary" aria-hidden="true" />
+          <span class="min-w-0 flex-1">
+            <span class="block font-medium">{{ t('aiAssistant.ui.backgroundTools') }}</span>
+            <span class="mt-0.5 block text-xs text-text-secondary">{{ t('aiAssistant.ui.backgroundToolsTitle') }}</span>
+          </span>
+          <input v-model="config.enableBackgroundTools" type="checkbox" role="switch" class="ai-switch" :disabled="isRunning" />
+        </label>
+        <button type="button" class="ai-sheet-item" :disabled="!hasActiveTerminal" @click="interruptFromSheet">
+          <span class="ai-ctrlc-btn pointer-events-none flex-shrink-0" aria-hidden="true">^C</span>
+          <span class="min-w-0 flex-1 font-medium">{{ t('aiAssistant.ui.sendCtrlC') }}</span>
+        </button>
+        <button type="button" class="ai-sheet-item" @click="openContextFromSheet">
+          <i class="fas fa-database w-4 flex-shrink-0 text-center text-text-secondary" aria-hidden="true" />
+          <span class="min-w-0 flex-1 font-medium">{{ t('aiAssistant.ui.contextMemory') }}</span>
+          <span class="flex-shrink-0 text-xs tabular-nums" :class="contextHigh ? 'text-warning' : 'text-text-secondary'">{{ contextUsagePercent }}%</span>
+        </button>
       </div>
     </div>
   </div>
@@ -1633,18 +1993,28 @@ const deleteHistory = async () => {
 
 .ai-context-meter {
   display: inline-block;
-  width: 68px;
-  height: 3px;
+  width: 28px;
+  height: 4px;
   flex-shrink: 0;
   overflow: hidden;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--color-border, #334155) 70%, transparent);
+  background: color-mix(in srgb, var(--border-color, #334155) 80%, transparent);
+}
+
+.ai-context-meter.is-wide {
+  display: block;
+  width: 100%;
+  height: 5px;
 }
 
 .ai-context-meter > span {
   display: block;
   height: 100%;
-  background: var(--color-primary, #e83e67);
+  background: var(--link-active-color, #e83e67);
+}
+
+.ai-context-meter.is-high > span {
+  background: var(--color-warning, #f59e0b);
 }
 
 .ai-drawer-scrim {
@@ -1764,9 +2134,6 @@ const deleteHistory = async () => {
   margin-bottom: 0;
 }
 
-.ai-message-shell :deep(pre) {
-  border: 1px solid color-mix(in srgb, var(--color-border, #334155) 55%, transparent);
-}
 
 .ai-activity {
   opacity: 0.92;
@@ -1837,47 +2204,823 @@ const deleteHistory = async () => {
   min-height: 1.25rem;
 }
 
-.ai-composer textarea {
-  min-height: 4rem;
+/* ---------- Composer ---------- */
+.ai-composer-input {
+  min-height: 2.5rem;
+  max-height: calc(8 * 1.5em + 1rem + 2px);
+  line-height: 1.5;
+  overflow-y: hidden;
+}
+
+.ai-composer-input::placeholder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-composer-input.is-running {
+  min-height: 4.25rem;
+}
+
+.ai-send-btn {
+  height: 2.5rem;
+  min-width: 4.5rem;
+}
+
+.ai-run-actions {
+  width: 4.5rem;
+  height: 4.25rem;
+}
+
+.ai-ctx-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 5px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-color-secondary, #94a3b8);
+}
+
+.ai-ctx-chip:hover {
+  border-color: var(--border-color, #334155);
+  color: var(--text-color, #e8ebef);
+}
+
+.ai-ctx-chip.is-high {
+  color: var(--color-warning, #f59e0b);
+}
+
+.ai-ctrlc-btn {
+  display: inline-grid;
+  min-width: 28px;
+  height: 24px;
+  place-items: center;
+  padding: 0 5px;
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 4px;
+  color: var(--text-color-secondary, #94a3b8);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ai-ctrlc-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-error, #ef4444) 55%, var(--border-color, #334155));
+  color: var(--text-color, #e8ebef);
+}
+
+.ai-ctrlc-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.ai-options-btn {
+  display: none;
+  min-width: 0;
+  max-width: 9rem;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 6px;
+  color: var(--text-color, #e8ebef);
+}
+
+.ai-options-btn.is-auto {
+  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 65%, transparent);
+  color: var(--color-warning, #f59e0b);
+}
+
+.ai-usage-alert {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 4px 6px 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--link-active-color, #e83e67) 35%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--link-active-color, #e83e67) 8%, transparent);
+  color: var(--text-color, #e8ebef);
+  font-size: 11px;
+}
+
+.ai-usage-alert.is-high {
+  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 55%, transparent);
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 12%, transparent);
+  color: var(--color-warning, #f59e0b);
+}
+
+.ai-usage-alert-pct {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-usage-alert-btn {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  opacity: 0.9;
+}
+
+.ai-usage-alert-btn:hover {
+  opacity: 1;
+}
+
+/* ---------- Header badges ---------- */
+.ai-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  height: 18px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ai-badge-auto {
+  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 60%, transparent);
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 16%, transparent);
+  color: var(--color-warning, #f59e0b);
+}
+
+.ai-badge-pending {
+  border-color: color-mix(in srgb, var(--color-error, #ef4444) 65%, transparent);
+  background: color-mix(in srgb, var(--color-error, #ef4444) 18%, transparent);
+  color: var(--color-error, #ef4444);
+  animation: ai-badge-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes ai-badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-error, #ef4444) 45%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-error, #ef4444) 0%, transparent); }
+}
+
+/* ---------- Messages ---------- */
+.ai-message-row,
+.ai-message-shell {
+  min-width: 0;
+}
+
+.ai-msg-model {
+  max-width: 14rem;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--border-color, #334155) 80%, transparent);
+  border-radius: 4px;
+  color: var(--text-color-secondary, #94a3b8);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.ai-msg-actions {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.ai-message-shell:hover .ai-msg-actions,
+.ai-message-shell:focus-within .ai-msg-actions {
+  opacity: 1;
+}
+
+.ai-msg-action {
+  display: inline-grid;
+  width: 26px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-color-secondary, #94a3b8);
+  font-size: 11px;
+}
+
+.ai-msg-action:hover:not(:disabled) {
+  border-color: var(--border-color, #334155);
+  color: var(--text-color, #e8ebef);
+  background: color-mix(in srgb, var(--text-color, #e8ebef) 7%, transparent);
+}
+
+.ai-msg-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+@media (hover: none) {
+  .ai-msg-actions {
+    opacity: 1;
+  }
+
+  .ai-msg-action {
+    width: 34px;
+    height: 32px;
+    font-size: 13px;
+  }
+}
+
+/* ---------- Reply typography (rendered Markdown) ---------- */
+.ai-md {
+  min-width: 0;
+  max-width: 100%;
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-break: auto;
+  text-autospace: normal;
+  hyphens: manual;
+}
+
+.ai-md.is-pending {
+  color: var(--text-color-secondary, #94a3b8);
+  font-size: 12px;
+}
+
+.ai-md :deep(p) {
+  margin: 0 0 0.65em;
+}
+
+.ai-md :deep(> :last-child),
+.ai-md :deep(li > :last-child),
+.ai-md :deep(blockquote > :last-child) {
+  margin-bottom: 0;
+}
+
+.ai-md :deep(> :first-child) {
+  margin-top: 0;
+}
+
+.ai-md :deep(.ai-md-h) {
+  margin: 1em 0 0.45em;
+  color: var(--text-color, #e8ebef);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.ai-md :deep(h1.ai-md-h) { font-size: 1.28em; }
+.ai-md :deep(h2.ai-md-h) { font-size: 1.16em; }
+.ai-md :deep(h3.ai-md-h) { font-size: 1.06em; }
+.ai-md :deep(h4.ai-md-h),
+.ai-md :deep(h5.ai-md-h),
+.ai-md :deep(h6.ai-md-h) { font-size: 1em; }
+
+.ai-md :deep(h1.ai-md-h),
+.ai-md :deep(h2.ai-md-h) {
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color, #334155) 70%, transparent);
+}
+
+.ai-md :deep(ul),
+.ai-md :deep(ol) {
+  margin: 0.25em 0 0.7em;
+  padding-left: 1.45em;
+}
+
+.ai-md :deep(ul) { list-style: disc; }
+.ai-md :deep(ul ul) { list-style: circle; }
+.ai-md :deep(ol) { list-style: decimal; }
+
+.ai-md :deep(li) {
+  margin: 0.2em 0;
+  padding-left: 0.15em;
+}
+
+.ai-md :deep(li > ul),
+.ai-md :deep(li > ol),
+.ai-md :deep(li > p) {
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+}
+
+.ai-md :deep(li::marker) {
+  color: var(--text-color-secondary, #94a3b8);
+}
+
+.ai-md :deep(strong) {
+  color: var(--text-color, #e8ebef);
+  font-weight: 650;
+}
+
+.ai-md :deep(a) {
+  color: var(--link-active-color, #e83e67);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+.ai-md :deep(.ai-md-inline-code) {
+  padding: 0.08em 0.36em;
+  border: 1px solid color-mix(in srgb, var(--border-color, #334155) 65%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text-color, #e8ebef) 8%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.ai-md :deep(.ai-md-code) {
+  max-width: 100%;
+  margin: 0.6em 0 0.75em;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border-color, #334155) 85%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-color, #e8ebef) 5%, var(--app-bg-color, #0b0e12));
+}
+
+.ai-md :deep(.ai-md-code-head) {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 3px 2px 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color, #334155) 70%, transparent);
+  color: var(--text-color-secondary, #94a3b8);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.ai-md :deep(.ai-md-code-lang) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.ai-md :deep(.ai-md-code-badge) {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.ai-md :deep(.ai-md-code-badge.is-danger) { color: var(--color-error, #ef4444); }
+.ai-md :deep(.ai-md-code-badge.is-confirm) { color: var(--color-warning, #f59e0b); }
+
+.ai-md :deep(.ai-md-code-actions) {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.ai-md :deep(.ai-md-code-btn) {
+  display: inline-grid;
+  width: 26px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-color-secondary, #94a3b8);
+}
+
+.ai-md :deep(.ai-md-code-btn:hover),
+.ai-md :deep(.ai-md-code-btn:focus-visible) {
+  border-color: var(--border-color, #334155);
+  color: var(--text-color, #e8ebef);
+}
+
+.ai-md :deep(.ai-md-code-btn.is-done) {
+  color: var(--color-success, #22c55e);
+}
+
+@media (hover: none) {
+  .ai-md :deep(.ai-md-code-btn) {
+    width: 34px;
+    height: 32px;
+  }
+}
+
+.ai-md :deep(.ai-md-pre) {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-color, #e8ebef);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  tab-size: 4;
+}
+
+.ai-md :deep(.ai-md-table-wrap) {
+  max-width: 100%;
+  margin: 0.6em 0 0.75em;
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--border-color, #334155) 80%, transparent);
+  border-radius: 6px;
+}
+
+.ai-md :deep(table) {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ai-md :deep(th),
+.ai-md :deep(td) {
+  max-width: 24em;
+  padding: 4px 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color, #334155) 60%, transparent);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.ai-md :deep(th) {
+  background: color-mix(in srgb, var(--text-color, #e8ebef) 6%, transparent);
+  color: var(--text-color, #e8ebef);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ai-md :deep(tr:last-child td) {
+  border-bottom: 0;
+}
+
+.ai-md :deep(blockquote) {
+  margin: 0.6em 0 0.75em;
+  padding: 0.25em 0.8em;
+  border-left: 3px solid color-mix(in srgb, var(--link-active-color, #e83e67) 55%, transparent);
+  border-radius: 0 4px 4px 0;
+  background: color-mix(in srgb, var(--text-color, #e8ebef) 4%, transparent);
+  color: var(--text-color-secondary, #94a3b8);
+}
+
+.ai-md :deep(hr) {
+  margin: 0.9em 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border-color, #334155) 80%, transparent);
+}
+
+.ai-md :deep(.ai-md-task) {
+  color: var(--text-color-secondary, #94a3b8);
+}
+
+/* ---------- 执行步骤 timeline ---------- */
+.ai-steps {
+  margin-top: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--text-color-secondary, #94a3b8) 35%, transparent);
+  padding-left: 8px;
+}
+
+.ai-steps-toggle {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  color: var(--text-color-secondary, #94a3b8);
+  font-size: 11px;
+  text-align: left;
+}
+
+.ai-steps-problems {
+  /* warning yellow mixed toward the text colour: readable on light themes too */
+  color: color-mix(in srgb, var(--color-warning, #f59e0b) 70%, var(--text-color, #e8ebef));
+}
+
+.ai-steps-toggle:hover {
+  color: var(--text-color, #e8ebef);
+}
+
+.ai-steps-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-step {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 4px 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ai-step + .ai-step {
+  border-top: 1px dashed color-mix(in srgb, var(--border-color, #334155) 60%, transparent);
+}
+
+.ai-step-icon.is-ok { color: var(--color-success, #22c55e); }
+.ai-step-icon.is-error { color: var(--color-error, #ef4444); }
+.ai-step-icon.is-denied { color: var(--color-warning, #f59e0b); }
+.ai-step-icon.is-cancelled { color: var(--text-color-secondary, #94a3b8); }
+.ai-step-icon.is-running { color: var(--link-active-color, #e83e67); }
+
+.ai-step-icon {
+  width: 12px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  font-size: 11px;
+  text-align: center;
+}
+
+.ai-step-status {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.ai-step-status.is-ok { color: var(--color-success, #22c55e); }
+.ai-step-status.is-error { color: var(--color-error, #ef4444); }
+.ai-step-status.is-denied { color: color-mix(in srgb, var(--color-warning, #f59e0b) 70%, var(--text-color, #e8ebef)); }
+.ai-step-status.is-cancelled,
+.ai-step-status.is-running { color: var(--text-color-secondary, #94a3b8); }
+
+.ai-step-summary {
+  margin-top: 1px;
+  overflow: hidden;
+  color: var(--text-color-secondary, #94a3b8);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-tool-run.is-highlighted {
+  border-color: color-mix(in srgb, var(--link-active-color, #e83e67) 70%, transparent);
+}
+
+/* ---------- Empty state ---------- */
+.ai-empty-state {
+  display: flex;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.ai-empty-card {
+  width: 100%;
+  max-width: 26rem;
+  padding: 4px 6px;
+  text-align: center;
+}
+
+.ai-empty-caps {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 12px auto 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-color, #e8ebef);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.ai-empty-caps li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ai-empty-caps li i {
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--link-active-color, #e83e67);
+  font-size: 11px;
+  text-align: center;
+}
+
+.ai-empty-caps li.is-off {
+  color: var(--text-color-secondary, #94a3b8);
+}
+
+.ai-empty-caps li.is-off i {
+  color: var(--text-color-secondary, #94a3b8);
+}
+
+.ai-empty-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.ai-empty-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--border-color, #334155) 90%, transparent);
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.ai-empty-chip.is-auto {
+  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 60%, transparent);
+  color: var(--color-warning, #f59e0b);
+}
+
+.ai-quick-chip {
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--border-color, #334155) 90%, transparent);
+  border-radius: 999px;
+  color: var(--text-color-secondary, #94a3b8);
+  font-size: 11.5px;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.ai-quick-chip:hover {
+  border-color: color-mix(in srgb, var(--link-active-color, #e83e67) 60%, transparent);
+  color: var(--text-color, #e8ebef);
+}
+
+/* ---------- Options bottom sheet (opaque even in glass themes) ---------- */
+.ai-sheet-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.ai-options-sheet {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 41;
+  max-height: 85%;
+  overflow-y: auto;
+  padding: 6px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-color, #334155);
+  border-radius: 14px 14px 0 0;
+  background: var(--app-bg-color, #0b0e12);
+  box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.35);
+  color: var(--text-color, #e8ebef);
+}
+
+.ai-sheet-handle {
+  width: 36px;
+  height: 4px;
+  margin: 2px auto 6px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text-color-secondary, #94a3b8) 55%, transparent);
+}
+
+.ai-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.ai-sheet-label {
+  margin: 6px 2px 4px;
+  color: var(--text-color-secondary, #94a3b8);
+  font-size: 11px;
+}
+
+.ai-sheet-group {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border-color, #334155) 85%, transparent);
+  border-radius: 10px;
+}
+
+.ai-sheet-item {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-sheet-item + .ai-sheet-item {
+  border-top: 1px solid color-mix(in srgb, var(--border-color, #334155) 70%, transparent);
+}
+
+.ai-sheet-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-color, #e8ebef) 6%, transparent);
+}
+
+.ai-sheet-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.ai-sheet-item.is-selected {
+  background: color-mix(in srgb, var(--link-active-color, #e83e67) 12%, transparent);
+}
+
+.ai-sheet-item.is-selected.is-auto {
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 14%, transparent);
+}
+
+.ai-switch {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  accent-color: var(--link-active-color, #e83e67);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ai-message-shell {
+  .ai-message-shell,
+  .ai-msg-actions {
     transition: none;
+  }
+
+  .ai-badge-pending {
+    animation: none;
+  }
+}
+
+/* ---------- Responsive (container = the AI pane) ---------- */
+@container (max-width: 639px) {
+  .ai-composer-hint {
+    display: none;
   }
 }
 
 @container (max-width: 420px) {
   .ai-assistant-header {
-    align-items: flex-start;
+    gap: 6px;
+    padding-left: 8px;
+    padding-right: 6px;
   }
 
   .ai-header-main {
-    flex-wrap: wrap;
-    column-gap: 0.5rem;
-    row-gap: 0.2rem;
+    gap: 6px;
   }
 
-  .ai-header-title {
-    flex-basis: 100%;
-  }
-
-  .ai-header-divider {
+  .ai-header-title,
+  .ai-header-divider,
+  .ai-header-session,
+  .ai-header-status-text {
     display: none;
   }
 
-  .ai-header-session {
-    max-width: 58%;
-  }
-
-  .ai-header-status {
-    flex: 1 1 auto;
-    justify-content: flex-end;
-  }
-
   .ai-header-model {
-    flex: 1 1 100%;
-    margin-left: -0.375rem;
+    flex: 1 1 auto;
   }
+
+  .ai-badge > span {
+    display: none;
+  }
+
+  .ai-badge {
+    width: 18px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .ai-composer-controls {
+    display: none;
+  }
+
+  .ai-options-btn {
+    display: inline-flex;
+  }
+
+  .ai-msg-model {
+    max-width: 7rem;
+  }
+}
+
+.is-mobile-overlay .ai-composer-controls {
+  display: none;
+}
+
+.is-mobile-overlay .ai-options-btn {
+  display: inline-flex;
+  min-height: 36px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+.is-mobile-overlay .ai-send-btn {
+  height: 2.75rem;
+}
+
+.is-mobile-overlay .ai-composer-input {
+  min-height: 2.75rem;
+  font-size: 16px;
 }
 </style>

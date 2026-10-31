@@ -686,8 +686,8 @@ export const normalizeUsage = (value: unknown): AiTokenUsageInput | undefined =>
   };
 };
 
-/** Drops UI-only message fields (stopped flag, reasoning text, token usage) before a message goes to the model. */
+/** Drops UI-only message fields (stopped flag, reasoning text, token usage, steps, reported model) before a message goes to the model. */
 export const stripUiOnlyMessageFields = <T extends Record<string, unknown>>(message: T) => {
-  const { stopped: _stopped, reasoning: _reasoning, usage: _usage, reasoning_content: _rc, ...rest } = message as Record<string, unknown>;
-  return rest as Omit<T, 'stopped' | 'reasoning' | 'usage' | 'reasoning_content'>;
+  const { stopped: _stopped, reasoning: _reasoning, usage: _usage, reasoning_content: _rc, steps: _steps, model: _model, ...rest } = message as Record<string, unknown>;
+  return rest as Omit<T, 'stopped' | 'reasoning' | 'usage' | 'reasoning_content' | 'steps' | 'model'>;
 };

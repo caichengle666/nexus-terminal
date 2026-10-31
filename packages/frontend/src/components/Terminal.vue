@@ -875,17 +875,17 @@ watchEffect(() => {
         <button type="button" role="menuitem" class="terminal-selection-menu-item" @click="askAiAboutSelection(selectionMenu?.selection)">
           <i class="fas fa-robot w-4 text-center text-primary" aria-hidden="true" />
           <span class="flex-1">{{ t('terminalAskAi.menuAsk') }}</span>
-          <kbd class="text-[10px] text-text-secondary">Ctrl+Shift+A</kbd>
+          <kbd v-if="!isMobile" class="terminal-selection-menu-kbd text-[10px] text-text-secondary">Ctrl+Shift+A</kbd>
         </button>
         <button type="button" role="menuitem" class="terminal-selection-menu-item" @click="copySelectionFromMenu">
           <i class="fas fa-copy w-4 text-center text-text-secondary" aria-hidden="true" />
           <span class="flex-1">{{ t('terminalAskAi.menuCopy') }}</span>
-          <kbd class="text-[10px] text-text-secondary">Ctrl+Shift+C</kbd>
+          <kbd v-if="!isMobile" class="terminal-selection-menu-kbd text-[10px] text-text-secondary">Ctrl+Shift+C</kbd>
         </button>
         <button type="button" role="menuitem" class="terminal-selection-menu-item" @click="pasteFromMenu">
           <i class="fas fa-paste w-4 text-center text-text-secondary" aria-hidden="true" />
           <span class="flex-1">{{ t('terminalAskAi.menuPaste') }}</span>
-          <kbd class="text-[10px] text-text-secondary">Ctrl+Shift+V</kbd>
+          <kbd v-if="!isMobile" class="terminal-selection-menu-kbd text-[10px] text-text-secondary">Ctrl+Shift+V</kbd>
         </button>
       </div>
     </teleport>
@@ -902,6 +902,13 @@ watchEffect(() => {
 </template>
 
 <style scoped>
+/* Keyboard shortcut hints are meaningless on touch devices. */
+@media (hover: none), (pointer: coarse) {
+  .terminal-selection-menu-kbd {
+    display: none;
+  }
+}
+
 .terminal-selection-menu-item {
   display: flex;
   width: 100%;

@@ -487,6 +487,7 @@ const isElementVisibleAndFocusable = (element: HTMLElement): boolean => {
           :cancel-text="dialogState.cancelText"
           :is-loading="dialogState.isLoading"
           :diff="dialogState.diff"
+          :dismissible="dialogState.dismissible !== false"
           @confirm="dialogStore.handleConfirm"
           @cancel="dialogStore.handleCancel"
           @update:visible="(val: boolean) => dialogStore.state.visible = val"

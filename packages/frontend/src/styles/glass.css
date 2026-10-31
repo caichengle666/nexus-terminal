@@ -424,8 +424,8 @@ html[data-ui-effect="glass"][data-glass-render="lite"] body .splitpanes__pane:no
   }
 }
 
-/* 移动端 AI 助手全屏层 / 移动端“更多”面板 / AI 设置与上下文抽屉 / AI 模型快速切换菜单 / 终端选区菜单 / 任务通知面板：毛玻璃下 bg-background 和 --app-bg-color 都是半透明的，这里必须给实底，否则会透出终端造成文字重叠 */
-html[data-ui-effect="glass"] :is(.mobile-ai-overlay, .mobile-pane-menu, .ai-drawer, .ai-profile-menu, .terminal-selection-menu) {
+/* 移动端 AI 助手全屏层 / 移动端“更多”面板 / AI 设置与上下文抽屉 / AI 模型快速切换菜单 / AI 对话选项底部面板 / 终端选区菜单 / 任务通知面板：毛玻璃下 bg-background 和 --app-bg-color 都是半透明的，这里必须给实底，否则会透出终端造成文字重叠 */
+html[data-ui-effect="glass"] :is(.mobile-ai-overlay, .mobile-pane-menu, .ai-drawer, .ai-profile-menu, .ai-options-sheet, .terminal-selection-menu) {
   background-color: var(--glass-base-color, #0b1220) !important;
   background-image: linear-gradient(var(--glass-surface-strong, rgba(255, 255, 255, 0.06)), var(--glass-surface-strong, rgba(255, 255, 255, 0.06)));
 }

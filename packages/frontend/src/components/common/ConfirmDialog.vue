@@ -2,6 +2,7 @@
 import { ref, watch, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ConfirmDialogDiff } from '../../stores/dialog.store';
+import { resolveDismissAttempt, type DialogDismissSource } from '../../utils/dialogDismiss';
 
 interface Props {
   visible: boolean;
@@ -12,9 +13,11 @@ interface Props {
   isLoading?: boolean;
   /** Optional line diff (AI file writes): widens the dialog and renders the changes. */
   diff?: ConfirmDialogDiff;
+  /** false = modal (AI tool confirmations): backdrop press and Esc do nothing. */
+  dismissible?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), { dismissible: true });
 const emit = defineEmits(['confirm', 'cancel', 'update:visible']);
 
 const { t } = useI18n();
@@ -43,22 +46,44 @@ const handleCancel = () => {
   // emit('update:visible', false); 
 };
 
-const handleKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Escape' && dialogVisible.value && !props.isLoading) {
+// Implicit dismiss (backdrop / Esc): cancels ordinary dialogs; a modal dialog
+// stays open and briefly nudges to point at its buttons.
+const nudging = ref(false);
+let nudgeTimer: number | null = null;
+const attemptDismiss = (source: DialogDismissSource) => {
+  if (props.isLoading) return;
+  if (resolveDismissAttempt(props.dismissible, source) === 'cancel') {
     handleCancel();
+    return;
+  }
+  nudging.value = false;
+  if (nudgeTimer !== null) window.clearTimeout(nudgeTimer);
+  requestAnimationFrame(() => {
+    nudging.value = true;
+    nudgeTimer = window.setTimeout(() => { nudging.value = false; nudgeTimer = null; }, 420);
+  });
+};
+
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape' && dialogVisible.value) {
+    // Keep Esc from reaching panels underneath (AI drawers, menus) while the dialog is up.
+    event.stopPropagation();
+    event.preventDefault();
+    attemptDismiss('escape');
   }
 };
 
 watch(dialogVisible, (isVisible) => {
   if (isVisible) {
-    document.addEventListener('keydown', handleKeydown);
+    document.addEventListener('keydown', handleKeydown, true);
   } else {
-    document.removeEventListener('keydown', handleKeydown);
+    document.removeEventListener('keydown', handleKeydown, true);
   }
 });
 
 onBeforeUnmount(() => {
-  document.removeEventListener('keydown', handleKeydown);
+  document.removeEventListener('keydown', handleKeydown, true);
+  if (nudgeTimer !== null) window.clearTimeout(nudgeTimer);
 });
 
 </script>
@@ -67,12 +92,13 @@ onBeforeUnmount(() => {
   <teleport to="body">
     <div
       v-if="dialogVisible"
-      class="fixed inset-0 z-[9999] flex items-center justify-center bg-overlay p-4"
-      @mousedown.self="handleCancel"
+      class="fixed inset-0 z-[9999] flex select-none items-center justify-center bg-overlay p-4"
+      :class="{ 'is-modal': !props.dismissible }"
+      @mousedown.self="attemptDismiss('backdrop')"
     >
       <div
-        class="bg-background text-foreground p-5 rounded-lg shadow-xl border border-border w-full flex flex-col"
-        :class="props.diff ? 'confirm-dialog-diff max-w-3xl max-h-[92vh]' : 'max-w-md'"
+        class="bg-background text-foreground p-5 rounded-lg shadow-xl border border-border w-full flex select-text flex-col"
+        :class="[props.diff ? 'confirm-dialog-diff max-w-3xl max-h-[92vh]' : 'max-w-md', nudging ? 'confirm-dialog-nudge' : '']"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="props.title"
@@ -153,6 +179,26 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.confirm-dialog-nudge {
+  animation: confirm-dialog-nudge 360ms ease-in-out;
+}
+
+@keyframes confirm-dialog-nudge {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confirm-dialog-nudge {
+    animation: none;
+    outline: 2px solid var(--link-active-color, #3b82f6);
+    outline-offset: 2px;
+  }
+}
+
 .confirm-dialog-diff {
   min-height: 0;
 }

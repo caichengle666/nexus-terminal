@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { LineDiff } from './ai/ai.tools';
+import { resolveDismissAttempt } from '../utils/dialogDismiss';
 
 /** Optional line diff shown in the confirm dialog (AI write_remote_file). */
 export interface ConfirmDialogDiff extends LineDiff {
@@ -17,6 +18,8 @@ interface DialogState {
   cancelText?: string;
   isLoading: boolean;
   diff?: ConfirmDialogDiff;
+  /** false = modal: backdrop / Esc / external close do not resolve it (AI tool confirmations). */
+  dismissible?: boolean;
   resolvePromise?: (value: boolean) => void;
   rejectPromise?: (reason?: any) => void;
 }
@@ -27,6 +30,8 @@ export interface ShowDialogOptions {
   confirmText?: string;
   cancelText?: string;
   diff?: ConfirmDialogDiff;
+  /** false = only the explicit Confirm / Cancel buttons resolve the dialog. Default true. */
+  dismissible?: boolean;
   /** Aborting resolves the dialog with `false` and dismisses it (or drops it from the queue). */
   signal?: AbortSignal;
 }
@@ -51,6 +56,7 @@ export const useDialogStore = defineStore('dialog', () => {
     cancelText: t('common.cancel', '取消'),
     isLoading: false,
     diff: undefined,
+    dismissible: true,
   };
 
   const state = ref<DialogState>({ ...defaultState });
@@ -121,8 +127,11 @@ export const useDialogStore = defineStore('dialog', () => {
 
   // The dialog component can also close itself (overlay click / Esc) by
   // writing visible=false directly; treat that as a cancel.
+  // A modal (dismissible: false) dialog cannot be closed this way: re-show it.
   watch(() => state.value.visible, (visible) => {
-    if (!visible && current) settle(current, false);
+    if (visible || !current) return;
+    if (resolveDismissAttempt(state.value.dismissible, 'external') === 'cancel') settle(current, false);
+    else state.value.visible = true;
   });
 
   // For actions that might take time, to show a loading spinner on the confirm button

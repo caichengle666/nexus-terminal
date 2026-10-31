@@ -2716,5 +2716,65 @@
     "prompt": "この出力を説明し、修正案を提示してください：",
     "truncated": "（選択範囲が長すぎるため末尾のみ残しています）",
     "paneMissing": "選択内容を AI 入力欄に入れましたが、現在のレイアウトに AI アシスタントパネルがありません。レイアウト設定で追加してください。"
+  },
+  "aiUi": {
+    "code": {
+      "copy": "コードをコピー",
+      "insert": "ターミナルに入力（Enter なし）",
+      "label": "コード"
+    },
+    "actions": {
+      "toolbar": "返信の操作",
+      "retry": "再生成",
+      "retryHint": "ここからこの返信を再生成",
+      "retryDisabled": "AI 実行中のため再生成できません",
+      "retryTitle": "この返信を再生成しますか？",
+      "retryMessage": "この返信の後に {count} 件のやり取りがあります。再生成すると削除されます。",
+      "insertCode": "最初のコードブロックをターミナルに入力（Enter なし）",
+      "insertText": "返信テキストをターミナルに入力（Enter なし）"
+    },
+    "steps": {
+      "title": "実行ステップ",
+      "count": "{count} ステップ",
+      "problems": "{count} 件未成功",
+      "details": "ツール呼び出しの詳細",
+      "status": {
+        "running": "実行中",
+        "ok": "成功",
+        "error": "失敗",
+        "denied": "拒否",
+        "cancelled": "キャンセル"
+      }
+    },
+    "model": {
+      "reported": "プロバイダーが返したモデル：{model}（設定：{configured}）",
+      "reportedShort": "実際のモデル：{model}"
+    },
+    "badge": {
+      "auto": "自動",
+      "autoTitle": "自動実行モード：通常のコマンドは個別に確認しません",
+      "pending": "確認待ち",
+      "pendingTitle": "確認を待っている操作があります"
+    },
+    "usage": {
+      "sectionTitle": "コンテキスト使用量",
+      "toolsRunning": "ツール実行中：{name}（{count}）",
+      "contextHigh": "コンテキスト使用率 {percent}%、上限に近づいています",
+      "manage": "管理",
+      "details": "詳細"
+    },
+    "empty": {
+      "title": "Nexus AI でできること",
+      "noTerminal": "アクティブなターミナルがありません。先にターミナルセッションを開いてください。",
+      "capRead": "ターミナル出力を読み取り、エラーを分析",
+      "capRun": "ターミナルでコマンドを実行（現在のモードに従って確認）",
+      "capFiles": "リモートファイルの読み書き（書き込み前に差分を表示）",
+      "capFilesOff": "リモートファイルの読み書き：バックグラウンドツールを有効にしてください",
+      "on": "オン",
+      "off": "オフ"
+    },
+    "options": {
+      "title": "チャットオプション"
+    }
   }
 }
