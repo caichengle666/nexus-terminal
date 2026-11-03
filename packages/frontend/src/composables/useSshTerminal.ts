@@ -318,6 +318,15 @@ export function createSshTerminalManager(sessionId: string, wsDeps: SshTerminalD
             isSshConnected.value = false;
             writeNotice(t('uxTerminal.terminal.reconnectFailed', { message: payload?.message || t('uxTerminal.unknownError') }), 'red');
             writeNotice(t('uxTerminal.terminal.pressEnterToReconnect'));
+        } else if (payload?.phase === 'unresponsive') {
+            // 存活探测超时（休眠唤醒 / 换网络后的半开连接）：马上会自动重连，这里先说明原因，
+            // 随后的 auto-retry 不再重复提示
+            isSshConnected.value = false;
+            if (!wsDropped) {
+                wsDropped = true;
+                reattachNoticeShown = false;
+                writeNotice(t('uxTerminal.terminal.connectionUnresponsive'));
+            }
         } else if (payload?.phase === 'auto-retry') {
             // WebSocket 意外断开，正在自动重连（后端会在保留期内保留 SSH 会话）。
             // 重连间隔只有 0.5~5s 且不设上限，每次重试都写一行会刷屏：同一次断线只提示一次。

@@ -1,11 +1,12 @@
 import { createClient, WebDAVClient, WebDAVClientOptions } from 'webdav';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import AdmZip from 'adm-zip';
 import { HttpProxyAgent } from 'http-proxy-agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
-import { allDb, getDbInstance, runDb } from '../database/connection';
+import { allDb, getDbInstance, runDb, runExclusive, withTransaction } from '../database/connection';
 import { settingsRepository } from '../settings/settings.repository';
 import * as ProxyRepository from '../proxies/proxy.repository';
 import { decrypt } from '../utils/crypto';
@@ -14,6 +15,7 @@ import { assertUrlHostAllowed, safeHttpAgent, safeHttpsAgent } from '../utils/sa
 import { getBackendDataPath } from '../utils/paths';
 import {
   createFullBackup,
+  DATABASE_FILE_NAME,
   extractFullBackup,
   isFullBackupBuffer,
   MIN_BACKUP_PASSPHRASE_LENGTH,
@@ -131,6 +133,77 @@ async function getWebDavProxyAgents(proxyId?: number | null): Promise<Pick<WebDA
   };
 }
 
+/** 目录列表、stat、删除等元数据请求的超时。 */
+export const WEBDAV_REQUEST_TIMEOUT_MS = 30_000;
+/** 上传/下载的最短超时；更大的文件按 256 KB/s 的保底速度延长。 */
+const WEBDAV_MIN_TRANSFER_TIMEOUT_MS = 5 * 60_000;
+const WEBDAV_MIN_TRANSFER_BYTES_PER_SECOND = 256 * 1024;
+const WEBDAV_DEFAULT_DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
+
+export function webDavTransferTimeoutMs(bytes: number): number {
+  const scaled = Math.ceil(Math.max(0, bytes) / WEBDAV_MIN_TRANSFER_BYTES_PER_SECOND) * 1000;
+  return Math.max(WEBDAV_MIN_TRANSFER_TIMEOUT_MS, scaled);
+}
+
+/** 每个方法的 options 参数位置（用于注入超时 signal）。 */
+const WEBDAV_OPTIONS_ARG_INDEX: Record<string, number> = {
+  getDirectoryContents: 1,
+  createDirectory: 1,
+  stat: 1,
+  exists: 1,
+  deleteFile: 1,
+  getFileContents: 1,
+  putFileContents: 2,
+};
+
+function defaultTimeoutFor(method: string, args: unknown[]): number {
+  if (method === 'putFileContents') {
+    const data = args[1] as { length?: number; byteLength?: number } | undefined;
+    return webDavTransferTimeoutMs(Number(data?.byteLength ?? data?.length ?? 0));
+  }
+  if (method === 'getFileContents') return WEBDAV_DEFAULT_DOWNLOAD_TIMEOUT_MS;
+  return WEBDAV_REQUEST_TIMEOUT_MS;
+}
+
+const isAbortError = (error: any): boolean => error?.name === 'TimeoutError' || error?.name === 'AbortError' || error?.code === 'ABORT_ERR';
+
+/**
+ * 给 WebDAV 客户端的每个请求加上超时（AbortSignal.timeout）。
+ * 调用方已传入 signal 时保持不变；也可以在 options 里传 timeoutMs 覆盖默认值。
+ * 服务器卡住时请求不会再一直挂着。
+ */
+export function withWebDavTimeouts(client: WebDAVClient): WebDAVClient {
+  return new Proxy(client, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof prop !== 'string' || typeof value !== 'function' || !(prop in WEBDAV_OPTIONS_ARG_INDEX)) {
+        return value;
+      }
+      const index = WEBDAV_OPTIONS_ARG_INDEX[prop];
+      return async (...args: unknown[]) => {
+        const callArgs = [...args];
+        const { timeoutMs: requestedTimeout, ...existing } = (callArgs[index] ?? {}) as Record<string, unknown>;
+        if (existing.signal) {
+          callArgs[index] = existing;
+          return value.apply(target, callArgs);
+        }
+        const timeoutMs = typeof requestedTimeout === 'number' && requestedTimeout > 0
+          ? requestedTimeout
+          : defaultTimeoutFor(prop, callArgs);
+        callArgs[index] = { ...existing, signal: AbortSignal.timeout(timeoutMs) };
+        try {
+          return await value.apply(target, callArgs);
+        } catch (error: any) {
+          if (isAbortError(error)) {
+            throw new Error(`WebDAV 服务器在 ${Math.round(timeoutMs / 1000)} 秒内没有完成请求 (${prop})，已超时。`);
+          }
+          throw error;
+        }
+      };
+    },
+  });
+}
+
 export async function createWebDavClient(config: WebDavBackupConfig): Promise<WebDAVClient> {
   const options: WebDAVClientOptions = {
     username: config.username,
@@ -138,7 +211,7 @@ export async function createWebDavClient(config: WebDavBackupConfig): Promise<We
     ...(await getWebDavProxyAgents(config.proxyId)),
   };
   assertUrlHostAllowed(config.url);
-  return createClient(config.url, options);
+  return withWebDavTimeouts(createClient(config.url, options));
 }
 
 async function getWebDavConfigForRequest(proxyId?: number | null): Promise<WebDavBackupConfig> {
@@ -164,6 +237,25 @@ function getBackupRemotePath(fileName: string): string {
   return path.posix.join(BACKUP_DIR, fileName);
 }
 
+/**
+ * 用 VACUUM INTO 生成数据库的一致性快照（独占连接执行，不会和进行中的事务或其他语句交错），
+ * 再用快照代替正在写入的实时数据库文件打包。临时文件总会被清理。
+ */
+export async function createFullBackupWithDbSnapshot(dataPath: string, passphrase: string) {
+  const snapshotDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-db-snapshot-'));
+  const snapshotPath = path.join(snapshotDir, DATABASE_FILE_NAME);
+  try {
+    const db = await getDbInstance();
+    // VACUUM 要求连接上没有其他语句在执行，也不能在事务内：独占连接执行（其他请求短暂排队）
+    await runExclusive(db, () => new Promise<void>((resolve, reject) => {
+      db.run('VACUUM INTO ?', [snapshotPath], (err: Error | null) => (err ? reject(err) : resolve()));
+    }));
+    return await createFullBackup(dataPath, passphrase, { databaseSnapshotPath: snapshotPath });
+  } finally {
+    fs.rmSync(snapshotDir, { recursive: true, force: true });
+  }
+}
+
 export async function createBackup(passphrase: string, proxyId?: number | null): Promise<{ fileName: string; size: number; fileCount: number }> {
   const config = await getWebDavConfigForRequest(proxyId);
   const client = await createWebDavClient(config);
@@ -171,9 +263,7 @@ export async function createBackup(passphrase: string, proxyId?: number | null):
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const fileName = `nexus-full-backup-${timestamp}.zip.enc`;
-  const db = await getDbInstance();
-  await runDb(db, 'PRAGMA wal_checkpoint(TRUNCATE)');
-  const archive = await createFullBackup(getBackendDataPath(), passphrase);
+  const archive = await createFullBackupWithDbSnapshot(getBackendDataPath(), passphrase);
   const remotePath = path.posix.join(BACKUP_DIR, fileName).replace(/\\/g, '/');
   await client.putFileContents(remotePath, archive.buffer, { overwrite: true });
 
@@ -209,7 +299,8 @@ export async function downloadBackup(fileName: string, proxyId?: number | null):
   if (typeof stat.size === 'number' && stat.size > MAX_BACKUP_DOWNLOAD_BYTES) {
     throw new Error('备份文件超过 1GB 安全限制。');
   }
-  const raw = await client.getFileContents(remotePath);
+  const downloadTimeoutMs = typeof stat.size === 'number' ? webDavTransferTimeoutMs(stat.size) : undefined;
+  const raw = await client.getFileContents(remotePath, { timeoutMs: downloadTimeoutMs } as any);
   const bufData: Buffer = Buffer.isBuffer(raw) ? raw : (typeof raw === 'string' ? Buffer.from(raw) : Buffer.from((raw as any).data || raw));
   if (bufData.length > MAX_BACKUP_DOWNLOAD_BYTES) {
     throw new Error('备份文件超过 1GB 安全限制。');
@@ -263,8 +354,8 @@ export function parseLegacyBackup(buffer: Buffer): ParsedLegacyBackup {
 /** 在单个事务中把旧版备份写入当前数据库 (不替换文件，因此无需重启时替换)。 */
 export async function applyLegacyBackup({ data, restoreTables }: ParsedLegacyBackup): Promise<void> {
   const db = await getDbInstance();
-  await runDb(db, 'BEGIN IMMEDIATE TRANSACTION');
-  try {
+  // 串行化的 IMMEDIATE 事务：恢复期间其他请求的写入排队，失败时整体回滚
+  await withTransaction(db, async () => {
     for (const table of RESTORE_DELETE_ORDER) {
       if (restoreTables.includes(table)) {
         await runDb(db, `DELETE FROM "${table}"`);
@@ -290,16 +381,7 @@ export async function applyLegacyBackup({ data, restoreTables }: ParsedLegacyBac
         await runDb(db, `INSERT INTO "${table}" (${quotedColumns}) VALUES (${placeholders})`, values);
       }
     }
-
-    await runDb(db, 'COMMIT');
-  } catch (error) {
-    try {
-      await runDb(db, 'ROLLBACK');
-    } catch (rollbackError) {
-      console.error('[WebDAV Restore] 回滚失败:', rollbackError);
-    }
-    throw error;
-  }
+  }, { mode: 'IMMEDIATE' });
 }
 
 /**

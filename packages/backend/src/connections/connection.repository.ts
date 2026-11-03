@@ -1,5 +1,5 @@
 import { Database } from 'sqlite3';
-import { getDbInstance, runDb, getDb as getDbRow, allDb } from '../database/connection';
+import { getDbInstance, runDb, getDb as getDbRow, allDb, withTransaction } from '../database/connection';
 
 
 // Define Connection 类型 (可以从 controller 或 types 文件导入，暂时在此定义)
@@ -365,36 +365,24 @@ export const updateConnectionTags = async (connectionId: number, tagIds: number[
 
     // 2. 执行标签更新事务
     try {
-        await runDb(db, 'BEGIN TRANSACTION');
+        // withTransaction 串行化事务，失败时自动 ROLLBACK（只回滚本事务）
+        await withTransaction(db, async () => {
+            // 删除旧关联
+            await runDb(db, `DELETE FROM connection_tags WHERE connection_id = ?`, [connectionId]);
 
-        // 删除旧关联
-        await runDb(db, `DELETE FROM connection_tags WHERE connection_id = ?`, [connectionId]);
-
-        // 插入新关联 (如果 tagIds 不为空)
-        if (tagIds.length > 0) {
-            const insertSql = `INSERT INTO connection_tags (connection_id, tag_id) VALUES (?, ?)`;
-            // 过滤无效 ID
-            const validTagIds = tagIds.filter(tagId => typeof tagId === 'number' && tagId > 0);
-
-            // 使用 Promise.all 确保所有插入完成或失败
-            const insertPromises = validTagIds.map(tagId =>
-                 runDb(db, insertSql, [connectionId, tagId])
-            );
-             // 如果任何插入失败，Promise.all 会 reject，错误会被下面的 catch 捕获
-            await Promise.all(insertPromises);
-        }
-
-        await runDb(db, 'COMMIT');
+            // 插入新关联 (如果 tagIds 不为空)
+            if (tagIds.length > 0) {
+                const insertSql = `INSERT INTO connection_tags (connection_id, tag_id) VALUES (?, ?)`;
+                // 过滤无效 ID
+                const validTagIds = tagIds.filter(tagId => typeof tagId === 'number' && tagId > 0);
+                for (const tagId of validTagIds) {
+                    await runDb(db, insertSql, [connectionId, tagId]);
+                }
+            }
+        });
         return true; // 事务成功提交，返回 true
     } catch (err: any) {
         console.error(`Repository: 更新连接 ${connectionId} 的标签关联事务出错:`, err.message);
-        try {
-            await runDb(db, 'ROLLBACK');
-            console.log(`Repository: Transaction rolled back for connection ${connectionId} tag update.`);
-        } catch (rollbackErr: any) {
-            console.error(`Repository: 回滚连接 ${connectionId} 的标签更新事务失败:`, rollbackErr.message);
-            // 即使回滚失败，原始错误也更重要
-        }
         // 直接重新抛出原始事务错误，让上层处理
         // SQLite 在事务中遇到错误时通常会自动回滚
         throw err;
@@ -476,23 +464,14 @@ export const addTagToMultipleConnections = async (connectionIds: number[], tagId
 
     const db = await getDbInstance();
     try {
-        await runDb(db, 'BEGIN TRANSACTION');
-
-        const insertSql = `INSERT OR IGNORE INTO connection_tags (connection_id, tag_id) VALUES (?, ?)`;
-        // 使用 Promise.all 确保所有插入完成或失败
-        const insertPromises = connectionIds.map(connId =>
-            runDb(db, insertSql, [connId, tagId])
-        );
-        await Promise.all(insertPromises);
-
-        await runDb(db, 'COMMIT');
+        await withTransaction(db, async () => {
+            const insertSql = `INSERT OR IGNORE INTO connection_tags (connection_id, tag_id) VALUES (?, ?)`;
+            for (const connId of connectionIds) {
+                await runDb(db, insertSql, [connId, tagId]);
+            }
+        });
     } catch (err: any) {
         console.error(`Repository: 为多个连接添加标签 ${tagId} 时事务出错:`, err.message);
-        try {
-            await runDb(db, 'ROLLBACK');
-        } catch (rollbackErr: any) {
-            console.error(`Repository: 回滚为多个连接添加标签 ${tagId} 的事务失败:`, rollbackErr.message);
-        }
         throw new Error(`为多个连接添加标签失败: ${err.message}`);
     }
 };

@@ -65,6 +65,7 @@
       "gpu-mode.js",
       "main-i18n.js",
       "window-recovery.js",
+      "backend-port.js",
       "package.json",
       "!node_modules/node-pty/{deps,src,scripts,third_party,typings}/**",
       "!node_modules/node-pty/binding.gyp",

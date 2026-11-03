@@ -2131,6 +2131,7 @@
       "oldConnectionReleased": "[Nexus] 旧连接已释放，正在重新连接...",
       "reconnectFailed": "[Nexus] 重新连接失败：{message}",
       "connectionLostReconnecting": "[Nexus] 连接已断开，正在自动重连（网络恢复或按任意键会立即重试）…",
+      "connectionUnresponsive": "[Nexus] 连接没有响应（可能是休眠唤醒或网络切换），正在自动重连…",
       "reattaching": "[Nexus] 网络已恢复，正在接回原会话…",
       "authExpiredStopReconnect": "[Nexus] 登录已失效，已停止自动重连。请重新登录后再重连。",
       "autoReconnectGaveUp": "[Nexus] 自动重连失败。",

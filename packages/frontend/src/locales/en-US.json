@@ -2131,6 +2131,7 @@
       "oldConnectionReleased": "[Nexus] Old connection released. Reconnecting...",
       "reconnectFailed": "[Nexus] Reconnect failed: {message}",
       "connectionLostReconnecting": "[Nexus] Connection lost. Reconnecting automatically (retries immediately when the network returns or you press a key)…",
+      "connectionUnresponsive": "[Nexus] The connection stopped responding (sleep/wake or network change?), reconnecting automatically…",
       "reattaching": "[Nexus] Network is back. Reattaching to the original session…",
       "authExpiredStopReconnect": "[Nexus] Your login has expired, so automatic reconnect has stopped. Sign in again, then reconnect.",
       "autoReconnectGaveUp": "[Nexus] Automatic reconnect failed.",

@@ -95,6 +95,13 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
 
                 try {
                     switch (type) {
+                        // 应用层存活探测：前端定期发 ping，收不到 pong 就判定连接半开并重连
+                        case 'ping':
+                            ws.isAlive = true;
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({ type: 'pong', payload: { t: payload?.t ?? null } }));
+                            }
+                            break;
                         // SSH Cases
                         case 'ssh:connect':
                             // Pass the original Express request object for IP and session

@@ -5,6 +5,10 @@ import fs from 'fs';
 import { tableDefinitions } from './schema.registry';
 import { runMigrations } from './migrations'; // +++ Import runMigrations +++
 import { getBackendDataPath } from '../utils/paths';
+import { runSerialized } from './transaction';
+
+export { withTransaction, isInTransaction, runExclusive } from './transaction';
+export type { TransactionOptions } from './transaction';
 
 const dbDir = getBackendDataPath();
 const dbFilename = 'nexus-terminal.db';
@@ -30,7 +34,7 @@ interface RunResult {
 
 
 export const runDb = (db: sqlite3.Database, sql: string, params: any[] = []): Promise<RunResult> => {
-    return new Promise((resolve, reject) => {
+    return runSerialized(db, () => new Promise<RunResult>((resolve, reject) => {
         db.run(sql, params, function (err: Error | null) {
             if (err) {
                 console.error(`[数据库错误] SQL: ${sql.substring(0, 100)}... 参数: ${JSON.stringify(params)} 错误: ${err.message}`);
@@ -39,12 +43,12 @@ export const runDb = (db: sqlite3.Database, sql: string, params: any[] = []): Pr
                 resolve({ lastID: this.lastID, changes: this.changes });
             }
         });
-    });
+    }));
 };
 
 
 export const getDb = <T = any>(db: sqlite3.Database, sql: string, params: any[] = []): Promise<T | undefined> => {
-    return new Promise((resolve, reject) => {
+    return runSerialized(db, () => new Promise<T | undefined>((resolve, reject) => {
         db.get(sql, params, (err: Error | null, row: T) => {
             if (err) {
                 console.error(`[数据库错误] SQL: ${sql.substring(0, 100)}... 参数: ${JSON.stringify(params)} 错误: ${err.message}`);
@@ -53,12 +57,12 @@ export const getDb = <T = any>(db: sqlite3.Database, sql: string, params: any[] 
                 resolve(row);
             }
         });
-    });
+    }));
 };
 
 
 export const allDb = <T = any>(db: sqlite3.Database, sql: string, params: any[] = []): Promise<T[]> => {
-    return new Promise((resolve, reject) => {
+    return runSerialized(db, () => new Promise<T[]>((resolve, reject) => {
         db.all(sql, params, (err: Error | null, rows: T[]) => {
             if (err) {
                 console.error(`[数据库错误] SQL: ${sql.substring(0, 100)}... 参数: ${JSON.stringify(params)} 错误: ${err.message}`);
@@ -67,7 +71,7 @@ export const allDb = <T = any>(db: sqlite3.Database, sql: string, params: any[] 
                 resolve(rows);
             }
         });
-    });
+    }));
 };
 
 

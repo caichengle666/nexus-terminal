@@ -2107,6 +2107,7 @@
       "oldConnectionReleased": "[Nexus] 古い接続を解放しました。再接続しています...",
       "reconnectFailed": "[Nexus] 再接続に失敗しました：{message}",
       "connectionLostReconnecting": "[Nexus] 接続が切断されました。自動的に再接続しています（ネットワーク復帰時またはキー入力ですぐに再試行します）…",
+      "connectionUnresponsive": "[Nexus] 接続が応答しません（スリープ復帰やネットワーク切替の可能性）。自動的に再接続しています…",
       "reattaching": "[Nexus] ネットワークが復帰しました。元のセッションに再接続しています…",
       "authExpiredStopReconnect": "[Nexus] ログインの有効期限が切れたため、自動再接続を停止しました。再度ログインしてから再接続してください。",
       "autoReconnectGaveUp": "[Nexus] 自動再接続に失敗しました。",

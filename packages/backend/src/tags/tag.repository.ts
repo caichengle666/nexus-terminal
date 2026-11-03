@@ -1,5 +1,5 @@
 import { Database, Statement } from 'sqlite3';
-import { getDbInstance, runDb, getDb as getDbRow, allDb } from '../database/connection';
+import { getDbInstance, runDb, getDb as getDbRow, allDb, withTransaction } from '../database/connection';
 
 
 // 定义 Tag 类型 (可以共享到 types 文件)
@@ -116,29 +116,21 @@ export const deleteTag = async (id: number): Promise<boolean> => {
 export const updateTagConnections = async (tagId: number, connectionIds: number[]): Promise<void> => {
     const db = await getDbInstance();
     try {
-        // 开始事务
-        await runDb(db, 'BEGIN TRANSACTION');
+        // 串行化事务；出错时 withTransaction 自动回滚
+        await withTransaction(db, async () => {
+            // 1. 删除该标签旧的连接关联
+            const deleteSql = `DELETE FROM connection_tags WHERE tag_id = ?`;
+            await runDb(db, deleteSql, [tagId]);
 
-        // 1. 删除该标签旧的连接关联
-        const deleteSql = `DELETE FROM connection_tags WHERE tag_id = ?`;
-        await runDb(db, deleteSql, [tagId]);
-
-        // 2. 如果有新的连接 ID，则插入新的关联
-        if (connectionIds && connectionIds.length > 0) {
-            const insertSql = `INSERT INTO connection_tags (tag_id, connection_id) VALUES (?, ?)`;
-            // 使用 Promise.all 来并行执行插入操作，或者逐个执行
-            // 为简单起见，这里逐个执行，但对于大量数据，并行或批量插入更优
-            for (const connectionId of connectionIds) {
-                // 检查 connectionId 是否有效（例如，是否存在于 connections 表中）可以增加健壮性，但此处省略
-                await runDb(db, insertSql, [tagId, connectionId]);
+            // 2. 如果有新的连接 ID，则插入新的关联
+            if (connectionIds && connectionIds.length > 0) {
+                const insertSql = `INSERT INTO connection_tags (tag_id, connection_id) VALUES (?, ?)`;
+                for (const connectionId of connectionIds) {
+                    await runDb(db, insertSql, [tagId, connectionId]);
+                }
             }
-        }
-
-        // 提交事务
-        await runDb(db, 'COMMIT');
+        });
     } catch (err: any) {
-        // 如果发生错误，回滚事务
-        await runDb(db, 'ROLLBACK');
         console.error(`[仓库] 更新标签 ${tagId} 的连接关联时出错:`, err.message);
         throw new Error(`更新标签连接关联失败: ${err.message}`);
     }

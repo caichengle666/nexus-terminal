@@ -329,3 +329,127 @@ test('non-retryable SSH failure (close 1008) stops auto-reconnect immediately', 
   assert.deepEqual(statuses.map(s => s.phase), ['stopped']);
   assert.equal(mgr.connectionStatus.value, 'error', 'Enter can still reconnect manually');
 });
+
+// --- 应用层存活探测（半开连接） ---
+const openLive = (mgr, socketIndex = 0) => {
+  const sock = sockets[socketIndex];
+  sock.sent = [];
+  sock.send = (d) => sock.sent.push(JSON.parse(d));
+  sock.readyState = 1;
+  sock.onopen?.();
+  sock.onmessage?.({ data: JSON.stringify({ type: 'ssh:connected', payload: {} }) });
+  return sock;
+};
+const pings = (sock) => sock.sent.filter(m => m.type === 'ping');
+
+test('a half-open socket (no pong) is detected and reconnects with the same sessionId', (ctx) => {
+  ctx.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  sockets.length = 0;
+  const mgr = createWebSocketConnectionManager('sess-live', '3', t, { livenessIntervalMs: 20_000, pongTimeoutMs: 10_000 });
+  const statuses = [];
+  mgr.onMessage('internal:reconnect-status', (p) => statuses.push(p));
+  mgr.connect('ws://localhost/ws/');
+  const first = openLive(mgr);
+  assert.equal(mgr.connectionStatus.value, 'connected');
+
+  ctx.mock.timers.tick(19_999);
+  assert.equal(pings(first).length, 0);
+  ctx.mock.timers.tick(1);
+  assert.equal(pings(first).length, 1, 'ping after 20s idle');
+  // 浏览器里 socket 仍是 OPEN，但没有任何响应
+  ctx.mock.timers.tick(9_999);
+  assert.equal(sockets.length, 1);
+  ctx.mock.timers.tick(1);
+  assert.equal(statuses[0].phase, 'unresponsive');
+  assert.equal(statuses[1].phase, 'auto-retry');
+  assert.equal(first.onclose, null, 'dead socket detached');
+  assert.equal(first.readyState, 3, 'dead socket closed');
+  ctx.mock.timers.tick(500);
+  assert.equal(sockets.length, 2, 'reconnected after the normal 0.5s backoff');
+  const second = sockets[1];
+  second.sent = [];
+  second.send = (d) => second.sent.push(JSON.parse(d));
+  second.readyState = 1;
+  second.onopen?.();
+  assert.deepEqual(second.sent.map(m => [m.type, m.payload.sessionId]), [['ssh:connect', 'sess-live']]);
+  second.onmessage?.({ data: JSON.stringify({ type: 'ssh:connected', payload: { resumed: true } }) });
+  assert.equal(mgr.connectionStatus.value, 'connected');
+  mgr.dispose();
+});
+
+test('pong (or any traffic) keeps the connection; busy sockets are not pinged', (ctx) => {
+  ctx.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  sockets.length = 0;
+  const mgr = createWebSocketConnectionManager('sess-pong', '3', t, { livenessIntervalMs: 20_000, pongTimeoutMs: 10_000 });
+  mgr.connect('ws://localhost/ws/');
+  const sock = openLive(mgr);
+  for (let round = 0; round < 5; round++) {
+    // 推进到下一次 ping
+    let waited = 0;
+    while (pings(sock).length === round && waited < 60_000) { ctx.mock.timers.tick(1_000); waited += 1_000; }
+    assert.equal(pings(sock).length, round + 1, `ping #${round + 1} sent`);
+    ctx.mock.timers.tick(3_000);
+    sock.onmessage?.({ data: JSON.stringify({ type: 'pong', payload: { t: 1 } }) });
+    ctx.mock.timers.tick(15_000);
+    assert.equal(sockets.length, 1, `still the same socket after round ${round}`);
+  }
+  // 持续有输出时不发 ping
+  const before = pings(sock).length;
+  for (let i = 0; i < 10; i++) {
+    ctx.mock.timers.tick(5_000);
+    sock.onmessage?.({ data: JSON.stringify({ type: 'ssh:output', payload: 'x' }) });
+  }
+  assert.equal(pings(sock).length, before, 'no pings while output keeps flowing');
+  assert.equal(mgr.connectionStatus.value, 'connected');
+  mgr.dispose();
+});
+
+test('an old backend that rejects ping disables the probe without flagging the session as errored', (ctx) => {
+  ctx.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  sockets.length = 0;
+  const mgr = createWebSocketConnectionManager('sess-old', '3', t, { livenessIntervalMs: 20_000, pongTimeoutMs: 10_000 });
+  const errors = [];
+  mgr.onMessage('error', (p) => errors.push(p));
+  mgr.connect('ws://localhost/ws/');
+  const sock = openLive(mgr);
+  ctx.mock.timers.tick(20_000);
+  assert.equal(pings(sock).length, 1);
+  sock.onmessage?.({ data: JSON.stringify({ type: 'error', payload: '不支持的消息类型: ping' }) });
+  ctx.mock.timers.tick(120_000);
+  assert.equal(pings(sock).length, 1, 'probe disabled');
+  assert.equal(sockets.length, 1);
+  assert.equal(mgr.connectionStatus.value, 'connected');
+  assert.deepEqual(errors, [], 'not dispatched as an error');
+  mgr.dispose();
+});
+
+test('checkConnectionNow (online / visibilitychange) probes an open socket immediately', (ctx) => {
+  ctx.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  sockets.length = 0;
+  const mgr = createWebSocketConnectionManager('sess-wake', '3', t, { livenessIntervalMs: 20_000, pongTimeoutMs: 10_000 });
+  mgr.connect('ws://localhost/ws/');
+  const sock = openLive(mgr);
+  ctx.mock.timers.tick(2_000);
+  mgr.checkConnectionNow('visibilitychange');
+  assert.equal(pings(sock).length, 1, 'pinged right away');
+  mgr.checkConnectionNow('online');
+  assert.equal(pings(sock).length, 1, 'no duplicate probe while one is pending');
+  ctx.mock.timers.tick(10_000);
+  assert.equal(sockets.length, 1, 'dead socket discarded');
+  ctx.mock.timers.tick(500);
+  assert.equal(sockets.length, 2, 'reconnecting');
+  mgr.dispose();
+});
+
+test('dispose and disconnect stop the probe', (ctx) => {
+  ctx.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  sockets.length = 0;
+  const mgr = createWebSocketConnectionManager('sess-stop', '3', t, { livenessIntervalMs: 20_000, pongTimeoutMs: 10_000 });
+  mgr.connect('ws://localhost/ws/');
+  const sock = openLive(mgr);
+  mgr.disconnect();
+  ctx.mock.timers.tick(60_000);
+  assert.equal(pings(sock).length, 0);
+  assert.equal(sockets.length, 1);
+  mgr.dispose();
+});

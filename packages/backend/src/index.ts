@@ -78,6 +78,7 @@ import aiHistoryRoutes from './ai/ai-history.routes';
 import { initializeWebSocket } from './websocket';
 import { clientStates } from './websocket/state';
 import { createGracefulShutdown } from './utils/graceful-shutdown';
+import { describeListenError, EXIT_CODE_ADDRESS_IN_USE, parseParentPid, watchParentProcess } from './utils/parent-watch';
 import type { WebSocketServer } from 'ws';
 import { cleanupClientConnection } from './websocket/utils';
 import { ipWhitelistMiddleware } from './auth/ipWhitelist.middleware';
@@ -339,7 +340,8 @@ const startServer = () => {
     const bootId = crypto.randomUUID();
     app.get('/api/v1/status', (req: Request, res: Response) => {
       res.set('Cache-Control', 'no-store');
-      res.json({ status: '后端服务运行中！', bootId });
+      // 桌面端额外返回 PID：Electron 主进程据此确认端口上的残留后端确实是自己上次启动的，才会结束它
+      res.json(desktopParentPid ? { status: '后端服务运行中！', bootId, pid: process.pid } : { status: '后端服务运行中！', bootId });
     });
     // --- 结束 API 路由 ---
 
@@ -355,6 +357,20 @@ const startServer = () => {
             .catch(error => console.error('初始化 WebSocket 失败:', error));
 
     };
+    // 监听失败（端口被占用等）时给出明确提示并退出；EADDRINUSE 用专门的退出码，桌面端据此换端口重试。
+    const onListenError = (error: NodeJS.ErrnoException) => {
+        if (server.listening) {
+            console.error('[Server] HTTP 服务器错误:', error);
+            return;
+        }
+        console.error(`[Server] ${describeListenError(error, port, bindAddress)}`);
+        if (error?.code === 'EADDRINUSE') {
+            process.stdout.write(`BACKEND_LISTEN_ERROR EADDRINUSE ${port}\n`);
+            process.exit(EXIT_CODE_ADDRESS_IN_USE);
+        }
+        process.exit(1);
+    };
+    server.on('error', onListenError);
     if (bindAddress) {
         server.listen(Number(port), bindAddress, onListening);
     } else {
@@ -372,8 +388,27 @@ const gracefulShutdown = createGracefulShutdown({
     ),
     closeDb: () => closeDbInstance(),
 });
-process.on('SIGTERM', () => { void gracefulShutdown('SIGTERM'); });
-process.on('SIGINT', () => { void gracefulShutdown('SIGINT'); });
+let shutdownRequested = false;
+const requestShutdown = (signal: string) => {
+    shutdownRequested = true;
+    void gracefulShutdown(signal);
+};
+process.on('SIGTERM', () => requestShutdown('SIGTERM'));
+process.on('SIGINT', () => requestShutdown('SIGINT'));
+
+// 桌面端：主进程把自己的 PID 放在 NEXUS_PARENT_PID 里。主进程消失（被强杀、崩溃）时后端随之退出，
+// 不再残留占着端口。Docker / Web 部署不设置该变量，不受影响。
+const desktopParentPid = parseParentPid(process.env.NEXUS_PARENT_PID);
+if (desktopParentPid) {
+    watchParentProcess({
+        parentPid: desktopParentPid,
+        onParentGone: reason => {
+            if (shutdownRequested) return; // 已经在按 SIGINT/SIGTERM 正常退出
+            console.warn(`[Desktop] ${reason}，后端随之退出。`);
+            requestShutdown('PARENT_EXIT');
+        },
+    });
+}
 
 // --- 主程序启动流程 ---
 const main = async () => {

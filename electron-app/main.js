@@ -45,6 +45,7 @@ const fs = require('fs');
 const os = require('os');
 const iconv = require('iconv-lite');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const { PIDFILE_NAME, chooseBackendPort, writePidFile, removePidFile } = require('./backend-port');
 const { consumePortableUpdateResult, installPortableUpdate, shouldUsePortableFallback } = require('./updater-service');
 const {
   deriveManifestUrls,
@@ -92,7 +93,8 @@ let isAlwaysOnTop = false;
 let previousCpuTimes = null;
 const localTerminalSessions = new Map();
 const PROD_FRONTEND_PORT = 22457;
-const PROD_BACKEND_PORT = 22458;
+const PROD_BACKEND_PORT = 22458; // 首选端口；被占用且无法回收时改用空闲端口 (backend-port.js)
+let backendPort = PROD_BACKEND_PORT;
 // Both local servers bind to loopback only; nothing on the LAN may reach them.
 const LOCAL_BIND_ADDRESS = '127.0.0.1';
 // Per-launch secret shared only between this process and the backend child.
@@ -959,6 +961,21 @@ async function createWindow() {
 
     let backendRestartAttempts = 0;
     const maxBackendRestartAttempts = 3;
+    // 记录后端 PID 和端口：主进程被强杀后，下次启动据此识别并结束残留的后端
+    const backendPidFilePath = path.join(app.getPath('userData'), PIDFILE_NAME);
+    const BACKEND_EXIT_ADDRESS_IN_USE = 98; // 与后端 utils/parent-watch.ts 一致
+    let backendPortRetryUsed = false;
+    const selectBackendPort = async () => {
+      try {
+        const choice = await chooseBackendPort({ preferredPort: PROD_BACKEND_PORT, pidFilePath: backendPidFilePath, host: LOCAL_BIND_ADDRESS });
+        backendPort = choice.port;
+      } catch (error) {
+        console.error('[Backend Port] 选择后端端口失败，使用默认端口:', error);
+        backendPort = PROD_BACKEND_PORT;
+      }
+      if (frontendUrl) actualBackendUrlForFileDownloads = `http://localhost:${backendPort}`;
+      return backendPort;
+    };
 
     const startBackendProcess = (isRestart = false) => new Promise((resolveBackend, rejectBackend) => {
       const backendSpawn = getBackendSpawnSpec({
@@ -967,7 +984,9 @@ async function createWindow() {
         env: {
           ...process.env,
           APP_BACKEND_DATA_PATH: backendDataPath,
-          PORT: String(PROD_BACKEND_PORT),
+          PORT: String(backendPort),
+          // 后端监视这个 PID：主进程消失时后端随之退出，不会残留占着端口
+          NEXUS_PARENT_PID: String(process.pid),
           // 仅监听本机回环，局域网无法直接访问后端
           HOST: LOCAL_BIND_ADDRESS,
           BIND_ADDRESS: LOCAL_BIND_ADDRESS,
@@ -984,6 +1003,7 @@ async function createWindow() {
         env: backendSpawn.env,
       });
       backendProcess = child;
+      if (child.pid) writePidFile(backendPidFilePath, { pid: child.pid, port: backendPort });
 
       const backendReadyString = "BACKEND_READY_SIGNAL"; // 重要提示: 请确保您的后端服务在就绪时打印此确切字符串!
       let backendLogs = ""; // 用于在超时或错误时记录日志
@@ -1030,11 +1050,14 @@ async function createWindow() {
         if (isRestart) scheduleRestart();
       }, readyTimeoutDuration);
 
+      let stdoutTail = '';
       child.stdout.on('data', (data) => {
         const output = data.toString();
         console.log(`[Backend STDOUT]: ${output.trim()}`);
         appendBackendLog(output);
-        if (output.includes(backendReadyString)) {
+        // 就绪信号可能被 stdout 分块切开：在累计的尾部上匹配
+        stdoutTail = (stdoutTail + output).slice(-256);
+        if (!backendReadyResolved && stdoutTail.includes(backendReadyString)) {
           clearTimeout(readyTimeout);
           backendReadyResolved = true;
           console.log('[Backend Watcher] Backend ready signal received!');
@@ -1051,6 +1074,7 @@ async function createWindow() {
       child.on('close', (code) => {
         console.log(`[Backend Process] exited with code ${code}`);
         if (backendProcess === child) backendProcess = null;
+        removePidFile(backendPidFilePath, child.pid);
         if (isQuitting) {
           return;
         }
@@ -1059,6 +1083,17 @@ async function createWindow() {
           return;
         }
         if (startupFailureHandled) return;
+        if (code === BACKEND_EXIT_ADDRESS_IN_USE && !backendPortRetryUsed) {
+          // 端口在检查之后又被占用：换一个端口再试一次
+          backendPortRetryUsed = true;
+          startupFailureHandled = true;
+          clearTimeout(readyTimeout);
+          console.warn(`[Backend Watcher] Backend port ${backendPort} is in use, retrying with another port...`);
+          selectBackendPort()
+            .then(() => startBackendProcess(isRestart))
+            .then(resolveBackend, rejectBackend);
+          return;
+        }
         startupFailureHandled = true;
         clearTimeout(readyTimeout);
         const errorMessage = `后端进程在发出就绪信号前意外退出，退出码: ${code}。`;
@@ -1084,7 +1119,7 @@ async function createWindow() {
       });
     });
 
-    const backendReadyPromise = startBackendProcess();
+    const backendReadyPromise = selectBackendPort().then(() => startBackendProcess());
 
     // 启动 express 前端服务器
     expressApp = express();
@@ -1106,10 +1141,11 @@ async function createWindow() {
       req.headers[DESKTOP_PROXY_TOKEN_HEADER] = DESKTOP_PROXY_TOKEN;
       next();
     });
-    const backendTarget = `http://127.0.0.1:${PROD_BACKEND_PORT}`;
     const backendProxy = createProxyMiddleware({
       pathFilter: ['/api', '/uploads', '/ws'],
-      target: backendTarget,
+      target: `http://127.0.0.1:${PROD_BACKEND_PORT}`,
+      // 后端端口可能在启动时改变（首选端口被占用），每个请求按当前端口转发
+      router: () => `http://127.0.0.1:${backendPort}`,
       ws: true,
       changeOrigin: true,
     });
@@ -1141,7 +1177,7 @@ async function createWindow() {
       httpServer.listen(PROD_FRONTEND_PORT, LOCAL_BIND_ADDRESS, () => {
         frontendUrl = `http://localhost:${PROD_FRONTEND_PORT}`;
         frontendUrlForDownloads = frontendUrl;
-        actualBackendUrlForFileDownloads = `http://localhost:${PROD_BACKEND_PORT}`; // 生产模式下，直接指向后端服务
+        actualBackendUrlForFileDownloads = `http://localhost:${backendPort}`; // 生产模式下，直接指向后端服务
         console.log(`[Prod Mode] Frontend server started at ${frontendUrl}, serving from ${staticPath}`);
         console.log(`[Prod Mode] actualBackendUrlForFileDownloads set to: ${actualBackendUrlForFileDownloads}`);
         resolveFrontend();
@@ -1379,10 +1415,12 @@ app.on('before-quit', () => {
     console.log('Stopping backend process...');
     backendProcess.kill('SIGINT'); // 发送 SIGINT 信号，给后端一个优雅关闭的机会
     // 可以设置一个超时，如果后端没有在规定时间内退出，则强制kill
+    // 注意：child.killed 只表示信号已发出，不代表进程已退出；要看 exitCode / signalCode
+    const stoppingBackend = backendProcess;
     setTimeout(() => {
-        if (backendProcess && !backendProcess.killed) {
+        if (stoppingBackend.exitCode === null && stoppingBackend.signalCode === null) {
             console.warn('Backend process did not exit gracefully, forcing kill.');
-            backendProcess.kill('SIGKILL');
+            try { stoppingBackend.kill('SIGKILL'); } catch { /* already gone */ }
         }
     }, 5000); // 5秒超时
   }

@@ -1,5 +1,5 @@
 import { Database } from 'sqlite3';
-import { getDbInstance, runDb, getDb as getDbRow, allDb } from '../database/connection';
+import { getDbInstance, runDb, getDb as getDbRow, allDb, withTransaction } from '../database/connection';
 
 // 定义 Quick Command Tag 类型
 export interface QuickCommandTag {
@@ -107,27 +107,24 @@ export const setCommandTagAssociations = async (commandId: number, tagIds: numbe
     const insertSql = `INSERT INTO quick_command_tag_associations (quick_command_id, tag_id) VALUES (?, ?)`;
 
     try {
-        await runDb(db, 'BEGIN TRANSACTION');
-        // 1. 删除该指令的所有旧关联
-        await runDb(db, deleteSql, [commandId]);
+        await withTransaction(db, async () => {
+            // 1. 删除该指令的所有旧关联
+            await runDb(db, deleteSql, [commandId]);
 
-        // 2. 插入新关联 (如果 tagIds 不为空)
-        if (tagIds && tagIds.length > 0) {
-            const stmt = await db.prepare(insertSql);
-            for (const tagId of tagIds) {
-                 // 验证 tagId 是否为有效数字
-                 if (typeof tagId !== 'number' || isNaN(tagId)) {
-                     console.warn(`[Repo] setCommandTagAssociations: 无效的 tagId (${tagId})，跳过关联到指令 ${commandId}。`);
-                     continue;
-                 }
-                await stmt.run(commandId, tagId);
+            // 2. 插入新关联 (如果 tagIds 不为空)
+            if (tagIds && tagIds.length > 0) {
+                for (const tagId of tagIds) {
+                    // 验证 tagId 是否为有效数字
+                    if (typeof tagId !== 'number' || isNaN(tagId)) {
+                        console.warn(`[Repo] setCommandTagAssociations: 无效的 tagId (${tagId})，跳过关联到指令 ${commandId}。`);
+                        continue;
+                    }
+                    await runDb(db, insertSql, [commandId, tagId]);
+                }
             }
-            await stmt.finalize();
-        }
-        await runDb(db, 'COMMIT');
+        });
     } catch (err: any) {
         console.error('设置快捷指令标签关联时出错:', err.message);
-        await runDb(db, 'ROLLBACK'); // 出错时回滚
         throw new Error('无法设置快捷指令标签关联');
     }
 };
@@ -146,23 +143,19 @@ export const addTagToCommands = async (commandIds: number[], tagId: number): Pro
     const insertSql = `INSERT OR IGNORE INTO quick_command_tag_associations (quick_command_id, tag_id) VALUES (?, ?)`;
 
     try {
-        await runDb(db, 'BEGIN TRANSACTION');
-        // 准备批量插入语句
-        const stmt = await db.prepare(insertSql);
-        for (const commandId of commandIds) {
-            // 验证 commandId 和 tagId 是否为有效数字（可选，但推荐）
-            if (typeof commandId !== 'number' || isNaN(commandId) || typeof tagId !== 'number' || isNaN(tagId)) {
-                 console.warn(`[Repo] addTagToCommands: 无效的 commandId (${commandId}) 或 tagId (${tagId})，跳过关联。`);
-                 continue;
+        await withTransaction(db, async () => {
+            for (const commandId of commandIds) {
+                // 验证 commandId 和 tagId 是否为有效数字（可选，但推荐）
+                if (typeof commandId !== 'number' || isNaN(commandId) || typeof tagId !== 'number' || isNaN(tagId)) {
+                    console.warn(`[Repo] addTagToCommands: 无效的 commandId (${commandId}) 或 tagId (${tagId})，跳过关联。`);
+                    continue;
+                }
+                await runDb(db, insertSql, [commandId, tagId]);
             }
-            await stmt.run(commandId, tagId);
-        }
-        await stmt.finalize(); // 完成批量插入
-        await runDb(db, 'COMMIT');
+        });
         console.log(`[Repo] addTagToCommands: 成功将标签 ${tagId} 关联到 ${commandIds.length} 个指令。`);
     } catch (err: any) {
         console.error(`[Repo] addTagToCommands: 批量关联标签 ${tagId} 到指令时出错:`, err.message);
-        await runDb(db, 'ROLLBACK');
         throw new Error('无法批量关联标签到快捷指令');
     }
 };

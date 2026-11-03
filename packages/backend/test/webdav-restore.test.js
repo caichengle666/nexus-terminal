@@ -197,5 +197,6 @@ test('full backups skip the reserved restore directory', async t => {
   const archive = await createFullBackup(dataPath, 'correct-passphrase');
   const extracted = extractFullBackup(archive.buffer, 'correct-passphrase', path.join(root, 'out'));
   assert.equal(fs.existsSync(path.join(extracted.dataPath, RESTORE_RESERVED_DIR)), false);
-  assert.equal(extracted.manifest.fileCount, 4);
+  // .db、.env 进入备份；sessions/ 与 -wal 属于临时数据，不再打包
+  assert.equal(extracted.manifest.fileCount, 2);
 });

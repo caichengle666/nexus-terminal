@@ -3,7 +3,7 @@ import * as ConnectionRepository from '../connections/connection.repository';
 import * as ProxyRepository from '../proxies/proxy.repository';
 import * as TagService from '../tags/tag.service';
 import { encrypt } from '../utils/crypto'; 
-import { getDbInstance, runDb, getDb as getDbRow, allDb } from '../database/connection';
+import { getDbInstance, runDb, getDb as getDbRow, allDb, withTransaction } from '../database/connection';
 import { decrypt, getEncryptionKeyBuffer as getCryptoKeyBuffer } from '../utils/crypto'; 
 import { getAllDecryptedSshKeys, DecryptedSshKeyDetails } from '../ssh_keys/ssh_key.service'; 
 import { EncryptedZipArchive } from '../utils/encrypted-zip-archive';
@@ -667,233 +667,229 @@ export const importConnections = async (fileBuffer: Buffer): Promise<ImportResul
     const db = await getDbInstance();
 
     try {
-        await runDb(db, 'BEGIN TRANSACTION');
+        // 串行化事务：期间其他请求的写入排队等待，失败时只回滚本次导入
+        await withTransaction(db, async () => {
 
-        // Create/reuse tags by name
-        const tagNameToId: { [name: string]: number } = {};
-        for (const tagName of importTags.map(t => t.name)) {
-            try {
-                const existing = await TagService.getTagByName(tagName);
-                if (existing) {
-                    tagNameToId[tagName] = existing.id;
-                } else {
-                    const newTag = await TagService.createTag(tagName);
-                    tagNameToId[tagName] = newTag.id;
-                }
-            } catch (err: any) {
-                if (err.message.includes('已存在')) {
-                    const existing = await TagService.getTagByName(tagName);
-                    if (existing) tagNameToId[tagName] = existing.id;
-                } else {
-                    console.warn(`Service: 创建标签 "${tagName}" 失败: ${err.message}`);
-                }
-            }
-        }
-
-        // Import SSH keys
-        const sshKeyNameToId: { [name: string]: number } = {};
-        if (importSshKeys.length > 0) {
-            
-            for (const keyData of importSshKeys) {
+            // Create/reuse tags by name
+            const tagNameToId: { [name: string]: number } = {};
+            for (const tagName of importTags.map(t => t.name)) {
                 try {
-                    const existingKeys = await getAllDecryptedSshKeys();
-                    const existing = existingKeys.find(k => k.name === keyData.name);
+                    const existing = await TagService.getTagByName(tagName);
                     if (existing) {
-                        sshKeyNameToId[keyData.name] = existing.id!;
+                        tagNameToId[tagName] = existing.id;
                     } else {
-                        const encKey = encrypt(keyData.private_key);
-                        const encPassphrase = keyData.passphrase ? encrypt(keyData.passphrase) : null;
-                        const insertKeySql = `INSERT INTO ssh_keys (name, encrypted_private_key, encrypted_passphrase) VALUES (?, ?, ?)`;
-                        const result = await runDb(db, insertKeySql, [keyData.name, encKey, encPassphrase]);
-                        sshKeyNameToId[keyData.name] = result.lastID;
+                        const newTag = await TagService.createTag(tagName);
+                        tagNameToId[tagName] = newTag.id;
                     }
                 } catch (err: any) {
-                    console.warn(`Service: 导入 SSH 密钥 "${keyData.name}" 失败: ${err.message}`);
-                }
-            }
-        }
-
-        type ConnectionToInsert = Omit<ConnectionRepository.FullConnectionData, 'id' | 'created_at' | 'updated_at' | 'last_connected_at'> & {
-            tag_ids?: number[];
-            tag_names?: string[];
-            ssh_key_id?: number | null;
-            notes?: string | null;
-            // 仅用于第二遍解析跳板机链 (不写入数据库)
-            import_old_id?: number | null;
-            import_jump_chain_names?: string[] | null;
-            import_jump_chain_old_ids?: number[] | null;
-            import_port_forwards?: unknown[] | null;
-        };
-        const connectionsToInsert: ConnectionToInsert[] = [];
-        const proxyCache: { [key: string]: number } = {};
-
-        for (const connData of importedData) {
-             try {
-
-                // Validate imported data, including type
-                if (!connData.type || !['SSH', 'RDP', 'VNC'].includes(connData.type)) {
-                    throw new Error('缺少或无效的连接类型 (type)。');
-                }
-                if (!connData.name || !connData.host || !connData.port || !connData.username) {
-                    throw new Error('缺少必要的连接字段 (name, host, port, username)。');
-                }
-                // Validate SSH specific fields only if type is SSH
-                if (connData.type === 'SSH' && (!connData.auth_method || !['password', 'key'].includes(connData.auth_method))) {
-                     throw new Error('SSH 连接缺少有效的认证方式 (auth_method)。');
-                }
-                // RDP specific validation (e.g., password required) could be added here if needed
-
-
-                let proxyIdToUse: number | null = null;
-
-                if (connData.proxy) {
-                    const proxyData = connData.proxy;
-                    if (!proxyData.name || !proxyData.type || !proxyData.host || !proxyData.port) {
-                        throw new Error('代理信息不完整 (缺少 name, type, host, port)。');
-                    }
-                    const cacheKey = `${proxyData.name}-${proxyData.type}-${proxyData.host}-${proxyData.port}`;
-                    if (proxyCache[cacheKey]) {
-                        proxyIdToUse = proxyCache[cacheKey];
+                    if (err.message.includes('已存在')) {
+                        const existing = await TagService.getTagByName(tagName);
+                        if (existing) tagNameToId[tagName] = existing.id;
                     } else {
-                        const existingProxy = await ProxyRepository.findProxyByNameTypeHostPort(proxyData.name, proxyData.type, proxyData.host, proxyData.port);
-                        if (existingProxy) {
-                            proxyIdToUse = existingProxy.id;
+                        console.warn(`Service: 创建标签 "${tagName}" 失败: ${err.message}`);
+                    }
+                }
+            }
+
+            // Import SSH keys
+            const sshKeyNameToId: { [name: string]: number } = {};
+            if (importSshKeys.length > 0) {
+            
+                for (const keyData of importSshKeys) {
+                    try {
+                        const existingKeys = await getAllDecryptedSshKeys();
+                        const existing = existingKeys.find(k => k.name === keyData.name);
+                        if (existing) {
+                            sshKeyNameToId[keyData.name] = existing.id!;
                         } else {
-                            const newProxyData: Omit<ProxyRepository.ProxyData, 'id' | 'created_at' | 'updated_at'> = {
-                                name: proxyData.name,
-                                type: proxyData.type,
-                                host: proxyData.host,
-                                port: proxyData.port,
-                                username: proxyData.username || null,
-                                auth_method: proxyData.auth_method || 'none',
-                                encrypted_password: proxyData.encrypted_password || null,
-                                encrypted_private_key: proxyData.encrypted_private_key || null,
-                                encrypted_passphrase: proxyData.encrypted_passphrase || null,
-                            };
-                            proxyIdToUse = await ProxyRepository.createProxy(newProxyData);
-                            console.log(`Service: 导入连接 ${connData.name}: 新代理 ${proxyData.name} 创建成功 (ID: ${proxyIdToUse})`);
+                            const encKey = encrypt(keyData.private_key);
+                            const encPassphrase = keyData.passphrase ? encrypt(keyData.passphrase) : null;
+                            const insertKeySql = `INSERT INTO ssh_keys (name, encrypted_private_key, encrypted_passphrase) VALUES (?, ?, ?)`;
+                            const result = await runDb(db, insertKeySql, [keyData.name, encKey, encPassphrase]);
+                            sshKeyNameToId[keyData.name] = result.lastID;
                         }
-                        if (proxyIdToUse) proxyCache[cacheKey] = proxyIdToUse; 
-                    }
-                }
-
-                // Prepare data for repository, ensuring correct auth_method for RDP
-                const authMethodForDb = (connData.type === 'RDP' || connData.type === 'VNC') ? 'password' : connData.auth_method!;
-                let sshKeyId: number | null = null;
-                if (connData.ssh_key_name && sshKeyNameToId[connData.ssh_key_name]) {
-                    sshKeyId = sshKeyNameToId[connData.ssh_key_name];
-                }
-                const encPassword = connData.password ? encrypt(connData.password) : (connData.encrypted_password || null);
-                const encPrivateKey = connData.private_key ? encrypt(connData.private_key) : (connData.encrypted_private_key || null);
-                const encPassphrase = connData.passphrase ? encrypt(connData.passphrase) : (connData.encrypted_passphrase || null);
-
-                // 跳板机链 (仅 SSH)：第一遍只记录，插入全部连接后再解析为新 ID
-                const jumpNames = connData.type === 'SSH' && Array.isArray(connData.jump_chain_names)
-                    ? connData.jump_chain_names.map(n => (typeof n === 'string' ? n : ''))
-                    : null;
-                const jumpOldIds = connData.type === 'SSH' && Array.isArray(connData.jump_chain)
-                    ? connData.jump_chain.filter((id): id is number => typeof id === 'number')
-                    : null;
-                const hasJumpChain = (jumpNames?.length ?? 0) > 0 || (jumpOldIds?.length ?? 0) > 0;
-                let proxyTypeForDb: 'proxy' | 'jump' | null = null;
-                if (connData.type === 'SSH') {
-                    if (connData.proxy_type === 'proxy' || connData.proxy_type === 'jump') {
-                        proxyTypeForDb = connData.proxy_type;
-                    } else if (hasJumpChain) {
-                        proxyTypeForDb = 'jump';
-                    } else if (proxyIdToUse) {
-                        proxyTypeForDb = 'proxy';
-                    }
-                }
-
-                connectionsToInsert.push({
-                    name: connData.name,
-                    type: connData.type,
-                    host: connData.host,
-                    port: connData.port,
-                    username: connData.username,
-                    auth_method: authMethodForDb,
-                    encrypted_password: encPassword,
-                    encrypted_private_key: encPrivateKey,
-                    encrypted_passphrase: encPassphrase,
-                    proxy_id: proxyIdToUse,
-                    proxy_type: proxyTypeForDb,
-                    ssh_key_id: sshKeyId,
-                    notes: connData.notes || null,
-                    tag_ids: [],
-                    tag_names: connData.tag_names || [],
-                    jump_chain: null, // 第二遍解析后更新
-                    import_old_id: typeof connData.id === 'number' ? connData.id : null,
-                    import_jump_chain_names: jumpNames,
-                    import_jump_chain_old_ids: jumpOldIds,
-                    import_port_forwards: connData.type === 'SSH' && Array.isArray(connData.port_forwards) ? connData.port_forwards : null,
-                });
-
-            } catch (connError: any) {
-                failureCount++;
-                errors.push({ connectionName: connData.name || '未知连接', message: connError.message });
-                console.warn(`Service: 处理导入连接 "${connData.name || '未知'}" 时出错: ${connError.message}`);
-            }
-        } 
-        let insertedResults: { connectionId: number, originalData: any }[] = [];
-        if (connectionsToInsert.length > 0) {
-
-             insertedResults = await ConnectionRepository.bulkInsertConnections(db, connectionsToInsert);
-             successCount = insertedResults.length;
-        }
-
-        // 第二遍：将跳板机 (名称 / 原 ID) 解析为新 ID 并更新 jump_chain
-        const jumpWarnings = await resolveImportedJumpChains(db, insertedResults);
-        errors.push(...jumpWarnings);
-
-        // 端口转发规则：挂到新连接 ID 上；单条不合法只跳过并给出提示
-        const insertPortForwardSql = `INSERT INTO port_forwards (connection_id, type, bind_host, bind_port, target_host, target_port, auto_start) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-        for (const result of insertedResults) {
-            const rawRules = result.originalData?.import_port_forwards;
-            if (!Array.isArray(rawRules)) continue;
-            let skipped = 0;
-            for (const raw of rawRules) {
-                const rule = normalizeImportedPortForward(raw);
-                if (!rule) { skipped++; continue; }
-                await runDb(db, insertPortForwardSql, [
-                    result.connectionId, rule.type, rule.bind_host, rule.bind_port,
-                    rule.target_host ?? null, rule.target_port ?? null, rule.auto_start ? 1 : 0,
-                ]);
-            }
-            if (skipped > 0) {
-                errors.push({ connectionName: result.originalData?.name, message: `跳过 ${skipped} 条无效的端口转发规则` });
-            }
-        }
-
-        const insertTagSql = `INSERT OR IGNORE INTO connection_tags (connection_id, tag_id) VALUES (?, ?)`;
-        for (const result of insertedResults) {
-            const tagNames = result.originalData?.tag_names as string[] | undefined;
-            if (tagNames && Array.isArray(tagNames) && tagNames.length > 0) {
-                for (const tagName of tagNames) {
-                    const tagId = tagNameToId[tagName];
-                    if (tagId) {
-                        await runDb(db, insertTagSql, [result.connectionId, tagId]).catch(tagError => {
-                            console.warn(`Service: 导入连接 ${result.originalData.name}: 关联标签 "${tagName}" 失败: ${tagError.message}`);
-                        });
+                    } catch (err: any) {
+                        console.warn(`Service: 导入 SSH 密钥 "${keyData.name}" 失败: ${err.message}`);
                     }
                 }
             }
-        }
+
+            type ConnectionToInsert = Omit<ConnectionRepository.FullConnectionData, 'id' | 'created_at' | 'updated_at' | 'last_connected_at'> & {
+                tag_ids?: number[];
+                tag_names?: string[];
+                ssh_key_id?: number | null;
+                notes?: string | null;
+                // 仅用于第二遍解析跳板机链 (不写入数据库)
+                import_old_id?: number | null;
+                import_jump_chain_names?: string[] | null;
+                import_jump_chain_old_ids?: number[] | null;
+                import_port_forwards?: unknown[] | null;
+            };
+            const connectionsToInsert: ConnectionToInsert[] = [];
+            const proxyCache: { [key: string]: number } = {};
+
+            for (const connData of importedData) {
+                 try {
+
+                    // Validate imported data, including type
+                    if (!connData.type || !['SSH', 'RDP', 'VNC'].includes(connData.type)) {
+                        throw new Error('缺少或无效的连接类型 (type)。');
+                    }
+                    if (!connData.name || !connData.host || !connData.port || !connData.username) {
+                        throw new Error('缺少必要的连接字段 (name, host, port, username)。');
+                    }
+                    // Validate SSH specific fields only if type is SSH
+                    if (connData.type === 'SSH' && (!connData.auth_method || !['password', 'key'].includes(connData.auth_method))) {
+                         throw new Error('SSH 连接缺少有效的认证方式 (auth_method)。');
+                    }
+                    // RDP specific validation (e.g., password required) could be added here if needed
+
+
+                    let proxyIdToUse: number | null = null;
+
+                    if (connData.proxy) {
+                        const proxyData = connData.proxy;
+                        if (!proxyData.name || !proxyData.type || !proxyData.host || !proxyData.port) {
+                            throw new Error('代理信息不完整 (缺少 name, type, host, port)。');
+                        }
+                        const cacheKey = `${proxyData.name}-${proxyData.type}-${proxyData.host}-${proxyData.port}`;
+                        if (proxyCache[cacheKey]) {
+                            proxyIdToUse = proxyCache[cacheKey];
+                        } else {
+                            const existingProxy = await ProxyRepository.findProxyByNameTypeHostPort(proxyData.name, proxyData.type, proxyData.host, proxyData.port);
+                            if (existingProxy) {
+                                proxyIdToUse = existingProxy.id;
+                            } else {
+                                const newProxyData: Omit<ProxyRepository.ProxyData, 'id' | 'created_at' | 'updated_at'> = {
+                                    name: proxyData.name,
+                                    type: proxyData.type,
+                                    host: proxyData.host,
+                                    port: proxyData.port,
+                                    username: proxyData.username || null,
+                                    auth_method: proxyData.auth_method || 'none',
+                                    encrypted_password: proxyData.encrypted_password || null,
+                                    encrypted_private_key: proxyData.encrypted_private_key || null,
+                                    encrypted_passphrase: proxyData.encrypted_passphrase || null,
+                                };
+                                proxyIdToUse = await ProxyRepository.createProxy(newProxyData);
+                                console.log(`Service: 导入连接 ${connData.name}: 新代理 ${proxyData.name} 创建成功 (ID: ${proxyIdToUse})`);
+                            }
+                            if (proxyIdToUse) proxyCache[cacheKey] = proxyIdToUse; 
+                        }
+                    }
+
+                    // Prepare data for repository, ensuring correct auth_method for RDP
+                    const authMethodForDb = (connData.type === 'RDP' || connData.type === 'VNC') ? 'password' : connData.auth_method!;
+                    let sshKeyId: number | null = null;
+                    if (connData.ssh_key_name && sshKeyNameToId[connData.ssh_key_name]) {
+                        sshKeyId = sshKeyNameToId[connData.ssh_key_name];
+                    }
+                    const encPassword = connData.password ? encrypt(connData.password) : (connData.encrypted_password || null);
+                    const encPrivateKey = connData.private_key ? encrypt(connData.private_key) : (connData.encrypted_private_key || null);
+                    const encPassphrase = connData.passphrase ? encrypt(connData.passphrase) : (connData.encrypted_passphrase || null);
+
+                    // 跳板机链 (仅 SSH)：第一遍只记录，插入全部连接后再解析为新 ID
+                    const jumpNames = connData.type === 'SSH' && Array.isArray(connData.jump_chain_names)
+                        ? connData.jump_chain_names.map(n => (typeof n === 'string' ? n : ''))
+                        : null;
+                    const jumpOldIds = connData.type === 'SSH' && Array.isArray(connData.jump_chain)
+                        ? connData.jump_chain.filter((id): id is number => typeof id === 'number')
+                        : null;
+                    const hasJumpChain = (jumpNames?.length ?? 0) > 0 || (jumpOldIds?.length ?? 0) > 0;
+                    let proxyTypeForDb: 'proxy' | 'jump' | null = null;
+                    if (connData.type === 'SSH') {
+                        if (connData.proxy_type === 'proxy' || connData.proxy_type === 'jump') {
+                            proxyTypeForDb = connData.proxy_type;
+                        } else if (hasJumpChain) {
+                            proxyTypeForDb = 'jump';
+                        } else if (proxyIdToUse) {
+                            proxyTypeForDb = 'proxy';
+                        }
+                    }
+
+                    connectionsToInsert.push({
+                        name: connData.name,
+                        type: connData.type,
+                        host: connData.host,
+                        port: connData.port,
+                        username: connData.username,
+                        auth_method: authMethodForDb,
+                        encrypted_password: encPassword,
+                        encrypted_private_key: encPrivateKey,
+                        encrypted_passphrase: encPassphrase,
+                        proxy_id: proxyIdToUse,
+                        proxy_type: proxyTypeForDb,
+                        ssh_key_id: sshKeyId,
+                        notes: connData.notes || null,
+                        tag_ids: [],
+                        tag_names: connData.tag_names || [],
+                        jump_chain: null, // 第二遍解析后更新
+                        import_old_id: typeof connData.id === 'number' ? connData.id : null,
+                        import_jump_chain_names: jumpNames,
+                        import_jump_chain_old_ids: jumpOldIds,
+                        import_port_forwards: connData.type === 'SSH' && Array.isArray(connData.port_forwards) ? connData.port_forwards : null,
+                    });
+
+                } catch (connError: any) {
+                    failureCount++;
+                    errors.push({ connectionName: connData.name || '未知连接', message: connError.message });
+                    console.warn(`Service: 处理导入连接 "${connData.name || '未知'}" 时出错: ${connError.message}`);
+                }
+            } 
+            let insertedResults: { connectionId: number, originalData: any }[] = [];
+            if (connectionsToInsert.length > 0) {
+
+                 insertedResults = await ConnectionRepository.bulkInsertConnections(db, connectionsToInsert);
+                 successCount = insertedResults.length;
+            }
+
+            // 第二遍：将跳板机 (名称 / 原 ID) 解析为新 ID 并更新 jump_chain
+            const jumpWarnings = await resolveImportedJumpChains(db, insertedResults);
+            errors.push(...jumpWarnings);
+
+            // 端口转发规则：挂到新连接 ID 上；单条不合法只跳过并给出提示
+            const insertPortForwardSql = `INSERT INTO port_forwards (connection_id, type, bind_host, bind_port, target_host, target_port, auto_start) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+            for (const result of insertedResults) {
+                const rawRules = result.originalData?.import_port_forwards;
+                if (!Array.isArray(rawRules)) continue;
+                let skipped = 0;
+                for (const raw of rawRules) {
+                    const rule = normalizeImportedPortForward(raw);
+                    if (!rule) { skipped++; continue; }
+                    await runDb(db, insertPortForwardSql, [
+                        result.connectionId, rule.type, rule.bind_host, rule.bind_port,
+                        rule.target_host ?? null, rule.target_port ?? null, rule.auto_start ? 1 : 0,
+                    ]);
+                }
+                if (skipped > 0) {
+                    errors.push({ connectionName: result.originalData?.name, message: `跳过 ${skipped} 条无效的端口转发规则` });
+                }
+            }
+
+            const insertTagSql = `INSERT OR IGNORE INTO connection_tags (connection_id, tag_id) VALUES (?, ?)`;
+            for (const result of insertedResults) {
+                const tagNames = result.originalData?.tag_names as string[] | undefined;
+                if (tagNames && Array.isArray(tagNames) && tagNames.length > 0) {
+                    for (const tagName of tagNames) {
+                        const tagId = tagNameToId[tagName];
+                        if (tagId) {
+                            await runDb(db, insertTagSql, [result.connectionId, tagId]).catch(tagError => {
+                                console.warn(`Service: 导入连接 ${result.originalData.name}: 关联标签 "${tagName}" 失败: ${tagError.message}`);
+                            });
+                        }
+                    }
+                }
+            }
 
 
 
-        await runDb(db, 'COMMIT');
+        });
         console.log(`Service: 导入事务提交。成功: ${successCount}, 失败: ${failureCount}`);
         return { successCount, failureCount, errors };
 
     } catch (error: any) {
 
         console.error('Service: 导入事务处理出错，正在回滚:', error);
-        try {
-            await runDb(db, 'ROLLBACK');
-        } catch (rollbackErr: any) {
-            console.error("Service: 回滚事务失败:", rollbackErr);
-        }
         failureCount = importedData.length;
         successCount = 0;
         errors.push({ message: `事务处理失败: ${error.message}` });

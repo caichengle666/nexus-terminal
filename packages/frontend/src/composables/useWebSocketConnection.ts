@@ -29,6 +29,10 @@ export function createWebSocketConnectionManager(
          * 默认请求 GET /api/v1/auth/status；测试可注入。
          */
         probeAuth?: () => Promise<boolean | null>;
+        /** 应用层存活探测间隔（默认 20 秒）；测试可注入。 */
+        livenessIntervalMs?: number;
+        /** 发出 ping 后多久没有收到任何消息就判定连接已失效（默认 10 秒）；测试可注入。 */
+        pongTimeoutMs?: number;
     }
 ) {
     // --- Instance State ---
@@ -77,6 +81,22 @@ export function createWebSocketConnectionManager(
     let sftpFullReconnectAttempts = 0;
     const maxSftpFullReconnectAttempts = 2;
     let sftpStableResetTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * 应用层存活探测：笔记本休眠唤醒、切换网络后，浏览器里的 WebSocket 可能一直停在 OPEN（半开连接），
+     * 要等 TCP 超时（可能好几分钟）才触发 close，这期间输入全部丢失。
+     * 连接空闲 LIVENESS_INTERVAL_MS 后发一次 {type:'ping'}，后端回 pong；之后 PONG_TIMEOUT_MS 内
+     * 没有收到任何消息（任何消息都能证明连接还活着）就判定失效，主动丢弃这个 socket，走现有的自动重连
+     * （同一个 sessionId，后端在保留期内接回原 SSH 会话）。
+     */
+    const LIVENESS_INTERVAL_MS = options?.livenessIntervalMs ?? 20_000;
+    const PONG_TIMEOUT_MS = options?.pongTimeoutMs ?? 10_000;
+    /** 当前 socket 的“立即探测一次”入口（online / 页面重新可见时调用） */
+    let probeCurrentSocket: ((reason: string) => void) | null = null;
+    /** 存活探测用的定时器不应让 Node（测试环境）保持运行；浏览器里返回的是数字，没有 unref。 */
+    const unrefTimer = <T,>(timer: T): T => {
+        (timer as { unref?: () => void } | null)?.unref?.();
+        return timer;
+    };
 
     const clearSftpStableReset = () => {
         if (sftpStableResetTimeoutId) clearTimeout(sftpStableResetTimeoutId);
@@ -229,11 +249,21 @@ export function createWebSocketConnectionManager(
         return true;
     };
 
+    /**
+     * 立即检查当前连接是否还活着：正在等待自动重连时直接重连；连接显示为 OPEN 时马上发一次 ping，
+     * 不用等下一个探测周期（休眠唤醒 / 换网络后，旧连接很可能已经是半开的）。
+     */
+    const checkConnectionNow = (reason: string): void => {
+        if (retryNow(reason)) return;
+        if (intentionalDisconnect) return;
+        if (ws.value && ws.value.readyState === WebSocket.OPEN) probeCurrentSocket?.(reason);
+    };
+
     // --- 浏览器层面的「网络可能恢复了」信号 ---
-    const onBrowserOnline = () => { retryNow('online'); };
+    const onBrowserOnline = () => { checkConnectionNow('online'); };
     const onVisibilityChange = () => {
         // 锁屏 / 切后台 / 合盖回来时定时器可能被节流，回到前台立即补一次
-        if (typeof document !== 'undefined' && document.visibilityState === 'visible') retryNow('visibilitychange');
+        if (typeof document !== 'undefined' && document.visibilityState === 'visible') checkConnectionNow('visibilitychange');
     };
     const canListen = typeof window !== 'undefined' && typeof window.addEventListener === 'function'
         && typeof document !== 'undefined' && typeof document.addEventListener === 'function';
@@ -250,6 +280,7 @@ export function createWebSocketConnectionManager(
         }
         clearReconnectTimer();
         clearSftpStableReset();
+        probeCurrentSocket = null;
     };
 
     /**
@@ -347,6 +378,76 @@ export function createWebSocketConnectionManager(
             // 每个处理器只对"当前" socket 生效：被替换掉的 socket 的事件一律忽略。
             const isCurrentSocket = () => ws.value === socket;
 
+            // --- 本 socket 的存活探测 ---
+            let lastMessageAt = Date.now();
+            let livenessTimer: ReturnType<typeof setTimeout> | null = null;
+            let pongTimer: ReturnType<typeof setTimeout> | null = null;
+            let pingSentAt = 0;
+            let livenessSupported = true;
+            const stopLiveness = () => {
+                if (livenessTimer) clearTimeout(livenessTimer);
+                if (pongTimer) clearTimeout(pongTimer);
+                livenessTimer = null;
+                pongTimer = null;
+                pingSentAt = 0;
+                if (probeCurrentSocket === probeThisSocket) probeCurrentSocket = null;
+            };
+            const socketIsLive = () => isCurrentSocket() && socket.readyState === WebSocket.OPEN && livenessSupported && !intentionalDisconnect;
+            const scheduleLiveness = (delay: number) => {
+                if (livenessTimer) clearTimeout(livenessTimer);
+                livenessTimer = unrefTimer(setTimeout(() => {
+                    livenessTimer = null;
+                    if (!socketIsLive()) { stopLiveness(); return; }
+                    const idleFor = Date.now() - lastMessageAt;
+                    if (idleFor < LIVENESS_INTERVAL_MS) {
+                        scheduleLiveness(LIVENESS_INTERVAL_MS - idleFor); // 最近有数据，连接是活的
+                        return;
+                    }
+                    sendLivenessPing();
+                }, Math.max(0, delay)));
+            };
+            const declareDead = () => {
+                console.warn(`[WebSocket ${instanceSessionId}] ${PONG_TIMEOUT_MS / 1000} 秒内没有收到 pong，判定连接已失效（半开），主动断开并重连。`);
+                stopLiveness();
+                dispatchMessage('internal:reconnect-status', { phase: 'unresponsive' }, { type: 'internal:reconnect-status' });
+                // 半开连接上 close() 的关闭握手可能要等很久才触发 onclose：先摘掉处理器，再手动走一遍 onclose 的重连逻辑
+                const closeHandler = socket.onclose;
+                discardSocket(socket, 'heartbeat timeout');
+                closeHandler?.call(socket, { code: 4000, reason: 'heartbeat timeout', wasClean: false } as CloseEvent);
+            };
+            const sendLivenessPing = () => {
+                if (!socketIsLive()) { stopLiveness(); return; }
+                if (pongTimer) return; // 已有一个探测在等待响应
+                pingSentAt = Date.now();
+                try {
+                    socket.send(JSON.stringify({ type: 'ping', payload: { t: pingSentAt } }));
+                } catch {
+                    // 在已失效的连接上 send 可能抛错：交给下面的超时判定
+                }
+                pongTimer = unrefTimer(setTimeout(() => {
+                    pongTimer = null;
+                    if (!socketIsLive()) { stopLiveness(); return; }
+                    if (lastMessageAt >= pingSentAt) {
+                        scheduleLiveness(LIVENESS_INTERVAL_MS);
+                        return;
+                    }
+                    // 定时器本身被休眠 / 后台节流严重推迟时，pong 可能还没来得及到：重新探测一次再下结论
+                    if (Date.now() - pingSentAt > PONG_TIMEOUT_MS * 3) {
+                        sendLivenessPing();
+                        return;
+                    }
+                    declareDead();
+                }, PONG_TIMEOUT_MS));
+            };
+            const probeThisSocket = (reason: string) => {
+                if (!socketIsLive() || pongTimer) return;
+                console.log(`[WebSocket ${instanceSessionId}] 立即检查连接是否存活（触发：${reason}）`);
+                sendLivenessPing();
+            };
+            const noteMessageReceived = () => {
+                lastMessageAt = Date.now();
+            };
+
             socket.onopen = () => {
                 if (!isCurrentSocket()) {
                     discardSocket(socket, '连接已被替换');
@@ -354,6 +455,9 @@ export function createWebSocketConnectionManager(
                 }
                 socketOpened = true;
                 preOpenFailures = 0;
+                lastMessageAt = Date.now();
+                probeCurrentSocket = probeThisSocket;
+                scheduleLiveness(LIVENESS_INTERVAL_MS);
                 // 注意：WebSocket 打开不代表 SSH 已连上（SSH 握手/认证可能随后失败并关闭连接），
                 // 重连计数只在收到 ssh:connected（或恢复流程打开）后才重置，否则会无限重试且计数一直停在 1。
                 statusMessage.value = getStatusText('wsConnected');
@@ -378,9 +482,19 @@ export function createWebSocketConnectionManager(
 
             socket.onmessage = (event: MessageEvent) => {
                 if (!isCurrentSocket()) return;
+                noteMessageReceived();
                 try {
                     const rawData = event.data;
                     const message: WebSocketMessage = JSON.parse(rawData.toString());
+
+                    // 存活探测的响应只用来证明连接活着，不分发
+                    if (message.type === 'pong') return;
+                    // 旧版本后端不认识 ping：会回一条“不支持的消息类型”错误。停用探测，且不把会话标成出错。
+                    if (message.type === 'error' && typeof message.payload === 'string' && /\bping\b/.test(message.payload)) {
+                        livenessSupported = false;
+                        stopLiveness();
+                        return;
+                    }
 
                     // --- 更新此实例的连接状态 ---
                     if (message.type === 'ssh:connected') {
@@ -476,6 +590,7 @@ export function createWebSocketConnectionManager(
 
             socket.onerror = (event) => {
                 if (!isCurrentSocket()) return;
+                stopLiveness();
                 // 即将自动重连时不把状态打成 error（状态灯不再 黄→红→黄 闪），由 onclose 统一调度
                 if (intentionalDisconnect && connectionStatus.value !== 'disconnected' && connectionStatus.value !== 'error') {
                     connectionStatus.value = 'error';
@@ -492,6 +607,7 @@ export function createWebSocketConnectionManager(
                 // ws.value 为 null 表示本 socket 已被 onerror / disconnect() 清理，但尚未被新 socket 替换；
                 // 若 ws.value 已指向另一个 socket，则本事件来自过期连接，不得影响新连接的状态或安排重连。
                 if (ws.value !== null && ws.value !== socket) return;
+                stopLiveness();
                 // 只有在非错误、非断开、也不在重连排期中时才更新为 disconnected（保留「正在重连」状态，避免闪烁）
                 if (connectionStatus.value !== 'error' && connectionStatus.value !== 'disconnected' && connectionStatus.value !== 'connecting') {
                     connectionStatus.value = 'disconnected';
@@ -744,6 +860,8 @@ export function createWebSocketConnectionManager(
         onMessage,
         /** 跳过退避等待立即重连（网络恢复 / 页面重新可见 / 断线时键盘输入） */
         retryNow,
+        /** 立即检查连接：等待重连时直接重连，连接显示为打开时马上做一次存活探测 */
+        checkConnectionNow,
         /** 会话关闭时调用：摘掉全局监听器与定时器 */
         dispose,
     };
