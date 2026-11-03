@@ -25,6 +25,14 @@ export function initializeUpgradeHandler(
     sessionParser: RequestHandler
 ): void {
     server.on('upgrade', async (request: Request, socket: Duplex, head: Buffer) => {
+        // Node 交出 upgrade socket 时不再挂 error 监听；鉴权期间有多处 await，
+        // 客户端此时 RST 后再写入会 emit 'error'，没有监听器就会让整个进程崩溃。
+        const onSocketError = (err: Error) => {
+            console.warn(`WebSocket: 升级握手期间套接字出错 (${(err as any)?.code || err?.message || err})，已丢弃该连接。`);
+            try { socket.destroy(); } catch { /* ignore */ }
+        };
+        socket.on('error', onSocketError);
+        const socketGone = () => socket.destroyed || (socket as any).writable === false;
 
         const parsedUrl = url.parse(request.url || '', true); // Parse URL and query string
         const pathname = parsedUrl.pathname;
@@ -57,6 +65,7 @@ export function initializeUpgradeHandler(
             rejectUpgrade(socket, 500, 'Internal Server Error');
             return;
         }
+        if (socketGone()) return;
         if (!ipAllowed) {
             console.warn(`WebSocket: 已拒绝来自 IP ${ipAddress} 的升级请求 (不在白名单内)。`);
             rejectUpgrade(socket, 403, 'Forbidden');
@@ -65,6 +74,7 @@ export function initializeUpgradeHandler(
 
         // @ts-ignore Express-session 类型问题
         sessionParser(request, {} as any, async () => {
+            if (socketGone()) return;
             // --- 认证检查 ---
             if (!request.session || !request.session.userId || (request.session as any).requiresTwoFactor) {
                 console.log(`WebSocket 认证失败 (Path: ${pathname})：未找到会话或用户未登录。`);
@@ -80,6 +90,7 @@ export function initializeUpgradeHandler(
                 rejectUpgrade(socket, 500, 'Internal Server Error');
                 return;
             }
+            if (socketGone()) return;
             if (!sessionValid) {
                 console.log(`WebSocket 认证失败 (Path: ${pathname})：会话已失效 (用户 ID: ${request.session.userId})。`);
                 rejectUpgrade(socket, 401, 'Unauthorized');
@@ -94,6 +105,7 @@ export function initializeUpgradeHandler(
                 // RDP 代理路径 - 直接处理升级，连接逻辑在 'connection' 事件中处理
                 console.log(`WebSocket: Handling RDP proxy upgrade for user ${request.session.username}`);
                 wss.handleUpgrade(request, socket, head, (ws) => {
+                    socket.removeListener('error', onSocketError);
                     const extWs = ws as AuthenticatedWebSocket;
                     extWs.userId = request.session.userId;
                     extWs.username = request.session.username;
@@ -112,6 +124,7 @@ export function initializeUpgradeHandler(
                 // 默认路径 (SSH, SFTP, Docker etc.) - 按原逻辑处理
                 console.log(`WebSocket: Handling standard upgrade for user ${request.session.username}`);
                 wss.handleUpgrade(request, socket, head, (ws) => {
+                    socket.removeListener('error', onSocketError);
                     const extWs = ws as AuthenticatedWebSocket;
                     extWs.userId = request.session.userId;
                     extWs.username = request.session.username;

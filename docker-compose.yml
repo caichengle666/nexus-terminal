@@ -32,6 +32,8 @@ services:
       context: .
       dockerfile: packages/backend/Dockerfile
     container_name: nexus-terminal-backend
+    # node 不适合当 PID 1（不转发信号、不回收僵尸进程）：用 Docker 自带的 tini，docker stop 立即生效
+    init: true
     env_file:
       - .env
     environment:
@@ -60,6 +62,8 @@ services:
       context: .
       dockerfile: packages/remote-gateway/Dockerfile
     container_name: nexus-terminal-remote-gateway
+    # node 不适合当 PID 1（不转发信号、不回收僵尸进程）：用 Docker 自带的 tini，docker stop 立即生效
+    init: true
     environment:
       GUACD_HOST: guacd
       GUACD_PORT: 4822

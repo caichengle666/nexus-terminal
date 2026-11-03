@@ -1211,8 +1211,20 @@ export class SftpService {
             if (!sourceStats.isFile()) throw new Error('源路径不是普通文件');
             const backupExists = await this.getStats(sftp, backupPath).then(() => true, () => false);
             if (backupExists) throw new Error('备份目标已存在');
-            await this.copyFile(sftp, sourcePath, backupPath);
-            const backupStats = await this.getStats(sftp, backupPath);
+            // 备份保留源文件权限：0600 的密钥 / .env 不能被复制成 0644 的副本
+            const sourceMode = typeof sourceStats.mode === 'number' ? (sourceStats.mode & 0o7777) : undefined;
+            await this.copyFile(sftp, sourcePath, backupPath, sourceMode);
+            let backupStats = await this.getStats(sftp, backupPath);
+            if (sourceMode !== undefined && typeof backupStats.mode === 'number' && (backupStats.mode & 0o7777) !== sourceMode) {
+                try {
+                    await new Promise<void>((resolve, reject) => sftp.chmod(backupPath, sourceMode, err => err ? reject(err) : resolve()));
+                } catch (chmodError) {
+                    // 无法收紧权限：删掉这个权限过宽的副本，不留下可被其他用户读取的备份
+                    await new Promise<void>(resolve => sftp.unlink(backupPath, () => resolve()));
+                    throw chmodError;
+                }
+                backupStats = await this.getStats(sftp, backupPath);
+            }
             if (backupStats.size !== sourceStats.size) throw new Error('备份文件大小与源文件不一致');
             send({ type: 'sftp:backupfile:success', payload: { path: sourcePath, backupPath, size: backupStats.size } });
         } catch (error: any) {
@@ -1386,10 +1398,13 @@ export class SftpService {
     }
 
     // +++ 辅助方法 - 复制文件 +++
-    private copyFile(sftp: SFTPWrapper, sourcePath: string, destPath: string): Promise<void> {
+    private copyFile(sftp: SFTPWrapper, sourcePath: string, destPath: string, mode?: number): Promise<void> {
         return new Promise((resolve, reject) => {
             const readStream = sftp.createReadStream(sourcePath);
-            const writeStream = sftp.createWriteStream(destPath);
+            // 带 mode 创建：文件从创建那一刻起就是源文件的权限，不会有一段时间是默认的 0644
+            const writeStream = mode !== undefined
+                ? sftp.createWriteStream(destPath, { mode })
+                : sftp.createWriteStream(destPath);
             let errorOccurred = false;
             let inactivityTimeout: NodeJS.Timeout;
 

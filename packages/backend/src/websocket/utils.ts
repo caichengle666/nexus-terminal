@@ -3,6 +3,7 @@ import { SftpService } from '../sftp/sftp.service';
 import { StatusMonitorService } from '../services/status-monitor.service';
 import { clientStates, sftpService, statusMonitorService } from './state';
 import { sshSuspendService } from '../ssh-suspend/ssh-suspend.service';
+import { unbindShellSession } from './shell-stream';
 
 // --- 解析 Ports 字符串的辅助函数 ---
 export function parsePortsString(portsString: string | undefined | null): PortInfo[] {
@@ -115,6 +116,9 @@ export const cleanupClientConnection = async (
                     customSuspendName: undefined, // 如果需要，可以从 state 或其他地方获取
                 };
                 
+                // 摘掉 ssh.handler / 恢复流程挂在通道和 client 上的监听（只摘自己挂的，兜底 error 监听保留），
+                // 之后由 SshSuspendService 接管
+                unbindShellSession(state);
                 // 从 state 中“分离”SSH资源，防止后续意外关闭
                 const sshClientToPass = state.sshClient;
                 const channelToPass = state.sshShellStream;

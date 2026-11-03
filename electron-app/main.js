@@ -70,6 +70,7 @@ const updateDownloadService = require('./update-download-service');
 const { STARTUP_UPDATE_CHECK_DELAY_MS, checkForStartupUpdate } = require('./update-startup-check');
 const updateReleaseCheck = require('./update-release-check');
 const { getBackendSpawnSpec } = require('./backend-runtime');
+const { createMainProcessErrorHandler, installRendererRecovery, loadUrlSafely } = require('./window-recovery');
 
 let mainWindow;
 let expressApp;
@@ -200,16 +201,39 @@ const reportUpdaterNetworkError = error => {
   return true;
 };
 
+// 启动完成（主窗口已加载前端）之前的异常是致命的：弹一次错误框后退出；
+// 之后只记日志，不再因为某个 IPC 处理器或 loadURL 失败就静默退出整个应用。
+let mainStartupComplete = false;
+const handleMainProcessError = createMainProcessErrorHandler({
+  isStartupComplete: () => mainStartupComplete,
+  showFatalDialog: error => {
+    if (!app.isReady()) return;
+    dialog.showErrorBox(tMain('fatalStartupTitle'), tMain('fatalStartupMessage', { error: String(error?.message || error).slice(0, 500) }));
+  },
+  quit: () => app.quit(),
+});
 process.on('uncaughtException', error => {
   if (reportUpdaterNetworkError(error)) return;
-  console.error('[Main] Uncaught exception:', error);
-  app.quit();
+  handleMainProcessError('Uncaught exception', error);
 });
 process.on('unhandledRejection', error => {
   if (reportUpdaterNetworkError(error)) return;
-  console.error('[Main] Unhandled rejection:', error);
-  app.quit();
+  handleMainProcessError('Unhandled rejection', error);
 });
+
+const mainWindowLoadErrorPage = () => ({
+  title: tMain('windowLoadFailedTitle'),
+  message: tMain('windowLoadFailedMessage'),
+  retryLabel: tMain('windowLoadRetry'),
+});
+let mainWindowFrontendUrl = null;
+const loadMainWindowFrontend = async (url) => {
+  mainWindowFrontendUrl = url;
+  const loaded = await loadUrlSafely(mainWindow, url, { errorPage: mainWindowLoadErrorPage() });
+  // 前端加载失败时窗口里会显示错误页（带重试链接），应用本身已经启动完成
+  mainStartupComplete = true;
+  return loaded;
+};
 
 const buildUpdateProxyAgent = (proxy) => updateDownloadService.buildProxyAgent(proxy, loadBackendProxyAgent);
 const validateUpdateUrl = updateNetwork.validateUpdateUrl;
@@ -737,6 +761,37 @@ async function createWindow() {
   ));
   mainWindow.setAlwaysOnTop(isAlwaysOnTop);
   gpuMode?.attachWindow(mainWindow);
+  // 渲染进程崩溃（OOM、GPU 重置）后自动重新加载，避免只剩一个白窗口；卡死时询问等待还是重新加载
+  const recoveryWindow = mainWindow;
+  installRendererRecovery(recoveryWindow, {
+    getUrl: () => mainWindowFrontendUrl,
+    isQuitting: () => isQuitting,
+    errorPage: mainWindowLoadErrorPage(),
+    onCrashLoop: async () => {
+      if (recoveryWindow.isDestroyed()) return 'ignore';
+      const { response } = await dialog.showMessageBox(recoveryWindow, {
+        type: 'error',
+        title: tMain('rendererCrashedTitle'),
+        message: tMain('rendererCrashedMessage'),
+        buttons: [tMain('rendererReload'), tMain('cancel')],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      return response === 0 ? 'reload' : 'ignore';
+    },
+    onUnresponsive: async () => {
+      if (recoveryWindow.isDestroyed()) return 'wait';
+      const { response } = await dialog.showMessageBox(recoveryWindow, {
+        type: 'warning',
+        title: tMain('rendererUnresponsiveTitle'),
+        message: tMain('rendererUnresponsiveMessage'),
+        buttons: [tMain('rendererWait'), tMain('rendererReload')],
+        defaultId: 0,
+        cancelId: 0,
+      });
+      return response === 1 ? 'reload' : 'wait';
+    },
+  });
   mainWindow.webContents.on('context-menu', (_event, params) => {
     const hasSelection = Boolean(params.selectionText);
     const isEditable = Boolean(params.isEditable);
@@ -796,7 +851,7 @@ async function createWindow() {
     console.log(`[Dev Mode] actualBackendUrlForFileDownloads set to: ${actualBackendUrlForFileDownloads}`);
     // 开发模式下: 立即加载 URL，不等待任何后端信号
     console.log(`[Dev Mode] Attempting to load URL: ${frontendUrl}`);
-    mainWindow.loadURL(frontendUrl);
+    void loadMainWindowFrontend(frontendUrl);
     // 开发模式下加载URL后立即显示窗口
     mainWindow.show();
     // 如果需要，可以在页面加载完成后再显示，例如监听 'ready-to-show' 事件
@@ -1111,7 +1166,7 @@ async function createWindow() {
         return; // 确保在 createWindow 内部返回，避免进一步执行
       }
       console.log(`[Prod Mode] Attempting to load URL: ${frontendUrl}`);
-      mainWindow.loadURL(frontendUrl);
+      void loadMainWindowFrontend(frontendUrl);
       mainWindow.show();
       mainWindow.focus();
       scheduleStartupUpdateCheck();

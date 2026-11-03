@@ -52,7 +52,7 @@ import {
 } from './handlers/sftp.handler';
 import { detachClientConnection } from './session-resume';
 import { installExecChannelLimiter } from '../services/ssh-channel-limiter';
-import { applyWsBackpressure, clearWsBackpressure } from './backpressure';
+import { bindShellSession } from './shell-stream';
 import { isValidSessionId } from './session-id';
 
 // 正在恢复中的前端会话 ID (resumeSession 是异步的，防止并发请求使用同一 ID)
@@ -270,30 +270,21 @@ export function initializeConnectionHandler(wss: WebSocketServer, sshSuspendServ
                                         });
                                     // +++ 结束 SFTP 初始化 +++
 
-                                    // 重新设置事件监听器，将数据流导向新的前端会话
-                                    result.channel.removeAllListeners('data'); // 清除 SshSuspendService 可能设置的监听器
-                                    result.channel.on('data', (data: Buffer) => {
-                                        if (ws.readyState === WebSocket.OPEN) {
-                                            // console.debug(`[WebSocket Handler][${type}] 发送 ssh:output for ${newFrontendSessionId}`);
-                                            // 保持与 ssh.handler.ts 中 ssh:output 格式一致
-                                            ws.send(JSON.stringify({ type: 'ssh:output', payload: data.toString('base64'), encoding: 'base64' }));
-                                            applyWsBackpressure(() => clientStates.get(newFrontendSessionId)?.ws ?? ws, result.channel);
-                                        }
+                                    // 重新设置事件监听器，将数据流导向新的前端会话。
+                                    // 与 ssh.handler 共用 bindShellSession：发送时取 state.ws（重连接回后跟随新连接）、
+                                    // 断线期间写分离缓冲、原始字节 base64；重复恢复时不会叠加监听器。
+                                    bindShellSession(newSessionState, newFrontendSessionId, result.channel, {
+                                        disconnectedPayload: { sessionId: newFrontendSessionId },
+                                        cleanup: () => {
+                                            if (clientStates.get(newFrontendSessionId) === newSessionState) {
+                                                return cleanupClientConnection(newFrontendSessionId);
+                                            }
+                                            return undefined;
+                                        },
+                                        logPrefix: `[WebSocket Handler][${type}] 恢复的会话 ${newFrontendSessionId}`,
                                     });
-                                    result.channel.on('close', () => {
-                                        clearWsBackpressure(result.channel);
-                                        console.log(`[WebSocket Handler][${type}] 恢复的会话 ${newFrontendSessionId} 的 channel 已关闭。`);
-                                        if (ws.readyState === WebSocket.OPEN) {
-                                            ws.send(JSON.stringify({ type: 'ssh:disconnected', payload: { sessionId: newFrontendSessionId } }));
-                                        }
-                                        cleanupClientConnection(newFrontendSessionId);
-                                    });
-                                     result.sshClient.on('error', (err: Error) => {
-                                        console.error(`[WebSocket Handler][${type}] 恢复后的 SSH 客户端错误 (会话: ${newFrontendSessionId}):`, err);
-                                        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ssh:error', payload: { sessionId: newFrontendSessionId, error: err.message } }));
-                                        cleanupClientConnection(newFrontendSessionId);
-                                    });
-                                    // console.log(`[WebSocket Handler][${type}] 已为恢复的会话 ${newFrontendSessionId} 设置事件监听器。`);
+                                    // 挂起期间的输出可能还留在背压暂停状态，恢复后确保流在走
+                                    try { result.channel.resume(); } catch { /* ignore */ }
 
                                     // 发送缓存日志块
                                     console.log(`[SSH Suspend Backend] 恢复会话 ${newFrontendSessionId}，补发缓存日志 ${result.logData?.length ?? 0} 字符。`);

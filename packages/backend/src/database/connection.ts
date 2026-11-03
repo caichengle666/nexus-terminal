@@ -140,27 +140,5 @@ export const closeDbInstance = async (): Promise<void> => {
 };
 
 
-process.on('SIGINT', async () => { 
-    if (dbInstancePromise) {
-        console.log('[DB] 收到 SIGINT，尝试关闭数据库连接...');
-        try {
-
-            const db = await dbInstancePromise;
-            db.close((err) => {
-                if (err) {
-                    console.error('[DB] 关闭数据库时出错:', err.message);
-                } else {
-                    console.log('[DB] 数据库连接已关闭。');
-                }
-                process.exit(err ? 1 : 0);
-            });
-        } catch (error) {
-            console.error('[DB] 获取数据库实例以关闭时出错 (可能初始化失败):', error);
-            process.exit(1);
-        }
-    } else {
-        console.log('[DB] 收到 SIGINT，但数据库连接从未初始化或已失败。');
-        process.exit(0);
-    }
-});
+// SIGINT / SIGTERM 由 index.ts 的 createGracefulShutdown 统一处理（先结束 SSH 会话，再调用 closeDbInstance）。
 

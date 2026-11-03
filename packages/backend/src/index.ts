@@ -50,7 +50,7 @@ import session from 'express-session';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import sessionFileStore from 'session-file-store';
-import { getDbInstance } from './database/connection';
+import { getDbInstance, closeDbInstance } from './database/connection';
 import authRouter from './auth/auth.routes';
 import connectionsRouter from './connections/connections.routes';
 import sftpRouter from './sftp/sftp.routes';
@@ -77,6 +77,8 @@ import aiRoutes from './ai/ai.routes';
 import aiHistoryRoutes from './ai/ai-history.routes';
 import { initializeWebSocket } from './websocket';
 import { clientStates } from './websocket/state';
+import { createGracefulShutdown } from './utils/graceful-shutdown';
+import type { WebSocketServer } from 'ws';
 import { cleanupClientConnection } from './websocket/utils';
 import { ipWhitelistMiddleware } from './auth/ipWhitelist.middleware';
 import { initializeSetupToken } from './auth/setup-token';
@@ -348,7 +350,9 @@ const startServer = () => {
         console.log(`后端服务器正在监听 http://${bindAddress || 'localhost'}:${port}`);
         // Signal to Electron main process that the backend is ready
         process.stdout.write("BACKEND_READY_SIGNAL\n"); // 绕过日志级别，供 Electron 主进程检测
-        initializeWebSocket(server, sessionMiddleware as RequestHandler); // Initialize existing WebSocket
+        initializeWebSocket(server, sessionMiddleware as RequestHandler) // Initialize existing WebSocket
+            .then(instance => { webSocketServer = instance; })
+            .catch(error => console.error('初始化 WebSocket 失败:', error));
 
     };
     if (bindAddress) {
@@ -357,6 +361,19 @@ const startServer = () => {
         server.listen(port, onListening);
     }
 };
+
+// --- 优雅退出 (SIGTERM / SIGINT) ---
+let webSocketServer: WebSocketServer | undefined;
+const gracefulShutdown = createGracefulShutdown({
+    server,
+    getWss: () => webSocketServer,
+    cleanupSessions: () => Promise.allSettled(
+        Array.from(clientStates.keys()).map(sessionId => cleanupClientConnection(sessionId, { forceClose: true }))
+    ),
+    closeDb: () => closeDbInstance(),
+});
+process.on('SIGTERM', () => { void gracefulShutdown('SIGTERM'); });
+process.on('SIGINT', () => { void gracefulShutdown('SIGINT'); });
 
 // --- 主程序启动流程 ---
 const main = async () => {

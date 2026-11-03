@@ -4,12 +4,13 @@ import { AuthenticatedWebSocket, ClientState } from '../types';
 import { clientStates, sftpService, statusMonitorService, auditLogService, notificationService } from '../state';
 import * as SshService from '../../services/ssh.service';
 import { cleanupClientConnection } from '../utils';
-import { temporaryLogStorageService } from '../../ssh-suspend/temporary-log-storage.service';
 import { startDockerStatusPolling } from './docker.handler';
 import WebSocket from 'ws';
 import { installExecChannelLimiter } from '../../services/ssh-channel-limiter';
-import { appendDetachedOutput, canReattach, reattachClientConnection } from '../session-resume';
-import { applyWsBackpressure, clearWsBackpressure } from '../backpressure';
+import { canReattach, reattachClientConnection, detachClientConnection } from '../session-resume';
+import { bindShellSession, sendToSession } from '../shell-stream';
+import { StringDecoder } from 'string_decoder';
+import { ListenerGroup } from '../../utils/ssh-client-guard';
 import { isValidSessionId } from '../session-id';
 import { isNonRetryableSshError } from '../../utils/ssh-algorithms';
 
@@ -122,13 +123,22 @@ async function establishAndRegisterSession(
 
         installExecChannelLimiter(sshClient);
 
+        // 建连期间（跳板机 / 代理可能要几十秒）WebSocket 已经关闭：ws.close 处理器那时还看不到 sessionId，
+        // 不会进入分离状态。没有 sessionId 可供接回时直接关掉 SSH 连接，避免永久泄漏；
+        // 带 sessionId 的继续打开 Shell，随后进入分离状态走宽限期，前端重连时可以接回。
+        if (ws.readyState !== WebSocket.OPEN && !requestedSessionId) {
+            console.warn(`WebSocket: 用户 ${ws.username} 的 WebSocket 在 SSH 建连期间已关闭，且没有可接回的会话 ID，关闭新建的 SSH 连接。`);
+            try { sshClient.end(); } catch { /* ignore */ }
+            return;
+        }
+
         const newSessionId = requestedSessionId || uuidv4();
         // await 期间可能已有其他连接占用了该 ID (例如恢复挂起会话)：放弃本次连接，避免覆盖并泄漏对方
         const occupant = clientStates.get(newSessionId);
         if (occupant) {
             console.warn(`WebSocket: 会话 ${newSessionId} 在建立 SSH 连接期间已被占用，关闭新建的 SSH 连接。`);
             try { sshClient.end(); } catch { /* ignore */ }
-            if (occupant.ws.userId === ws.userId && canReattach(occupant, dbConnectionId)) {
+            if (ws.readyState === WebSocket.OPEN && occupant.ws.userId === ws.userId && canReattach(occupant, dbConnectionId)) {
                 reattachClientConnection(ws, newSessionId, occupant, payload);
             } else if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'ssh:error', payload: '会话 ID 已被占用。' }));
@@ -146,6 +156,7 @@ async function establishAndRegisterSession(
             return;
         }
 
+        const preShellListeners = new ListenerGroup();
         const newState: ClientState = {
             ws: ws,
             sshClient: sshClient,
@@ -196,60 +207,27 @@ async function establishAndRegisterSession(
                     return;
                 }
 
+                if (clientStates.get(newSessionId) !== newState || newState.isCleaningUp) {
+                    // Shell 打开期间会话已被清理：关掉这个迟到的通道
+                    try { stream.close(); } catch { /* ignore */ }
+                    return;
+                }
                 console.log(`WebSocket: 会话 ${newSessionId} Shell 打开成功 (尺寸 ${defaultCols}x${defaultRows})。`);
                 newState.sshShellStream = stream;
                 newState.isShellReady = true;
 
-                stream.on('data', (data: Buffer) => {
-                    appendDetachedOutput(newState, data);
-                    if (newState.ws.readyState === WebSocket.OPEN) {
-                        // 确保数据以 UTF-8 编码转换为 Base64
-                        const utf8Data = data.toString('utf8');
-                        newState.ws.send(JSON.stringify({ type: 'ssh:output', payload: Buffer.from(utf8Data, 'utf8').toString('base64'), encoding: 'base64' }));
-                        applyWsBackpressure(() => newState.ws, stream);
-                    }
-                    // 如果会话被标记为待挂起，则将输出写入日志
-                    const currentState = clientStates.get(newSessionId); // 获取最新的状态
-                    if (currentState?.isMarkedForSuspend && currentState.suspendLogPath) {
-                        temporaryLogStorageService.writeToLog(currentState.suspendLogPath, data.toString('utf-8')).catch(err => {
-                            console.error(`[SSH Handler] 写入标记会话 ${newSessionId} 的日志失败 (路径: ${currentState.suspendLogPath}):`, err);
-                        });
-                    }
+                preShellListeners.removeAll();
+                bindShellSession(newState, newSessionId, stream, {
+                    cleanup: cleanupOwnedSession,
+                    logPrefix: `SSH: 会话 ${newSessionId}`,
                 });
-                stream.stderr.on('data', (data: Buffer) => {
-                    appendDetachedOutput(newState, data);
-                    if (newState.ws.readyState === WebSocket.OPEN) {
-                        // 确保数据以 UTF-8 编码转换为 Base64
-                        const utf8ErrData = data.toString('utf8');
-                        newState.ws.send(JSON.stringify({ type: 'ssh:output', payload: Buffer.from(utf8ErrData, 'utf8').toString('base64'), encoding: 'base64' }));
-                        applyWsBackpressure(() => newState.ws, stream);
-                    }
-                    // 同样，如果会话被标记为待挂起，则将 stderr 输出写入日志
-                    const currentState = clientStates.get(newSessionId);
-                    if (currentState?.isMarkedForSuspend && currentState.suspendLogPath) {
-                        temporaryLogStorageService.writeToLog(currentState.suspendLogPath, `[STDERR] ${data.toString('utf-8')}`).catch(err => {
-                            console.error(`[SSH Handler] 写入标记会话 ${newSessionId} 的 STDERR 日志失败 (路径: ${currentState.suspendLogPath}):`, err);
-                        });
-                    }
-                });
-                stream.stderr.on('error', (error: Error) => {
-                    console.error(`SSH: 会话 ${newSessionId} 的 Shell stderr 错误:`, error);
-                });
-                stream.on('error', (error: Error) => {
-                    console.error(`SSH: 会话 ${newSessionId} 的 Shell 通道错误:`, error);
-                    if (newState.ws.readyState === WebSocket.OPEN) {
-                        newState.ws.send(JSON.stringify({ type: 'ssh:error', payload: `Shell 通道错误: ${error.message}` }));
-                    }
-                    void cleanupOwnedSession();
-                });
-                stream.on('close', () => {
-                    clearWsBackpressure(stream);
-                    console.log(`SSH: 会话 ${newSessionId} 的 Shell 通道已关闭。`);
-                    if (newState.ws.readyState === WebSocket.OPEN) {
-                        newState.ws.send(JSON.stringify({ type: 'ssh:disconnected', payload: 'Shell 通道已关闭。' }));
-                    }
-                    cleanupOwnedSession();
-                });
+
+                // Shell 打开期间 WebSocket 已关闭：ws.close 处理器可能早于 ws.sessionId 赋值触发，
+                // 这里补一次分离（走宽限期，超时后清理），而不是把会话永久挂在已关闭的 ws 上。
+                if (newState.ws === ws && ws.readyState !== WebSocket.OPEN) {
+                    console.warn(`WebSocket: 会话 ${newSessionId} 的 WebSocket 在 Shell 打开期间已关闭，进入分离状态。`);
+                    detachClientConnection(ws);
+                }
 
                 if (newState.ws.readyState === WebSocket.OPEN) newState.ws.send(JSON.stringify({
                     type: 'ssh:connected',
@@ -291,17 +269,18 @@ async function establishAndRegisterSession(
             cleanupOwnedSession();
         }
 
-        sshClient.on('close', () => {
-            console.log(`SSH: 会话 ${newSessionId} 的客户端连接已关闭。`);
-            cleanupOwnedSession();
-        });
-        sshClient.on('error', (err: Error) => {
-            console.error(`SSH: 会话 ${newSessionId} 的客户端连接错误:`, err);
-            if (newState.ws.readyState === WebSocket.OPEN) {
-                newState.ws.send(JSON.stringify({ type: 'ssh:error', payload: `SSH 连接错误: ${err.message}` }));
-            }
-            cleanupOwnedSession();
-        });
+        // Shell 打开之前（以及 Shell 打开失败时）的 client close/error：通知前端并清理。
+        // Shell 打开后由 bindShellSession 接管并摘掉这两个监听；兜底 error 监听始终保留。
+        preShellListeners
+            .on(sshClient, 'close', () => {
+                console.log(`SSH: 会话 ${newSessionId} 的客户端连接已关闭 (Shell 尚未就绪)。`);
+                void cleanupOwnedSession();
+            })
+            .on(sshClient, 'error', (err: Error) => {
+                console.error(`SSH: 会话 ${newSessionId} 的客户端连接错误 (Shell 尚未就绪):`, err);
+                sendToSession(newState, { type: 'ssh:error', payload: `SSH 连接错误: ${err.message}` });
+                void cleanupOwnedSession();
+            });
 
     } catch (connectError: any) {
         console.error(`WebSocket: 用户 ${ws.username} (IP: ${clientIp}) 连接到数据库 ID ${dbConnectionId} 失败:`, connectError);
@@ -448,6 +427,10 @@ export function handleSshExec(ws: AuthenticatedWebSocket, payload: any, requestI
         return;
     }
 
+    // 结果发给会话「当前」的 WebSocket：长命令执行期间断线重连接回会话后，
+    // 结果要送到新连接，否则前端等到超时，AI 可能把不幂等的命令再跑一遍。
+    const replyWs = (): AuthenticatedWebSocket => (sessionId && clientStates.get(sessionId) === state ? state.ws : ws);
+
     state.activeExecCommands ||= new Map();
     state.pendingExecRequestIds ||= new Set();
     state.cancelledPendingExecRequestIds ||= new Set();
@@ -456,14 +439,14 @@ export function handleSshExec(ws: AuthenticatedWebSocket, payload: any, requestI
     if (state.activeExecCommands.has(requestId)
         || state.pendingExecRequestIds.has(requestId)
         || state.cancelledPendingExecRequestIds.has(requestId)) {
-        sendExecResult(ws, requestId, { ok: false, error: '重复的命令请求 ID。' });
+        sendExecResult(replyWs(), requestId, { ok: false, error: '重复的命令请求 ID。' });
         return;
     }
     const inFlightCommandCount = state.activeExecCommands.size
         + state.pendingExecRequestIds.size
         + state.cancelledPendingExecRequestIds.size;
     if (inFlightCommandCount >= 4) {
-        sendExecResult(ws, requestId, { ok: false, error: '当前终端已有 4 个命令正在执行，请等待后重试。' });
+        sendExecResult(replyWs(), requestId, { ok: false, error: '当前终端已有 4 个命令正在执行，请等待后重试。' });
         return;
     }
 
@@ -477,7 +460,7 @@ export function handleSshExec(ws: AuthenticatedWebSocket, payload: any, requestI
         state.pendingExecTimeouts?.delete(requestId);
         state.cancelledPendingExecRequestIds?.add(requestId);
         state.reportedPendingExecRequestIds?.add(requestId);
-        sendExecResult(ws, requestId, {
+        sendExecResult(replyWs(), requestId, {
             ok: false,
             timedOut: true,
             sessionId,
@@ -500,7 +483,7 @@ export function handleSshExec(ws: AuthenticatedWebSocket, payload: any, requestI
                     try { stream.close(); } catch { /* Best effort. */ }
                 }
                 if (!resultAlreadySent) {
-                    sendExecResult(ws, requestId, {
+                    sendExecResult(replyWs(), requestId, {
                         ok: false,
                         cancelled: true,
                         sessionId,
@@ -511,7 +494,7 @@ export function handleSshExec(ws: AuthenticatedWebSocket, payload: any, requestI
                 return;
             }
             if (error) {
-                sendExecResult(ws, requestId, { ok: false, error: error.message, durationMs: Date.now() - startedAt });
+                sendExecResult(replyWs(), requestId, { ok: false, error: error.message, durationMs: Date.now() - startedAt });
                 return;
             }
 
@@ -527,8 +510,11 @@ export function handleSshExec(ws: AuthenticatedWebSocket, payload: any, requestI
             let timeoutId: NodeJS.Timeout;
             let forceFinishId: NodeJS.Timeout | undefined;
 
-            const appendOutput = (target: 'stdout' | 'stderr', chunk: Buffer) => {
-            const text = chunk.toString('utf8');
+            // 按流解码：多字节字符被数据块切开时，StringDecoder 会把残缺的字节留到下一块再解，
+            // 不会像逐块 toString('utf8') 那样变成 U+FFFD。
+            const decoders = { stdout: new StringDecoder('utf8'), stderr: new StringDecoder('utf8') };
+            const appendText = (target: 'stdout' | 'stderr', text: string) => {
+            if (!text) return;
             const currentLength = stdout.length + stderr.length;
             const remaining = Math.max(0, maxOutputChars - currentLength);
             if (remaining === 0) {
@@ -540,10 +526,13 @@ export function handleSshExec(ws: AuthenticatedWebSocket, payload: any, requestI
             else stderr += accepted;
             if (accepted.length < text.length) truncated = true;
             };
+            const appendOutput = (target: 'stdout' | 'stderr', chunk: Buffer) => appendText(target, decoders[target].write(chunk));
 
             const finish = () => {
                 if (finished) return;
                 finished = true;
+                appendText('stdout', decoders.stdout.end());
+                appendText('stderr', decoders.stderr.end());
                 clearTimeout(timeoutId);
                 if (forceFinishId) clearTimeout(forceFinishId);
                 state.activeExecCommands?.delete(requestId);
@@ -555,7 +544,7 @@ export function handleSshExec(ws: AuthenticatedWebSocket, payload: any, requestI
                     || (timedOut ? '命令执行超时。' : null)
                     || (cancelled ? '命令已取消。' : null)
                     || (!commandSucceeded ? `命令退出码为 ${exitCode ?? '未知'}。` : null);
-                sendExecResult(ws, requestId, {
+                sendExecResult(replyWs(), requestId, {
                     ok: commandSucceeded,
                     sessionId,
                     connectionName: state.connectionName,
@@ -609,7 +598,7 @@ export function handleSshExec(ws: AuthenticatedWebSocket, payload: any, requestI
         state.pendingExecRequestIds.delete(requestId);
         state.cancelledPendingExecRequestIds.delete(requestId);
         state.reportedPendingExecRequestIds.delete(requestId);
-        sendExecResult(ws, requestId, { ok: false, error: error.message || String(error), durationMs: Date.now() - startedAt });
+        sendExecResult(replyWs(), requestId, { ok: false, error: error.message || String(error), durationMs: Date.now() - startedAt });
     }
 }
 

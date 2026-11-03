@@ -33,7 +33,7 @@
       "iconv-lite": "^0.7.3",
       "ipaddr.js": "^2.5.0",
       "jschardet": "^4.0.0",
-      "multer": "^2.4.0",
+      "multer": "^2.5.0",
       "nodemailer": "^10.1.7",
       "proxy-addr": "^2.0.8",
       "qrcode": "^1.5.4",

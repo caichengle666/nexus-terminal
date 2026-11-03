@@ -56,7 +56,7 @@ NEXUS_IMAGE_TAG="$OLD_TAG" docker compose pull -q frontend backend remote-gatewa
 NEXUS_IMAGE_TAG="$OLD_TAG" docker compose up -d --no-build
 docker run -d --name nexus-smoke-sshd --network nexus-terminal-network --network-alias sshd \
   -e PUID=1000 -e PGID=1000 -e PASSWORD_ACCESS=true -e USER_NAME=smoke -e USER_PASSWORD="$SSH_PASS" \
-  lscr.io/linuxserver/openssh-server:latest >/dev/null
+  lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls241 >/dev/null
 wait_healthy backend || fail "old backend never became healthy"
 for _ in $(seq 1 30); do [ "$(api GET /api/v1/auth/needs-setup)" = 200 ] && break; sleep 2; done
 code=$(api POST /api/v1/auth/setup "{\"username\":\"admin\",\"password\":\"$PASS\",\"confirmPassword\":\"$PASS\",\"setupToken\":\"smoke-setup-token-0123456789\"}")

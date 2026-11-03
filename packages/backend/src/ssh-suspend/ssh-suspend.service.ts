@@ -9,6 +9,7 @@ import {
 } from '../types/ssh-suspend.types';
 import { temporaryLogStorageService, TemporaryLogStorageService } from './temporary-log-storage.service';
 import { ClientState } from '../websocket/types';
+import { attachFallbackErrorListener, ListenerGroup } from '../utils/ssh-client-guard';
 // clientStates 的直接访问已移除，因为takeOverMarkedSession现在从调用者接收所需信息
 
 /**
@@ -16,6 +17,8 @@ import { ClientState } from '../websocket/types';
  */
 export class SshSuspendService extends EventEmitter {
   private suspendedSessions: SuspendedSessionsMap = new Map();
+  /** 本服务给每个挂起会话挂的监听器；只摘这些，不用 removeAllListeners（会把兜底 error 监听一起清掉） */
+  private readonly sessionListeners = new Map<string, ListenerGroup>();
   private readonly logStorageService: TemporaryLogStorageService;
 
   constructor(logStorage?: TemporaryLogStorageService) {
@@ -80,14 +83,13 @@ export class SshSuspendService extends EventEmitter {
     const suspendSessionId = uuidv4();
     const userSessions = this.getUserSessions(userId);
 
-    channel.removeAllListeners('data');
-    channel.removeAllListeners('close');
-    channel.removeAllListeners('error');
-    channel.removeAllListeners('end');
-    channel.removeAllListeners('exit');
-
-    sshClient.removeAllListeners('error');
-    sshClient.removeAllListeners('end');
+    // 原会话（ssh.handler / 恢复流程）的监听器已由调用方 unbindShellSession 摘掉。
+    // 这里不 removeAllListeners('error')：那会连兜底 error 监听一起清掉，之后 ECONNRESET / 保活超时直接崩溃。
+    attachFallbackErrorListener(sshClient, `[SshSuspendService] suspended session (${originalSessionId}) -`);
+    const listeners = new ListenerGroup();
+    this.sessionListeners.set(suspendSessionId, listeners);
+    // 挂起期间通道上可能残留了背压暂停，确保数据继续流动写入日志（否则远端被流控卡住）
+    try { (channel as any).resume?.(); } catch { /* ignore */ }
 
     const sessionDetails: SuspendSessionDetails = {
       sshClient,
@@ -108,11 +110,11 @@ export class SshSuspendService extends EventEmitter {
     await this.logStorageService.ensureLogDirectoryExists();
     
     console.log(`[SshSuspendService DEBUG] takeOverMarkedSession: Setting up channel 'data' listener for suspendSessionId=${suspendSessionId}`);
-    channel.on('data', (data: Buffer) => {
+    listeners.on(channel, 'data', (data: Buffer) => {
       const currentDetails = userSessions.get(suspendSessionId);
       if (currentDetails?.backendSshStatus === 'hanging') {
         // console.log(`[SshSuspendService DEBUG] channel.on('data') for suspendSessionId=${suspendSessionId}: Writing to log ${logIdentifier}`);
-        this.logStorageService.writeToLog(logIdentifier, data.toString('utf-8')).catch(err => {
+        this.logStorageService.writeToLog(logIdentifier, data).catch(err => {
           console.error(`[SshSuspendService ERROR] channel.on('data') for suspendSessionId=${suspendSessionId}, log=${logIdentifier}: Failed to write to log:`, err);
         });
       } else {
@@ -129,8 +131,12 @@ export class SshSuspendService extends EventEmitter {
         currentSession.backendSshStatus = 'disconnected_by_backend';
         currentSession.disconnectionTimestamp = new Date().toISOString();
         
-        this.removeChannelListeners(channel, sshClient);
+        this.removeChannelListeners(suspendSessionId);
         console.log(`[SshSuspendService DEBUG] handleSessionTermination: Listeners removed for suspendSessionId=${suspendSessionId}.`);
+        // 通道已退出 / 出错：把底层 SSH 连接也关掉，否则它会一直开着（连接泄漏），
+        // 之后 NAT 超时或 ECONNRESET 时也没人处理。兜底 error 监听仍在，end 之后的错误只记日志。
+        try { channel.end(); } catch { /* ignore */ }
+        try { sshClient.end(); } catch { /* ignore */ }
 
         this.emit('sessionAutoTerminated', {
           userId: currentSession.userId,
@@ -146,28 +152,28 @@ export class SshSuspendService extends EventEmitter {
     };
     
     console.log(`[SshSuspendService DEBUG] takeOverMarkedSession: Setting up channel/client event listeners for suspendSessionId=${suspendSessionId}`);
-    channel.on('close', () => {
+    listeners.on(channel, 'close', () => {
       console.log(`[SshSuspendService DEBUG] channel.on('close') triggered for suspendSessionId=${suspendSessionId}`);
       handleSessionTermination('channel closed');
     });
-    channel.on('error', (err: Error) => {
+    listeners.on(channel, 'error', (err: Error) => {
       console.error(`[SshSuspendService ERROR] channel.on('error') for suspendSessionId=${suspendSessionId}:`, err);
       handleSessionTermination('channel errored');
     });
-    channel.on('end', () => {
+    listeners.on(channel, 'end', () => {
       console.log(`[SshSuspendService DEBUG] channel.on('end') triggered for suspendSessionId=${suspendSessionId}`);
       handleSessionTermination('channel ended');
     });
-    channel.on('exit', (code: number | null, signalName: string | null) => {
+    listeners.on(channel, 'exit', (code: number | null, signalName: string | null) => {
       console.log(`[SshSuspendService DEBUG] channel.on('exit') triggered for suspendSessionId=${suspendSessionId}. Code: ${code}, Signal: ${signalName}`);
       handleSessionTermination(`channel exited with code ${code}, signal ${signalName}`);
     });
   
-    sshClient.on('error', (err: Error) => {
+    listeners.on(sshClient, 'error', (err: Error) => {
       console.error(`[SshSuspendService ERROR] sshClient.on('error') for suspendSessionId=${suspendSessionId}:`, err);
       handleSessionTermination('client errored');
     });
-    sshClient.on('end', () => {
+    listeners.on(sshClient, 'end', () => {
       console.log(`[SshSuspendService DEBUG] sshClient.on('end') triggered for suspendSessionId=${suspendSessionId}`);
       handleSessionTermination('client ended');
     });
@@ -175,14 +181,9 @@ export class SshSuspendService extends EventEmitter {
     return suspendSessionId;
   }
   
-  private removeChannelListeners(channel: Channel, sshClient: Client): void {
-    channel.removeAllListeners('data');
-    channel.removeAllListeners('close');
-    channel.removeAllListeners('error');
-    channel.removeAllListeners('end');
-    channel.removeAllListeners('exit');
-    sshClient.removeAllListeners('error');
-    sshClient.removeAllListeners('end');
+  private removeChannelListeners(suspendSessionId: string): void {
+    this.sessionListeners.get(suspendSessionId)?.removeAll();
+    this.sessionListeners.delete(suspendSessionId);
   }
 
   /**
@@ -234,7 +235,7 @@ export class SshSuspendService extends EventEmitter {
     }
 
     // 停止监听旧通道事件
-    this.removeChannelListeners(session.channel, session.sshClient);
+    this.removeChannelListeners(suspendSessionId);
     // console.log(`[SshSuspendService][用户: ${userId}] resumeSession: 已移除会话 ${suspendSessionId} 的旧监听器。`);
 
     let logData = '';
@@ -295,7 +296,7 @@ export class SshSuspendService extends EventEmitter {
       return false;
     }
 
-    this.removeChannelListeners(session.channel, session.sshClient);
+    this.removeChannelListeners(suspendSessionId);
 
     try {
       session.channel.close(); // 尝试优雅关闭
@@ -392,7 +393,9 @@ export class SshSuspendService extends EventEmitter {
       const reason = 'Unexpected disconnection handled by SshSuspendService.';
       session.backendSshStatus = 'disconnected_by_backend';
       session.disconnectionTimestamp = new Date().toISOString();
-      this.removeChannelListeners(session.channel, session.sshClient); // 移除监听器
+      this.removeChannelListeners(suspendSessionId); // 移除监听器
+      try { session.channel.end(); } catch { /* ignore */ }
+      try { session.sshClient.end(); } catch { /* ignore */ }
       console.log(`[用户: ${userId}] 会话 ${suspendSessionId} 状态更新为 'disconnected_by_backend'。原因: ${reason}`);
       
       this.emit('sessionAutoTerminated', {

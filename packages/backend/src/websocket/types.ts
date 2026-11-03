@@ -1,5 +1,6 @@
 import WebSocket from 'ws';
 import { Client, ClientChannel, SFTPWrapper } from 'ssh2';
+import type { ListenerGroup } from '../utils/ssh-client-guard';
 
 // 扩展 WebSocket 类型以包含会话 ID
 export interface AuthenticatedWebSocket extends WebSocket {
@@ -28,6 +29,8 @@ export interface ClientState { // 导出以便 Service 可以导入
     inputWindowStartedAt?: number;
     inputBytesInWindow?: number;
     isCleaningUp?: boolean;
+    /** bindShellSession 挂在 shell 通道 / SSH client 上的监听器，移交挂起服务或重新绑定时摘掉 */
+    shellListeners?: ListenerGroup;
     // WebSocket 断线续连：分离状态（见 session-resume.ts）
     detachedAt?: number;
     detachTimer?: NodeJS.Timeout;

@@ -46,8 +46,27 @@ export class TemporaryLogStorageService {
    * @param suspendSessionId - 挂起会话的ID。
    * @param data - 要写入的数据。
    */
-  async writeToLog(suspendSessionId: string, data: string): Promise<void> {
+  async writeToLog(suspendSessionId: string, data: string | Buffer): Promise<void> {
+    // 同一日志文件的写入串行执行：调用方不 await，并发的 stat + appendFile 可能乱序，
+    // 原始字节乱序会把多字节字符拆坏。
     const filePath = this.getLogFilePath(suspendSessionId);
+    const previous = this.writeQueues.get(filePath) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(() => this.writeToLogNow(filePath, data));
+    this.writeQueues.set(filePath, next);
+    try {
+      await next;
+    } finally {
+      if (this.writeQueues.get(filePath) === next) this.writeQueues.delete(filePath);
+    }
+  }
+
+  private readonly writeQueues = new Map<string, Promise<void>>();
+
+  /**
+   * 写入原始字节（Buffer）或文本。挂起日志按原始字节保存，读回时整体按 UTF-8 解码，
+   * 不在每个数据块上单独解码，避免多字节字符被切开后变成 U+FFFD。
+   */
+  private async writeToLogNow(filePath: string, data: string | Buffer): Promise<void> {
     try {
       await this.ensureLogDirectoryExists(); // 确保目录存在
       let stat;
@@ -63,9 +82,9 @@ export class TemporaryLogStorageService {
       if (stat && stat.size >= MAX_LOG_SIZE_BYTES) {
         // 文件过大，执行轮替策略：清空文件
         console.log(`日志文件 '${filePath}' 大小达到 ${MAX_LOG_SIZE_BYTES / (1024 * 1024)}MB，执行轮替（清空）。`);
-        await fs.writeFile(filePath, data, 'utf8'); // 清空并写入新数据
+        await fs.writeFile(filePath, data); // 清空并写入新数据
       } else {
-        await fs.appendFile(filePath, data, 'utf8');
+        await fs.appendFile(filePath, data);
       }
     } catch (error) {
       console.error(`写入日志文件 '${filePath}' 失败:`, error);

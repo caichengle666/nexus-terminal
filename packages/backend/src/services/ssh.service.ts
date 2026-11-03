@@ -1,4 +1,6 @@
 import '../utils/ssh2-host-cert'; // 必须在 ssh2 之前加载
+import { attachFallbackErrorListener } from '../utils/ssh-client-guard';
+export { attachFallbackErrorListener };
 import { Client, ClientChannel, ConnectConfig, AuthHandlerMiddleware } from 'ssh2';
 import { SocksClient, SocksClientOptions } from 'socks';
 import http from 'http';
@@ -406,6 +408,10 @@ const _setupSshClientListenersAndConnect = (
                 console.log(`${logPrefix} SSH connection successful. Target: ${config.host || (config.sock ? 'stream-based' : 'unknown')}`);
                 client.removeListener('error', eventHandlers.error);
                 client.removeListener('close', eventHandlers.close);
+                // ready 之后保留一个常驻兜底 error 监听：调用方可能在 await 写库之后才挂自己的监听，
+                // 有的调用方（SFTP 传输、连接测试）根本不挂。ssh2 在保活超时 / ECONNRESET 时会 emit 'error'，
+                // 没有监听器就是 uncaughtException，整个后端退出。
+                attachFallbackErrorListener(client, logPrefix);
 
                 if (isFinalClient && connectionIdForUpdate !== null && connectionIdForUpdate !== -1) { // -1 for unsaved tests
                     try {
@@ -751,6 +757,13 @@ async function _establishConnectionViaJumpChainRecursive(
                 currentHopClient.removeListener('error', currentHopHandlers.error);
                 currentHopClient.removeListener('close', currentHopHandlers.close);
                 activeClients.push(currentHopClient); // Add to activeClients only AFTER successful connection
+                // 中间跳连上后必须有常驻 error 监听：跳板机掉线 / 保活超时会 emit 'error'，
+                // 没有监听器会让整个进程崩溃。出错时结束整条链（目标 client 会随之 close）。
+                currentHopClient.on('error', (hopErr: Error) => {
+                    console.warn(`${currentHopLogPrefix}Jump host connection error after ready: ${(hopErr as any)?.code || hopErr?.message || hopErr}. Closing jump chain.`);
+                    const chain = activeClients.includes(currentHopClient) ? activeClients.slice() : [currentHopClient];
+                    chain.reverse().forEach(c => { try { c.end(); } catch { /* already closed */ } });
+                });
 
                 console.log(`${currentHopLogPrefix}Successfully connected.`);
 
